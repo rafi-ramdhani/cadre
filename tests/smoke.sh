@@ -10,6 +10,11 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 export HOME="$T/home" CADRE_TMUX_SOCKET="cadre-test-$$"
 unset TMUX CADRE_HOME CADRE_PERSONA CADRE_OFF
+# The throwaway HOME has no git identity; give it one so commits work.
+export GIT_CONFIG_GLOBAL="$T/gitconfig"
+git config --global user.name "Cadre Test"
+git config --global user.email "test@example.com"
+git config --global init.defaultBranch main
 mkdir -p "$HOME/.claude" "$T/bin"
 trap 'command tmux -L "$CADRE_TMUX_SOCKET" kill-server 2>/dev/null || true; rm -rf "$T"' EXIT
 
@@ -46,7 +51,7 @@ check "hook silent with CADRE_OFF" test -z "$(echo '{}' | CADRE_OFF=1 bash "$ROO
 echo "grow"
 git init -q --bare "$T/remote.git"
 git -C "$T" clone -q "$T/remote.git" seed 2>/dev/null
-git -C "$T/seed" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+git -C "$T/seed" commit -q --allow-empty -m init
 git -C "$T/seed" push -q origin HEAD 2>/dev/null
 cadre add project app "$T/remote.git" dev "A test app" >/dev/null
 check "project cloned into projects/" test -d "$C/projects/app/.git"

@@ -245,7 +245,11 @@ cmd_init() {
   find "$dest" -type f -name '*.md' -exec perl -pi -e "s/\{\{name\}\}/$name/g" {} +
   git -C "$dest" init -q -b main
   git -C "$dest" add -A
-  git -C "$dest" commit -qm "Start $name from the cadre template"
+  if git -C "$dest" config user.email >/dev/null; then
+    git -C "$dest" commit -qm "Start $name from the cadre template"
+  else
+    echo "note: git has no user identity, so $name was left uncommitted; set one (git config --global user.name/user.email) and commit"
+  fi
   set_home "$dest"
   echo "created $dest and made it the active cadre"
 }
@@ -260,6 +264,7 @@ cmd_use() {
 commit_change() {
   local msg=$1; shift
   git -C "$CADRE_HOME" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  git -C "$CADRE_HOME" config user.email >/dev/null || return 0
   if git -C "$CADRE_HOME" add -- "$@"; then git -C "$CADRE_HOME" commit -qm "$msg" -- "$@" || true; fi
 }
 

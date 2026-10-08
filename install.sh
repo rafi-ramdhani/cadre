@@ -145,7 +145,7 @@ if [ ! -d "$FRAMEWORK" ]; then
 fi
 if ! grep -q '^cadre:' "$DEST/projects.yaml"; then
   printf '\ncadre:\n  repo: %s\n  team: dev\n  about: The cadre framework this cadre is built on\n' "$CADRE_REPO" >> "$DEST/projects.yaml"
-  git -C "$DEST" commit -qam "Register the cadre framework as a project"
+  if git -C "$DEST" config user.email >/dev/null; then git -C "$DEST" commit -qam "Register the cadre framework as a project"; fi
 fi
 
 say "Linking"

@@ -16,6 +16,10 @@
 #   cadre path <project>                      print a project's local folder
 #   cadre sync [--no-trust]                   clone missing registry projects
 #   cadre trust <project> | --all             trust registry project folders in Claude Code
+#   cadre allow [list]                        list the grants every persona gets
+#   cadre allow add [--once] <rule>           grant a permission rule to personas
+#   cadre allow add [--once] --auto "<text>"  grant a plain-English auto-mode allowance
+#   cadre allow remove <rule|number|--once>   remove a grant, or every one-time grant
 #   cadre update [--check]                    update the framework (fast-forward only)
 #   cadre version                             print the version
 #   cadre uninstall [--yes | --dry-run]       remove the command, skill, hook and
@@ -686,6 +690,10 @@ elif op == "export":
             items = [i for i in data.get(key, {}).get(sub, []) if i not in LEGACY]
             if sub in data.get(key, {}):
                 copy.setdefault(key, {})[sub] = items
+    # Deny beats allow in every scope, so this keeps broad Edit grants off
+    # the source file whatever the file says.
+    deny = copy.setdefault("permissions", {}).setdefault("deny", [])
+    deny += [d for d in FIXED_DENY if d not in deny]
     text = json.dumps(copy, indent=2) + "\n"
     out = os.path.join(sys.argv[3], "persona-settings.%s.json" % hashlib.sha256(text.encode()).hexdigest()[:16])
     # Written whole at every start, never trusted because it exists.
@@ -729,13 +737,25 @@ pset_from_cadre() {
   esac
 }
 
+# Whether the persona settings file was changed outside cadre allow: its
+# hash is unknown or differs, and it is not what cadre last committed. A
+# file cadre committed (for example pulled from another machine) is
+# recorded and accepted.
+pset_changed_outside() {
+  local code=0
+  persona_settings verify "$PSET" "$PSET_HASHES" || code=$?
+  [ "$code" != 0 ] || return 1
+  if pset_from_cadre; then persona_settings record "$PSET" "$PSET_HASHES"; return 1; fi
+  return 0
+}
+
 # Checks the persona settings file and sets PSET_ARG to a validated copy for
 # personas (empty when the file is unusable). Warns when the file is unusable
 # or was changed outside cadre allow. A file with no recorded hash, or one
 # that differs from it, is accepted quietly only when it is what cadre last
 # committed (for example a grant pulled from another machine).
 check_persona_settings() {
-  local why code=0
+  local why
   PSET_ARG=""
   ensure_build
   if ! PSET_ARG=$(persona_settings export "$PSET" "$BUILD"); then
@@ -743,10 +763,458 @@ check_persona_settings() {
     echo "warning: personas start without $PSET because $why; fix it or restore it with git -C $CADRE_HOME checkout -- .claude/persona-settings.json" >&2
     return 0
   fi
-  persona_settings verify "$PSET" "$PSET_HASHES" || code=$?
-  [ "$code" != 0 ] || return 0
-  if pset_from_cadre; then persona_settings record "$PSET" "$PSET_HASHES"; return 0; fi
+  pset_changed_outside || return 0
   echo "warning: $PSET was changed outside cadre allow (see git -C $CADRE_HOME diff and log -p -- .claude/persona-settings.json); personas still get it because it is valid" >&2
+}
+
+# Reads and changes the grants in the persona settings file and its .once
+# sidecar ("<epoch><TAB><entry>" per one-time grant).
+#   allow_edit list <file> <once>
+#   allow_edit add <file> <once> rule|auto <entry> [once]
+#   allow_edit remove <file> <once> <entry | number | --once>
+# add and remove print the commit message first, then what changed. Exit: 0
+# changed, 3 nothing to change, 1 refused (with the reason).
+allow_edit() {
+  python3 - "$@" <<'PY'
+import json, os, re, shlex, sys, tempfile, time, unicodedata
+
+op, path, oncefile, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+KNOWN = ["Bash", "PowerShell", "Edit", "Write", "Read", "WebFetch", "WebSearch",
+         "NotebookEdit", "Glob", "Grep", "Agent", "Task", "Skill"]
+BARE = {"bash", "powershell", "edit", "write", "webfetch", "read", "notebookedit"}
+# Programs that run code or another program given to them.
+RUNNERS = set("""bash sh zsh dash ksh mksh fish csh tcsh pwsh powershell python python3
+    ruby perl php lua tclsh node deno bun bunx npx pnpx uvx pipx osascript awk gawk mawk
+    eval exec sudo doas su env xargs command builtin nohup timeout nice time stdbuf script
+    busybox watch iex invoke-expression start-process cmd tmux screen ssh arch setsid flock
+    chroot expect caffeinate open sqlite3 java vim vi nvim emacs nix-shell pypy pypy3 ipython
+    ts-node tsx zx rscript julia swift xcrun sandbox-exec gdb lldb strace ltrace dtrace parallel
+    systemd-run at batch pkexec""".split())
+# Programs that run whatever follows one of their subcommands.
+SUBRUNNERS = {"docker": {"run", "exec"}, "podman": {"run", "exec"}, "kubectl": {"exec", "run"},
+              "direnv": {"exec"}, "devbox": {"run"}, "mise": {"exec", "x"}, "nix": {"run", "shell", "develop"},
+              "uv": {"run"}, "poetry": {"run"}, "pdm": {"run"}, "pipenv": {"run"}, "hatch": {"run"},
+              "conda": {"run"}, "npm": {"exec", "x"}, "pnpm": {"dlx", "exec"}, "yarn": {"dlx", "exec"},
+              "bun": {"x"}, "cargo": {"run"}, "go": {"run"}, "bundle": {"exec"}, "rbenv": {"exec"},
+              "pyenv": {"exec"}, "dotnet": {"run", "exec"}}
+# Programs that run code from project files a persona can change.
+FROM_FILES = {"make": None, "gmake": None, "just": None, "rake": None, "gradle": None, "mvn": None,
+              "npm": {"run", "test", "start"}, "pnpm": {"run", "test", "start"}, "yarn": {"run", "test", "start"},
+              "pip": {"install"}, "pip3": {"install"}}
+HOME = os.path.expanduser("~").rstrip("/")
+CADRE = os.path.dirname(os.path.dirname(os.path.realpath(path)))
+CACHE = (os.environ.get("XDG_CACHE_HOME") or HOME + "/.cache").rstrip("/")
+# Files Claude Code protects: allow rules never pre-approve writes to them.
+PROTECTED = [".bashrc", ".bash_profile", ".bash_login", ".bash_aliases", ".zshrc", ".zprofile",
+             ".zshenv", ".zlogin", ".profile", ".envrc", ".gitconfig", ".gitmodules", ".npmrc",
+             ".yarnrc", ".yarnrc.yml", ".mcp.json", ".claude.json"]
+# Files and folders that run code outside a persona's session, and cadre's own state.
+OUTSIDE = [HOME + "/.ssh/config", HOME + "/.ssh/authorized_keys", HOME + "/.ssh/rc",
+           HOME + "/.config/fish/config.fish", HOME + "/.tmux.conf", HOME + "/.vimrc",
+           HOME + "/Library/LaunchAgents/x.plist", HOME + "/.config/autostart/x.desktop",
+           HOME + "/.config/systemd/user/x.service", HOME + "/.local/bin/x",
+           HOME + "/.config/cadre/home", CACHE + "/cadre/build/x", CADRE + "/.claude/build/x",
+           "/var/spool/cron/x", "/usr/lib/cron/tabs/x", "/etc/crontab"]
+SECRETS = [HOME + "/.ssh/id_ed25519", HOME + "/.aws/credentials", HOME + "/.gnupg/x",
+           HOME + "/.config/gh/hosts.yml"]
+VERSIONED = re.compile(r"(python|ruby|perl|php|lua|node|pip)\d+(\.\d+)*")
+BLANKET = ["anything", "any command", "all files", "everything", "any file", "all commands"]
+# --auto text may not argue about permissions or claim the user's approval.
+AUTO_REFUSED = re.compile(
+    r"\bpermissions?\b|\bsettings\b|settings\.json|soft_deny|\bden(y|ies|ied)\b|\.claude|\bgrant(s|ed)?\b"
+    r"|cadre\W*allow|\ballow subcommand|pre-?approved|approved (by|in advance)|\brules?\b|\bmay do\b|dot-?claude"
+    r"|zshrc|bashrc|bash_profile|zprofile|zshenv|\.profile|gitconfig|gitmodules|npmrc|envrc|\.ssh|authorized_keys"
+    r"|launchagents|crontab|tmux\.conf|vimrc|\.config/fish|autostart|systemd|\.local/bin|\.mcp\.json|\.claude\.json"
+    r"|\b(user|owner|human)'?s?\b.{0,40}\b(wish|wants?|ok with|fine with)\b"
+    r"|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b"
+    r"|\b(user|owner|human|you)\b.{0,40}\b(approv|consent|authori[sz]|agree)")
+
+
+def refuse(msg):
+    print(msg)
+    sys.exit(1)
+
+
+def norm(text):
+    """Text as it is matched: NFKC, no format characters, dashes and spaces
+    made plain, case folded."""
+    text = unicodedata.normalize("NFKC", text)
+    out = []
+    for c in text:
+        cat = unicodedata.category(c)
+        if cat == "Cf":
+            continue
+        out.append("-" if cat == "Pd" else " " if cat == "Zs" else c)
+    return "".join(out).casefold()
+
+
+def program(spec):
+    """The program word of a command specifier and the words after it."""
+    text = spec.replace(":*", " *")
+    try:
+        words = shlex.split(text)
+    except ValueError:
+        words = text.split()
+    while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+        words = words[1:]
+    if not words:
+        return "", []
+    return words[0], words[1:]
+
+
+def operators(spec):
+    """The shell operators outside quotes in a command specifier."""
+    lex = shlex.shlex(spec.replace(":*", " *"), posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    try:
+        return [t for t in lex if t and set(t) <= set("&|;")]
+    except ValueError:
+        return re.findall(r"&&|\|\||[;|&]", spec)
+
+
+def check_command(rule, spec):
+    if operators(spec):
+        refuse("refused: %s chains or backgrounds commands (&&, ||, ;, | or &); allow each command on its own" % rule)
+    prog, rest = program(spec)
+    if not prog:
+        refuse("refused: %s names no program; give the exact command" % rule)
+    if re.search(r"[$`()<>&;|]", prog):
+        refuse("refused: %s computes its program name with shell syntax; name the program exactly" % rule)
+    if "*" in prog or "?" in prog:
+        refuse("refused: %s has a wildcard in the program name, which matches other programs; name the program exactly" % rule)
+    base = norm(os.path.basename(prog))
+    if base.endswith(".exe"):
+        base = base[:-4]
+    wild = "*" in spec
+    if wild and (base in RUNNERS or VERSIONED.fullmatch(base)):
+        refuse("refused: %s lets %s run anything; allow the exact command instead" % (rule, base))
+    if base == "cadre" and (not rest or "*" in rest[0] or norm(rest[0]) == "allow"):
+        refuse("refused: %s would include cadre allow; name the cadre command, such as Bash(cadre up:*)" % rule)
+    sub = next((norm(w) for w in rest if not w.startswith("-")), "")
+    runs = [norm(w) for w in rest if norm(w) in SUBRUNNERS.get(base, ())]
+    if wild and runs:
+        refuse("refused: %s lets %s %s run anything; allow the exact command instead" % (rule, base, runs[0]))
+    if wild and base == "find" and any(w in ("-exec", "-execdir", "-ok", "-okdir") for w in rest):
+        refuse("refused: %s lets find run any command; allow the exact command instead" % rule)
+    if base == "git" and wild:
+        return "warning: %s lets git run other programs (git -c, aliases); prefer exact git commands" % rule
+    if wild and ("/" in prog or (base in FROM_FILES and (FROM_FILES[base] is None or sub in FROM_FILES[base]))):
+        return "warning: %s runs code from files a persona can change (a Makefile, package.json, a script); prefer exact commands" % rule
+    return None
+
+
+def path_regex(glob):
+    """A gitignore-style glob as a regex; a match on a folder covers its contents."""
+    out, i = "", 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif glob.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif glob[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif glob[i] == "?":
+            out, i = out + "[^/]", i + 1
+        else:
+            out, i = out + re.escape(glob[i]), i + 1
+    return re.compile(out + "(?:/.*)?$", re.I)
+
+
+def check_path(rule, tool, spec):
+    """Refuses Edit rules that reach protected or code-running files and
+    cadre's own state; warns on Read rules that reach secrets."""
+    if spec.startswith("/") and not spec.startswith("//"):
+        refuse("refused: %s starts with a single /, which Claude Code reads relative to the settings file; use //path for an absolute path" % rule)
+    if spec.startswith("//"):
+        full = "/" + spec[2:].lstrip("/")
+        if full.casefold().startswith("/system/volumes/data/"):
+            full = full[len("/System/Volumes/Data"):]
+    elif spec == "~" or spec.startswith("~/"):
+        full = HOME + spec[1:]
+    else:
+        full = None
+    parts = [norm(x) for x in spec.replace("\\", "/").split("/")]
+    if ".." in parts:
+        refuse("refused: %s has a .. segment; name the path without it" % rule)
+    joined = "/" + "/".join(parts)
+    for suffix in (".local/bin", ".config/cadre", ".cache/cadre", ".config/fish", "library/launchagents",
+                   ".config/autostart", ".config/systemd/user"):
+        if "/" + suffix + "/" in joined + "/" and tool != "Read":
+            refuse("refused: %s reaches %s, which runs code outside a persona's session or holds cadre's own state; make that edit yourself" % (rule, suffix))
+    if tool == "Read":
+        if full and any(path_regex(full).match(t) for t in SECRETS):
+            return "warning: %s lets personas read secrets (~/.ssh, ~/.aws, ~/.gnupg, ~/.config/gh); keep it as narrow as you can" % rule
+        return None
+    for name in PROTECTED:
+        if name in parts or (full and path_regex(full).match(HOME + "/" + name)):
+            refuse("refused: Claude Code never pre-approves writes to %s; make that edit yourself" % name)
+    if ".claude" in parts or (full and (path_regex(full).match(HOME + "/.claude/settings.json")
+                                        or path_regex(full).match(HOME + "/.config/git/config"))):
+        refuse("refused: Claude Code never pre-approves writes under .claude or .config/git; make that edit yourself")
+    if full:
+        fixed = re.split(r"[*?\[{]", full)[0].rstrip("/")
+        if fixed == "" or HOME == fixed or HOME.startswith(fixed + "/"):
+            refuse("refused: %s covers your whole home folder; name the folder or file" % rule)
+        for t in OUTSIDE:
+            if path_regex(full).match(t):
+                refuse("refused: %s lets a persona change %s, which runs code outside its session or holds cadre's own state; make that edit yourself" % (rule, t))
+    if any(x in (".ssh", ".tmux.conf", ".vimrc", "launchagents", "crontab") for x in parts):
+        refuse("refused: %s lets a persona change files that run code outside its session; make that edit yourself" % rule)
+    return None
+
+
+def check_rule(rule):
+    """Refuses a rule that is too broad; returns a warning or None."""
+    if rule.strip() == "*":
+        refuse("refused: * allows every tool; name one tool and a narrow use, such as Bash(npm test)")
+    m = re.fullmatch(r"([A-Za-z][A-Za-z0-9_*-]*)(?:\((.*)\))?", rule, re.S)
+    if not m or "\n" in rule:
+        refuse("refused: '%s' is not a permission rule (Tool or Tool(specifier)); "
+               "for a plain-English allowance use: cadre allow add --auto \"<sentence>\"" % rule)
+    tool, spec = m.group(1), m.group(2)
+    n = norm(rule)
+    if "persona-settings" in n or "persona_settings" in n or re.search(r"cadre\W*allow", n):
+        refuse("refused: %s targets the persona settings or cadre allow, which only the user changes" % rule)
+    if "*" in tool:
+        refuse("refused: %s puts a wildcard in the tool name; name one tool" % rule)
+    for k in KNOWN:
+        if tool.casefold() == k.casefold() and tool != k:
+            refuse("refused: write the tool name as %s" % k)
+    if tool.startswith("mcp__"):
+        parts = tool.split("__")
+        if len(parts) < 3 or not parts[2]:
+            refuse("refused: %s allows a whole MCP server; name one tool, such as %s__<tool>" % (rule, tool))
+    if spec is None:
+        if tool.casefold() in BARE:
+            refuse("refused: a bare %s allows every use of it; add a narrow specifier, such as %s(<exact command or path>)" % (tool, tool))
+        return None
+    if tool == "Write":
+        refuse("refused: Claude Code does not use Write(path) rules; Edit(path) covers writing files")
+    if re.fullmatch(r"[\s*:/~.]*", spec):
+        refuse("refused: %s has only a wildcard; give an exact command, prefix or path" % rule)
+    if tool == "WebFetch" and spec.startswith("domain:"):
+        host = spec[7:].strip()
+        if re.fullmatch(r"[\s*.]*", host) or re.fullmatch(r"\*\.[^.*]+", host):
+            refuse("refused: %s allows every domain or a whole top-level domain; name the domain, such as WebFetch(domain:docs.example.com)" % rule)
+    if tool in ("Bash", "PowerShell"):
+        warn = check_command(rule, spec)
+    elif tool in ("Edit", "NotebookEdit", "Read"):
+        warn = check_path(rule, tool, spec)
+    else:
+        warn = None
+    if warn:
+        return warn
+    if "*" in rule:
+        return "warning: %s contains * and may allow more than you mean" % rule
+    return None
+
+
+def check_auto(text):
+    if "\n" in text or not text.strip():
+        refuse("refused: an --auto entry is one non-empty line")
+    if len(text) > 300:
+        refuse("refused: an --auto entry is at most 300 characters (this one has %d)" % len(text))
+    if any(ord(c) > 127 and unicodedata.category(c).startswith("L") for c in text):
+        refuse("refused: write --auto entries in plain ASCII letters")
+    n = norm(text)
+    if n.strip() == "$defaults":
+        refuse("refused: $defaults is already there")
+    if AUTO_REFUSED.search(n) or "persona-settings" in n:
+        refuse("refused: an --auto entry may not speak about permissions, settings, grants, cadre allow "
+               "or the user's approval; describe the work that is expected instead")
+    hits = [w for w in BLANKET if w in n]
+    if hits:
+        return "warning: the entry says \"%s\"; check that it does not allow more than you mean" % hits[0]
+    return None
+
+
+def atomic(target, text):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".cadre-")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.replace(tmp, target)
+
+
+data = json.load(open(path))
+perm_allow = data.setdefault("permissions", {}).setdefault("allow", [])
+auto_allow = data.setdefault("autoMode", {}).setdefault("allow", ["$defaults"])
+once = []
+if os.path.exists(oncefile):
+    for line in open(oncefile):
+        t, _, e = line.rstrip("\n").partition("\t")
+        if e:
+            once.append((t, e))
+entries = [("rule", e) for e in perm_allow] + [("auto", e) for e in auto_allow if e != "$defaults"]
+# One-time records whose grant is no longer in the file (removed by hand,
+# or a write cut short) are dropped.
+granted = [e for _, e in entries]
+stale = [e for _, e in once if e not in granted]
+once = [(t, e) for t, e in once if e in granted]
+once_entries = [e for _, e in once]
+
+
+def save(sidecar_first):
+    """Writes both files. An added one-time grant goes to the sidecar first
+    and a removed one leaves the file first, so a write cut short leaves at
+    most a stale sidecar line, which the next load drops."""
+    side = lambda: atomic(oncefile, "".join("%s\t%s\n" % (t, e) for t, e in once))
+    if sidecar_first:
+        side()
+    atomic(path, json.dumps(data, indent=2) + "\n")
+    if not sidecar_first:
+        side()
+
+
+def ago(t):
+    s = int(time.time()) - int(t)
+    for unit, n in (("d", 86400), ("h", 3600), ("m", 60)):
+        if s >= n:
+            return "%d%s ago" % (s // n, unit)
+    return "just now"
+
+
+if op == "list":
+    print("Grants for personas (%s):" % path)
+    if not entries:
+        print("  none yet")
+    for i, (kind, e) in enumerate(entries, 1):
+        marks = []
+        if e in once_entries:
+            marks.append("once, added " + ago(dict((x, y) for y, x in once)[e]))
+        if kind == "rule" and "*" in e:
+            marks.append("wide: contains *")
+        print("  %d. %-4s  %s%s" % (i, kind, e, "   [" + "; ".join(marks) + "]" if marks else ""))
+    print("Built in, not listed: deny rules and a soft_deny entry that keep personas from changing these grants.")
+elif op == "add":
+    kind, entry, is_once = args[0], args[1], len(args) > 2
+    warn = check_auto(entry) if kind == "auto" else check_rule(entry)
+    if (kind, entry) in entries:
+        print("Allow for personas: %s" % entry)
+        print("  %s is already granted; nothing changed" % entry)
+        sys.exit(3)
+    (auto_allow if kind == "auto" else perm_allow).append(entry)
+    if is_once:
+        once.append((str(int(time.time())), entry))
+    save(True)
+    print("Allow for personas%s: %s" % (" once" if is_once else "", entry))
+    if warn:
+        print(warn)
+    print("  added %s%s: %s" % ("one-time " if is_once else "", "autoMode allow entry" if kind == "auto" else "rule", entry))
+elif op == "remove":
+    target = args[0]
+    if target == "--once":
+        gone = [e for e in once_entries]
+        if not gone and stale:
+            save(False)
+            print("Drop stale one-time grant records")
+            for e in stale:
+                print("  already gone: %s" % e)
+            sys.exit(0)
+        if not gone:
+            print("Remove one-time grants for personas")
+            print("  there are no one-time grants; nothing changed")
+            sys.exit(3)
+        msg = "Remove one-time grants for personas"
+    else:
+        if target.isdigit():
+            n = int(target)
+            if not 1 <= n <= len(entries):
+                refuse("there is no grant number %d (see cadre allow list)" % n)
+            gone = [entries[n - 1][1]]
+        elif any(e == target for _, e in entries):
+            gone = [target]
+        else:
+            refuse("%s is not granted (see cadre allow list)" % target)
+        msg = "Remove grant for personas: %s" % gone[0]
+    for e in gone:
+        if e in perm_allow:
+            perm_allow.remove(e)
+        if e in auto_allow:
+            auto_allow.remove(e)
+    once = [(t, e) for t, e in once if e not in gone]
+    save(False)
+    print(msg)
+    for e in gone:
+        print("  removed: %s" % e)
+    for e in stale:
+        print("  already gone: %s" % e)
+PY
+}
+
+# After a grant changes: which running personas may still use the old
+# grants (the design assumes Claude Code does not reload --settings files).
+allow_restart_note() {
+  local sessions; sessions=$(running_sessions)
+  if [ -z "$sessions" ]; then echo "Personas started from now on get this change."; return; fi
+  echo "Running personas will not see this change until restarted (each has the copy it started with):"
+  show_sessions "$sessions"
+  echo "Restart one with:"
+  restart_commands "$sessions"
+}
+
+# Serializes cadre allow changes in one cadre (read, change, write, commit):
+# mkdir is atomic everywhere, unlike flock, which macOS lacks. A lock older
+# than a minute is from a run that died and is taken over.
+allow_lock() {
+  ALLOW_LOCK="$CADRE_HOME/.claude/.allow.lock"
+  local i
+  for i in $(seq 100); do
+    if mkdir "$ALLOW_LOCK" 2>/dev/null; then trap 'rmdir "$ALLOW_LOCK" 2>/dev/null || true' EXIT; return 0; fi
+    if [ "$i" = 1 ] && [ -n "$(find "$ALLOW_LOCK" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then rmdir "$ALLOW_LOCK" 2>/dev/null || true; fi
+    sleep 0.1
+  done
+  die "another cadre allow is changing $PSET; try again (or remove $ALLOW_LOCK if none is running)"
+}
+
+cmd_allow() {
+  local sub=${1:-list} code=0 out why
+  local once="${PSET%.json}.once"
+  if [ $# -gt 0 ]; then shift; fi
+  case $sub in
+    list)
+      [ $# -eq 0 ] || die "usage: cadre allow list"
+      if [ ! -e "$PSET" ]; then echo "Grants for personas: none yet ($PSET is created by the first cadre up or cadre allow add)"; return; fi
+      if ! why=$(persona_settings check "$PSET"); then echo "warning: personas start without $PSET because $why" >&2; fi
+      if pset_changed_outside; then echo "warning: $PSET was changed outside cadre allow (see git -C $CADRE_HOME diff and log -p -- .claude/persona-settings.json)" >&2; fi
+      allow_edit list "$PSET" "$once" || die "could not read $PSET" ;;
+    add|remove)
+      [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot change permissions; report the blocked action to the orchestrator instead"
+      local args=() kind=rule a once_flag=""
+      for a in "$@"; do
+        case $a in
+          --once) once_flag=1 ;;
+          --auto) kind=auto ;;
+          --*) die "unknown option $a (see cadre help)" ;;
+          *) args+=("$a") ;;
+        esac
+      done
+      if [ "$sub" = add ]; then
+        [ ${#args[@]} -eq 1 ] || die "usage: cadre allow add [--once] <rule> | cadre allow add [--once] --auto \"<sentence>\""
+      else
+        [ "$kind" = rule ] || die "usage: cadre allow remove <rule | number> | cadre allow remove --once"
+        if [ -n "$once_flag" ]; then [ ${#args[@]} -eq 0 ] || die "usage: cadre allow remove --once"; args=(--once); fi
+        [ ${#args[@]} -eq 1 ] || die "usage: cadre allow remove <rule | number> | cadre allow remove --once"
+      fi
+      ensure_persona_settings
+      allow_lock
+      why=$(persona_settings check "$PSET") || die "$PSET cannot be changed because $why; restore it with git -C $CADRE_HOME checkout -- .claude/persona-settings.json"
+      if pset_changed_outside; then echo "warning: $PSET was changed outside cadre allow (see git -C $CADRE_HOME diff and log -p -- .claude/persona-settings.json); this change keeps those edits" >&2; fi
+      if [ "$sub" = add ]; then
+        out=$(allow_edit add "$PSET" "$once" "$kind" "${args[0]}" ${once_flag:+once}) || code=$?
+      else
+        out=$(allow_edit remove "$PSET" "$once" "${args[0]}") || code=$?
+      fi
+      case $code in
+        0)
+          tail -n +2 <<<"$out"
+          persona_settings record "$PSET" "$PSET_HASHES"
+          commit_change "$(head -1 <<<"$out")" "$PSET" "$once"
+          allow_restart_note ;;
+        3) tail -n +2 <<<"$out" ;;
+        *) echo "cadre: $out" >&2; exit 1 ;;
+      esac ;;
+    *) die "usage: cadre allow [list | add [--once] [--auto] <entry> | remove <entry | number | --once>]" ;;
+  esac
 }
 
 # Claude Code's global config, where workspace trust is stored per folder.
@@ -1251,7 +1719,7 @@ case "${1:-}" in
   update)   shift; cmd_update "$@"; exit ;;
   down)     case " $* " in *" --all "*) shift; cmd_down_all "$@"; exit ;; esac ;;
   uninstall) shift; cmd_uninstall "$@"; exit ;;
-  ""|-h|--help|help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
+  ""|-h|--help|help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
   version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
 esac
 load_home
@@ -1266,5 +1734,6 @@ case "$1" in
   path)     [ -n "${2:-}" ] || die "usage: cadre path <project>"; read -r _ p <<<"$(locate "$2")"; echo "$p" ;;
   sync)     shift; cmd_sync "$@" ;;
   trust)    shift; cmd_trust "$@" ;;
+  allow)    shift; cmd_allow "$@" ;;
   *)        die "unknown command '$1' (see cadre help)" ;;
 esac

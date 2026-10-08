@@ -108,6 +108,26 @@ It never deletes your cadre, your projects or the framework clone, and leaves tr
 
 Every persona starts with the grants in `<cadre>/.claude/persona-settings.json`. The first `cadre up` creates the file and commits it. Personas never get the file itself: each `cadre up` checks it and passes a read-only copy rebuilt from the allowed keys at every start, in `<cadre>/.claude/build/` next to the generated persona prompts (a folder Claude Code protects, ignored by the cadre's git). A running persona keeps the grants it started with until it is restarted. It holds the grants you make for personas and fixed entries that keep personas from changing it. Change it with `cadre allow`, not by hand: the launcher refuses a file with any other setting (such as `hooks` or `env`), without `"$defaults"` in an `autoMode` list, or without the fixed entries, and starts the personas without it and with a warning. A file changed outside `cadre allow` is still passed when it is valid, with a warning; a change that arrives as a commit `cadre allow` made (for example pulled from another machine) is accepted without one. The check reads the commit message, so it is a tamper signal, not a proof. To undo a hand edit, run `git -C <cadre> checkout -- .claude/persona-settings.json`.
 
+## Permissions for personas
+
+Each persona is its own Claude Code session and asks for its own permissions. A message from the orchestrator never counts as your consent there. To grant something to every persona, use `cadre allow` (the orchestrator runs it for you after you say so):
+
+```bash
+cadre allow add 'Bash(git push origin HEAD:main)'      # an exact command
+cadre allow add --once 'Bash(npm publish)'             # for one task; remove it afterwards
+cadre allow add --auto "Merging a reviewed branch into main in my projects is expected"
+cadre allow list                                       # numbered, with kind, once and wildcard marks
+cadre allow remove 'Bash(npm publish)'                 # by the exact text, or by its list number
+cadre allow remove --once                              # every one-time grant
+```
+
+- A rule is a Claude Code permission rule: a tool name with an optional specifier, such as `Bash(npm test)`, `Read(./docs/**)` or `mcp__github__create_issue`. Anything else is refused with a hint to use `--auto`.
+- `--auto` adds a sentence (one line, at most 300 characters) to the auto-mode classifier's allow list, after `"$defaults"`, so the built-in rules stay. Describe the work that is expected; a sentence about permissions, settings, grants, `deny`, `.claude` or `cadre allow`, or one claiming the user's approval, is refused. Blanket words such as "anything" get a warning.
+- Refused: `*`; a bare `Bash`, `PowerShell`, `Edit`, `Write`, `Read`, `WebFetch` or `NotebookEdit` (in any letter case); a specifier that is only a wildcard (`Bash(*)`, `Read(**)`, `Bash(:*)`, `WebFetch(domain:*)`); a whole MCP server (`mcp__srv`, `mcp__srv__*`); a wildcard in the program name (`Bash(bash*)`, `Bash(* --version)`); a shell, interpreter or wrapper with a wildcard anywhere (`bash`, `sh`, `zsh`, `dash`, `fish`, `python`, `python3.12`, `node`, `npx`, `osascript`, `awk`, `sudo`, `env`, `xargs`, `command`, `nohup`, `timeout`, `pwsh` and similar, after leading `NAME=value` words and quotes are stripped); `Write(path)` rules, which Claude Code does not use (use `Edit(path)`); commands chained or backgrounded with `&&`, `||`, `;`, `|` or `&` outside quotes, or a program name built with `$`, backticks or other shell syntax; `Edit` and `Read` paths with a `..` segment or a single leading `/` (write `//path` for an absolute path); runners such as `tmux`, `ssh`, `docker run`, `uv run`, `npm exec`, `cargo run` or `find -exec` with a wildcard; `Edit` rules for files Claude Code never pre-approves (`.bashrc`, `.zshrc`, `.gitconfig`, `.envrc`, `.npmrc`, `.mcp.json`, anything under `.claude`) and for files that run code outside a persona's session or hold cadre's own state (`~/.ssh`, `~/.tmux.conf`, `~/.vimrc`, `~/Library/LaunchAgents`, `~/.config/autostart`, `~/.config/systemd/user`, `~/.local/bin`, the crontab, `~/.config/cadre`, `~/.cache/cadre`); an `Edit` glob that covers your whole home folder; and anything that targets the persona settings or `cadre allow`. Make edits to those files yourself. `--auto` entries must use plain ASCII letters. `git` with a wildcard gets its own warning (it can run other programs), as do `make`, `npm run`, `pip install` and `./script` with a wildcard (they run code from files a persona can change) and `Read` rules that reach `~/.ssh`, `~/.aws`, `~/.gnupg` or `~/.config/gh`; other wildcards are accepted with a warning and marked in `list`.
+- Every change is committed in your cadre (`git log -- .claude/` is the audit trail) and travels with it to a new machine. One-time grants are listed in `.claude/persona-settings.once` with the time they were added.
+- Persona sessions cannot add or remove grants.
+- A running persona may not see a change until it restarts; `cadre allow` lists the running personas with the exact restart commands. Personas started later get it.
+
 ## Configuration
 
 `cadre.conf` is sourced by the launcher:
@@ -122,6 +142,8 @@ Environment variables: `CADRE_HOME` (use another cadre for one command), `CADRE_
 
 - **A persona never replies.** Attach (`cadre attach <team> [project]`) and look. A new folder shows Claude Code's trust prompt on first launch; accept it once.
 - **The trust prompt still shows for a registered project.** Run `cadre trust <project>`. A Claude Code session that was running during the change may have written its own copy of `~/.claude.json` over it; accept the prompt once, or run `cadre trust` again with no sessions running. If you set `CLAUDE_CONFIG_DIR`, personas use the value the tmux server started with, not your shell's; run `cadre trust` with the same value (or restart the tmux server).
+- **A persona reports a blocked action.** Decide whether to allow it. If yes, ask the orchestrator to allow that exact action (or run `cadre allow add` yourself), then let the persona retry.
+- **A rule is not applied until restart.** `cadre allow` lists the running personas that may not see the change yet; restart the one that needs it (`cadre down <team>/<role> [project] && cadre up <team>/<role> [project]`) and send its task again.
 - **Messages wait for approval.** The persona runs in a different permission-mode class from the orchestrator. Align `PERMISSION_MODE` with the mode you run the orchestrator in.
 - **`cadre: no active cadre`.** Run `cadre use <your cadre folder>`.
 - **Moved the framework.** Run `projects/cadre/install.sh --link-only` to relink.

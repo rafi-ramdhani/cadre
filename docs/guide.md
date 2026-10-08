@@ -117,13 +117,13 @@ cadre allow add 'Bash(git push origin HEAD:main)'      # an exact command
 cadre allow add --once 'Bash(npm publish)'             # for one task; remove it afterwards
 cadre allow add --auto "Merging a reviewed branch into main in my projects is expected"
 cadre allow list                                       # numbered, with kind, once and wildcard marks
-cadre allow remove 2                                   # by number, or by the exact text
+cadre allow remove 'Bash(npm publish)'                 # by the exact text, or by its list number
 cadre allow remove --once                              # every one-time grant
 ```
 
 - A rule is a Claude Code permission rule: a tool name with an optional specifier, such as `Bash(npm test)`, `Read(./docs/**)` or `mcp__github__create_issue`. Anything else is refused with a hint to use `--auto`.
-- `--auto` adds a sentence (one line, at most 300 characters) to the auto-mode classifier's allow list, after `"$defaults"`, so the built-in rules stay. Blanket words such as "anything" get a warning.
-- Refused: `*`; a bare `Bash`, `Edit`, `Write`, `WebFetch` or `PowerShell`; a specifier that is only a wildcard (`Bash(*)`, `Read(**)`, `Bash(:*)`); a whole MCP server (`mcp__srv`, `mcp__srv__*`); `bash`, `sh`, `zsh`, `python`, `python3`, `node`, `ruby`, `perl`, `eval`, `exec`, `sudo`, `env` or `xargs` followed by a wildcard; and anything that targets the persona settings or `cadre allow`. Other wildcards are accepted with a warning and marked in `list`.
+- `--auto` adds a sentence (one line, at most 300 characters) to the auto-mode classifier's allow list, after `"$defaults"`, so the built-in rules stay. Describe the work that is expected; a sentence about permissions, settings, grants, `deny`, `.claude` or `cadre allow`, or one claiming the user's approval, is refused. Blanket words such as "anything" get a warning.
+- Refused: `*`; a bare `Bash`, `PowerShell`, `Edit`, `Write`, `Read`, `WebFetch` or `NotebookEdit` (in any letter case); a specifier that is only a wildcard (`Bash(*)`, `Read(**)`, `Bash(:*)`, `WebFetch(domain:*)`); a whole MCP server (`mcp__srv`, `mcp__srv__*`); a wildcard in the program name (`Bash(bash*)`, `Bash(* --version)`); a shell, interpreter or wrapper with a wildcard anywhere (`bash`, `sh`, `zsh`, `dash`, `fish`, `python`, `python3.12`, `node`, `npx`, `osascript`, `awk`, `sudo`, `env`, `xargs`, `command`, `nohup`, `timeout`, `pwsh` and similar, after leading `NAME=value` words and quotes are stripped); `Write(path)` rules, which Claude Code does not use (use `Edit(path)`); and anything that targets the persona settings or `cadre allow`. `git` with a wildcard gets its own warning (it can run other programs), and other wildcards are accepted with a warning and marked in `list`.
 - Every change is committed in your cadre (`git log -- .claude/` is the audit trail) and travels with it to a new machine. One-time grants are listed in `.claude/persona-settings.once` with the time they were added.
 - Persona sessions cannot add or remove grants.
 - A running persona may not see a change until it restarts; `cadre allow` lists the running personas with the exact restart commands. Personas started later get it.

@@ -408,6 +408,9 @@ ok "rules that run code from project files are warned"
 out=$(cadre allow add 'Read(~/.ssh/**)')
 check "reading ~/.ssh is strongly warned" grep -q "lets personas read secrets" <<<"$out"
 cadre allow remove 'Read(~/.ssh/**)' >/dev/null
+out=$(cadre allow add 'Read(~/.ssh\/id_ed25519)')
+check "an escaped slash does not hide a secret read" grep -q "lets personas read secrets" <<<"$out"
+cadre allow remove 'Read(~/.ssh\/id_ed25519)' >/dev/null
 while IFS= read -r text; do
   if err=$(cadre allow add --auto "$text" 2>&1); then fail "refused --auto: $text"; fi
 done < <(python3 -I -c '
@@ -461,7 +464,9 @@ for rule in "Edit(//$C/cadre.con[f])" "Edit(//$C/[c]adre.conf)" "Edit(//$C/cadre
     "Edit(//$C/{cadre,x}.conf)" 'Edit(cadre.con[f])' 'Edit(*.conf)' 'Edit(**/*.conf)' 'Edit(./cadre.c*)' 'Edit(**/cadre.c*)' \
     'Edit(~/.ss[h]/config)' 'Edit(~/.local/bi[n]/cadre)' 'Edit(~/.local/b*/cadre)' 'Edit(~/.config/cadr[e]/home)' \
     'Edit(~/.tmux.con[f])' 'Edit(~/Library/LaunchAgent[s]/x.plist)' 'Edit(~/.cla[u]de/settings.json)' \
-    'Edit(src/\.\./x)' 'Edit(src/.[.]/x)'; do
+    'Edit(src/\.\./x)' 'Edit(src/.[.]/x)' 'Edit(~/.local\/bin/cadre)' 'Edit(~/.ssh\/config)' \
+    'Edit(~/.config\/cadre/home)' "Edit(//$(dirname "$C")/*\\/*.conf)" "Edit(//$C/{x,{cadre,y}}.conf)" \
+    "Edit(//$(dirname "$C")/{demo/cadre.c*,x})" 'Edit([[:alpha:]]adre.conf)' "Edit(//$C/cadre.con[[:alpha:]])"; do
   if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
   grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
 done
@@ -484,7 +489,7 @@ for rule in 'Bash(a \\; bash *)' 'Bash(a \\| bash *)' 'Bash(a \\& bash *)' 'Bash
   if cadre allow add "$rule" >/dev/null 2>&1; then fail "refused: $rule"; fi
 done
 ok "an escaped backslash before an operator leaves the operator real"
-for text in "Editing the cadre conf file is routine" "Editing cadre . conf is routine"; do
+for text in "Editing the cadre conf file is routine" "Editing cadre . conf is routine" "Editing the cadre_conf is fine"; do
   if cadre allow add --auto "$text" >/dev/null 2>&1; then fail "refused --auto: $text"; fi
 done
 ok "--auto paraphrases of cadre.conf refused"
@@ -574,7 +579,20 @@ check "commands work in a folder with module look-alikes" bash -c "cd '$T/lookal
   && cadre allow add 'Bash(echo lookalike)' && cadre allow list && cadre allow remove 'Bash(echo lookalike)' \
   && cadre up dev/engineer app && cadre down dev/engineer app >/dev/null"
 check "no module from the current folder is loaded" test ! -e "$T/lookalike.hit"
+mkdir -p "$T/pywrap"
+for py in python3 python; do
+  # shellcheck disable=SC2016 # the wrapper's own $1, $* and $@
+  printf '#!/bin/sh\necho "%s $*" >>"%s.all"\nif [ "$1" != -I ]; then echo "%s $*" >>"%s"; fi\nexec %s "$@"\n' \
+    "$py" "$T/pywrap.log" "$py" "$T/pywrap.log" "$(command -v python3)" >"$T/pywrap/$py"
+  chmod +x "$T/pywrap/$py"
+done
+pyw() { env PATH="$T/pywrap:$PATH" "$@"; }
+(cd "$T/lookalike" && pyw cadre ls && pyw cadre allow add 'Bash(echo pywrap)' && pyw cadre allow remove 'Bash(echo pywrap)' \
+  && pyw cadre up dev/engineer app && pyw cadre down dev/engineer app && pyw cadre path app) >/dev/null 2>&1
+check "the wrapper saw cadre's python calls" test -s "$T/pywrap.log.all"
+check "every python cadre runs gets -I" test ! -s "$T/pywrap.log"
 check "every python3 call is isolated with -I" bash -c "! grep -nE 'python3 +(-[^I]|<|\"|\\\$)' '$ROOT/bin/cadre' '$ROOT/install.sh' '$ROOT/bin/orchestrator-hook.sh'"
+check "no python is run by an absolute path" bash -c "! grep -nE '/python3?( |\$)' '$ROOT/bin/cadre' '$ROOT/install.sh' '$ROOT/bin/orchestrator-hook.sh'"
 running() { tm has-session -t "=$1" 2>/dev/null; }
 cadre_sessions() { tm ls -F '#S' 2>/dev/null | grep '^cadre-' || true; }
 cadre up dev/engineer app >/dev/null

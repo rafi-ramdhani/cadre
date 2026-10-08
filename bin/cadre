@@ -827,7 +827,7 @@ AUTO_REFUSED = re.compile(
     r"|zshrc|bashrc|bash_profile|zprofile|zshenv|\.profile|gitconfig|gitmodules|npmrc|envrc|\.ssh|authorized_keys"
     r"|launchagents|crontab|tmux\.conf|vimrc|\.config/fish|autostart|systemd|\.local/bin|\.mcp\.json|\.claude\.json"
     r"|\b(user|owner|human)'?s?\b.{0,40}\b(wish|wants?|ok with|fine with)\b"
-    r"|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b|cadre\W*conf"
+    r"|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b|cadre[\W_]*conf"
     r"|\b(user|owner|human|you)\b.{0,40}\b(approv|consent|authori[sz]|agree)")
 
 
@@ -986,6 +986,21 @@ def reaches(glob, target):
 def check_path(rule, tool, spec):
     """Refuses Edit rules that reach protected or code-running files and
     cadre's own state; warns on Read rules that reach secrets."""
+    # An escaped / is a plain / (escapes are read in pairs, so \\/ is a
+    # backslash, then a separator).
+    spec = re.sub(r"\\(.)", lambda m: "/" if m.group(1) == "/" else m.group(0), spec, flags=re.S)
+    if re.search(r"(?<!\\)\[:", spec):
+        refuse("refused: %s uses a [:class:] pattern; write the path literally" % rule)
+    stack = []
+    for i, c in enumerate(spec):
+        if c in "{}" and spec[i - 1:i] == "\\":
+            continue
+        if c == "{":
+            stack.append(i)
+        elif c == "}" and stack:
+            start = stack.pop()
+            if stack or "/" in spec[start:i]:
+                refuse("refused: %s nests braces or puts a / inside them; write each path as its own rule" % rule)
     if spec.startswith("/") and not spec.startswith("//"):
         refuse("refused: %s starts with a single /, which Claude Code reads relative to the settings file; use //path for an absolute path" % rule)
     if spec.startswith("//"):

@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Command cadre starts, stops and lists persona sessions: Claude Code
 // sessions in tmux that an orchestrator session leads by name.
 package main
@@ -6,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 )
 
 // version is stamped at build time with -ldflags "-X main.version=...".
@@ -34,9 +35,6 @@ func (e *env) fail(format string, a ...any) int {
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	e := &env{stdin: stdin, stdout: stdout, stderr: stderr}
-	if runtime.GOOS == "windows" {
-		return e.fail("Windows is not supported (cadre needs tmux); use WSL 2")
-	}
 	c, rest, err := lookup(args)
 	if err != nil {
 		return e.fail("%s", err)

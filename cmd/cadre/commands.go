@@ -1,3 +1,5 @@
+//go:build !windows
+
 package main
 
 import (
@@ -78,10 +80,10 @@ func init() {
 		{name: "uninstall", usage: "[--yes | --dry-run]", summary: "remove cadre's links, skill, hook and config (keeps your cadres and projects)", run: notBuilt("cadre uninstall")},
 
 		// Advanced, grouped.
-		{name: "init", usage: "<name>", summary: "create a cadre in ~/.cadre/<name>", group: "Cadres", run: notBuilt("cadre init")},
-		{name: "use", usage: "<name>", summary: "make a cadre the default", group: "Cadres", run: notBuilt("cadre use")},
-		{name: "cadres add", usage: "<dir>", summary: "use a cadre kept outside ~/.cadre", group: "Cadres", run: notBuilt("cadre cadres add")},
-		{name: "cadres remove", usage: "<name|dir>", summary: "stop using an outside cadre (its folder is kept)", group: "Cadres", run: notBuilt("cadre cadres remove")},
+		{name: "init", usage: "<name>", summary: "create a cadre in ~/.cadre/<name>", group: "Cadres", run: runInit},
+		{name: "use", usage: "<name>", summary: "make a cadre the default", group: "Cadres", run: runUse},
+		{name: "cadres add", usage: "<dir>", summary: "use a cadre kept outside ~/.cadre", group: "Cadres", run: runCadresAdd},
+		{name: "cadres remove", usage: "<name|dir>", summary: "stop using an outside cadre (its folder is kept)", group: "Cadres", run: runCadresRemove},
 		{name: "migrate", usage: "[--dry-run]", summary: "move a visible cadre into ~/.cadre (projects stay put)", group: "Cadres", run: notBuilt("cadre migrate")},
 
 		{name: "project add", usage: "<name> <repo> | <name> --path <dir>", summary: "clone a project into your projects folder, or link a folder", group: "Projects", run: notBuilt("cadre project add")},
@@ -92,12 +94,12 @@ func init() {
 		{name: "project export", usage: "<name> <dir>", summary: "a clean git copy of a project", group: "Projects", run: notBuilt("cadre project export")},
 		{name: "project trust", usage: "<name> | --all", summary: "trust project folders in Claude Code", group: "Projects", run: notBuilt("cadre project trust")},
 		{name: "project sync", summary: "clone registry projects missing on this machine", group: "Projects", run: notBuilt("cadre project sync")},
-		{name: "project path", usage: "<name>", summary: "print a project's folder", group: "Projects", run: notBuilt("cadre project path")},
+		{name: "project path", usage: "<name>", summary: "print a project's folder", group: "Projects", run: runProjectPath},
 		{name: "project dir", usage: "[<dir>]", summary: "where new clones go", group: "Projects", run: notBuilt("cadre project dir")},
 
 		{name: "up", usage: "<team|team/role> [project|dir]", summary: "start a team or one persona", group: "Teams", run: notBuilt("cadre up")},
-		{name: "team add", usage: "<team>", summary: "add a team", group: "Teams", run: notBuilt("cadre team add")},
-		{name: "persona add", usage: "<team>/<role>", summary: "add a persona", group: "Teams", run: notBuilt("cadre persona add")},
+		{name: "team add", usage: "<team>", summary: "add a team", group: "Teams", run: runTeamAdd},
+		{name: "persona add", usage: "<team>/<role>", summary: "add a persona", group: "Teams", run: runPersonaAdd},
 
 		{name: "allow", usage: "[list]", summary: "the grants every persona gets", group: "Permissions", run: notBuilt("cadre allow")},
 		{name: "allow add", usage: "[--once] <rule> | [--once] --auto \"<text>\"", summary: "grant a rule or a plain-English allowance to personas", group: "Permissions", run: notBuilt("cadre allow add")},
@@ -112,7 +114,7 @@ func init() {
 		{name: "ls --json", summary: "the status screen's data, for the orchestrator", group: "Data", run: notBuilt("cadre ls --json")},
 
 		// Hidden: the 0.1.x projects listing, kept as an old name (M.2).
-		{name: "projects", hidden: true, run: notBuilt("cadre projects")},
+		{name: "projects", hidden: true, run: runProjects},
 
 		// Hidden: run by Claude Code as hooks and the status line (O.5).
 		{name: "hook orchestrator", hidden: true, run: notBuilt("cadre hook orchestrator")},

@@ -177,7 +177,10 @@ func TestCopyOldConfig(t *testing.T) {
 		t.Errorf("fingerprints %q", b)
 	}
 	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
-		t.Error("~/.config/cadre was not removed")
+		t.Error("~/.config/cadre is still there")
+	}
+	if _, err := os.Stat(old + ".moved-to-0.2.0/home"); err != nil || !strings.Contains(msg, ".moved-to-0.2.0") {
+		t.Errorf("the old folder was not kept aside: %v %q", err, msg)
 	}
 	if msg, _ := CopyOldConfig(); msg != "" {
 		t.Error("a second copy did something")
@@ -286,5 +289,43 @@ func TestProjectDir(t *testing.T) {
 	os.WriteFile(Config("projects-dir"), []byte("~/Developer\n"), 0o600)
 	if d := ProjectDir(in, e("a:\n  repo: r\n")); d != home+"/Developer/a" {
 		t.Errorf("projects folder: %s", d)
+	}
+}
+
+func TestListSkipsLinksAndBadNames(t *testing.T) {
+	home := fakeHome(t, true)
+	Create("work", "", tmpl)
+	look := filepath.Join(home, "lookalike")
+	os.MkdirAll(look+"/personas", 0o755)
+	os.Symlink(look, home+"/.cadre/linked")
+	os.MkdirAll(home+"/.cadre/my.cadre/personas", 0o755)
+	list, _ := List()
+	if len(list) != 1 || list[0].Name != "work" {
+		t.Errorf("list %+v", list)
+	}
+}
+
+// On a case-insensitive disk (macOS), another spelling of a cadre's folder
+// or a project's folder is that folder.
+func TestResolveThroughAnotherSpelling(t *testing.T) {
+	home := fakeHome(t, true)
+	Create("work", "", tmpl)
+	play, _, _ := Create("play", "", tmpl)
+	SetDefault("work")
+	upper := home + "/.CADRE/PLAY/teams"
+	if _, err := os.Stat(upper); err != nil {
+		t.Skip("the disk is case-sensitive")
+	}
+	if r, err := Resolve(upper, nil); err != nil || r.Name != "play" || r.From != "from this folder" {
+		t.Errorf("a case variant of a cadre folder: %+v %v", r, err)
+	}
+	os.MkdirAll(home+"/Dev/app", 0o755)
+	addLink(t, play, "app", "~/Dev/app")
+	if r, err := Resolve(home+"/DEV/APP", nil); err != nil || r.Name != "play" || r.Project != "app" {
+		t.Errorf("a case variant of a project folder: %+v %v", r, err)
+	}
+	t.Setenv("CADRE_HOME", home+"/.cadre/PLAY")
+	if r, _ := Resolve(home, nil); r.Name != "play" {
+		t.Errorf("CADRE_HOME in another case: %+v", r)
 	}
 }

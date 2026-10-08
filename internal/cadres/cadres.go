@@ -70,7 +70,9 @@ func List() ([]Cadre, error) {
 	}
 	for _, e := range entries {
 		n := e.Name()
-		if strings.HasPrefix(n, ".") || reserved[strings.ToLower(n)] {
+		// A symlink here would make any folder a cadre without cadres add,
+		// and a name that cannot be a cadre's would break session names.
+		if e.Type()&fs.ModeSymlink != 0 || CheckName(n) != nil {
 			continue
 		}
 		c := Cadre{Name: n, Path: paths.Real(filepath.Join(Root(), n))}

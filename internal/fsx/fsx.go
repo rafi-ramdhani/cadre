@@ -109,7 +109,9 @@ func Acquire(path string, wait time.Duration) (*Lock, error) {
 // openLock opens (or creates) a lock file without following a symlink and
 // checks it is a plain file of this user's with one link.
 func openLock(path string) (*os.File, error) {
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	// O_NONBLOCK: a FIFO planted here would otherwise block the open, and
+	// every cadre command with it; this way the check below refuses it.
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0o600)
 	if err != nil {
 		if errors.Is(err, unix.ELOOP) {
 			return nil, fmt.Errorf("lock %s is a symlink; remove it", path)

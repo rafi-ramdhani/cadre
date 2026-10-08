@@ -20,9 +20,9 @@ import (
 )
 
 // interactive reports whether cadre may ask the user: stdin is a terminal,
-// or CADRE_TEST_TTY=1 (tests only) lets answers come from stdin.
+// or, in a test build, answers come from stdin (see tty*.go).
 func (e *env) interactive() bool {
-	if os.Getenv("CADRE_TEST_TTY") == "1" {
+	if testTTY() {
 		return true
 	}
 	f, ok := e.stdin.(*os.File)
@@ -61,7 +61,7 @@ func (e *env) resolve() (*cadres.Resolved, bool) {
 			return e.ask(fmt.Sprintf("%s is linked by %s. Which cadre? [%s] ", project, strings.Join(names, " and "), strings.Join(names, "/"))), nil
 		}
 	}
-	wd, err := os.Getwd()
+	wd, err := paths.Getwd()
 	if err != nil {
 		wd = paths.Home()
 	}
@@ -233,6 +233,9 @@ func runTeamAdd(e *env) int {
 	if !partName.MatchString(e.args[0]) {
 		return e.fail("a team's name may use letters, digits, - and _")
 	}
+	if e.persona("add teams") {
+		return 1
+	}
 	r, ok := e.resolve()
 	if !ok {
 		return 1
@@ -251,6 +254,10 @@ func runPersonaAdd(e *env) int {
 	}
 	if !partName.MatchString(team) || !partName.MatchString(role) {
 		return e.fail("a team's and a role's name may use letters, digits, - and _")
+	}
+	// A new persona's prompt is launched later with the cadre's grants.
+	if e.persona("add personas") {
+		return 1
 	}
 	r, ok := e.resolve()
 	if !ok {

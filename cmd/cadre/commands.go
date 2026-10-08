@@ -92,7 +92,7 @@ func init() {
 		{name: "project relink", usage: "<name> <dir>", summary: "point a project at its folder's new place", group: "Projects", run: notBuilt("cadre project relink")},
 		{name: "project restore", usage: "<name>", summary: "clone a missing project again, to the same place", group: "Projects", run: notBuilt("cadre project restore")},
 		{name: "project export", usage: "<name> <dir>", summary: "a clean git copy of a project", group: "Projects", run: notBuilt("cadre project export")},
-		{name: "project trust", usage: "<name> | --all", summary: "trust project folders in Claude Code", group: "Projects", run: runProjectTrust},
+		{name: "project trust", usage: "<name> | --all", summary: "mark project folders as trusted, so personas start there without asking", group: "Projects", run: runProjectTrust},
 		{name: "project sync", summary: "clone registry projects missing on this machine", group: "Projects", run: runProjectSync},
 		{name: "project path", usage: "<name>", summary: "print a project's folder", group: "Projects", run: runProjectPath},
 		{name: "project dir", usage: "[<dir>]", summary: "where new clones go", group: "Projects", run: runProjectDir},

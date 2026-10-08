@@ -174,7 +174,7 @@ func TestClaudeNamesCannotCollide(t *testing.T) {
 		t.Fatalf("first: %q", out)
 	}
 	out, failed := up(tm, c, stub, "dev-x", "y", "")
-	if !failed || !strings.Contains(out, "the Claude session name c-dev-x-y is already used by window x-y of tmux session cadre-c-dev") {
+	if !failed || !strings.Contains(out, "the session name c-dev-x-y is already used by window x-y of tmux session cadre-c-dev") {
 		t.Errorf("one cadre, two teams: %v %q", failed, out)
 	}
 	// Across cadres: a with team x and role y-z, a-x with team y and role z.
@@ -249,4 +249,36 @@ func waitFile(t *testing.T, path string) string {
 	}
 	t.Fatalf("%s was not written", path)
 	return ""
+}
+
+func TestStartPassesEveryArgumentAsItIs(t *testing.T) {
+	tm := private(t)
+	dir := t.TempDir()
+	probe := filepath.Join(dir, "probe")
+	os.WriteFile(probe, []byte("#!/bin/sh\nout=$1; shift\nprintf '%s|' \"$@\" > \"$out\"\nexec sleep 30\n"), 0o755)
+	out := filepath.Join(dir, "out")
+	// tmux splits at an argument that is or ends with ";".
+	err := tm.Start(StartSpec{Session: "cadre-x", Window: "w", Dir: dir, Argv: []string{probe, out, "a;", ";", "x;y", "$HOME", "it's"},
+		SessionOptions: []Option{{"@cadre_home", "/path;"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 50; i++ {
+		if b, _ := os.ReadFile(out); len(b) > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if b, _ := os.ReadFile(out); string(b) != "a;|;|x;y|$HOME|it's|" {
+		t.Errorf("the command got %q", b)
+	}
+	if tm.Option("cadre-x", "@cadre_home") != "/path;" {
+		t.Errorf("option %q", tm.Option("cadre-x", "@cadre_home"))
+	}
+	if err := tm.Start(StartSpec{Session: "cadre-y", Window: "w", Dir: dir, Argv: []string{probe, `a\;`}}); err == nil {
+		t.Error("an argument ending in a backslash and a semicolon was passed")
+	}
+	if err := tm.Start(StartSpec{Session: "cadre-z", Window: "w", Dir: dir, Argv: []string{"sleep"}}); err == nil {
+		t.Error("a one-word command, which tmux runs through a shell, was started")
+	}
 }

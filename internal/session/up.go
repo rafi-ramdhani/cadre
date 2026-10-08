@@ -135,16 +135,12 @@ func (u Up) start(out io.Writer, role string) error {
 	argv := cmd.Argv
 	// CADRE_HOME pins the persona to this cadre wherever it works.
 	env := append([]string{"CADRE_HOME=" + u.Path, "CADRE_PERSONA=" + name}, cmd.Env...)
-	isNew := !u.T.Has(session)
-	if err := u.T.Start(session, role, dir, env, argv); err != nil {
+	err = u.T.Start(StartSpec{Session: session, Window: role, Dir: dir, Env: env, Argv: argv,
+		SessionOptions: []Option{{"@cadre_home", u.Path}, {"@cadre_team", u.Team}, {"@cadre_project", u.Project}},
+		WindowOptions:  []Option{{"@cadre_persona", name}}})
+	if err != nil {
 		return fmt.Errorf("  %s not started: %s", name, err)
 	}
-	if isNew {
-		u.T.SetOption(session, "@cadre_home", u.Path)
-		u.T.SetOption(session, "@cadre_team", u.Team)
-		u.T.SetOption(session, "@cadre_project", u.Project)
-	}
-	u.T.SetWindowOption(session, role, "@cadre_persona", name)
 	// A command that cannot run ends at once: its window closes, or stays
 	// with a dead pane when the user's tmux sets remain-on-exit.
 	wait := u.Wait

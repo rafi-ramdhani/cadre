@@ -105,9 +105,14 @@ func (p permissions) Prepare(cadre string, places runtime.Places) runtime.Prepar
 		out.Notes = append(out.Notes, "  created "+file+" (grants for personas; change it with cadre allow)")
 	}
 	build := Claude{}.BuildDir(cadre)
-	copyPath, err := settings.Export(file, build, settings.Places{Root: places.Root, Cadres: places.Cadres})
+	sp := settings.Places{Root: places.Root, Cadres: places.Cadres}
+	copyPath, err := settings.Export(file, build, sp)
 	if err != nil {
-		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: personas start without %s because %s; fix it or restore it with git -C %s checkout -- %s", file, err, cadre, settings.Rel))
+		// The persona still gets every deny rule, and no grants.
+		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: personas start with no grants, only cadre's deny rules, because %s cannot be used: %s; fix it or restore it with git -C %s checkout -- %s", file, err, cadre, settings.Rel))
+		if out.Grants, err = settings.ExportDenyOnly(build, sp); err != nil {
+			out.Warnings = append(out.Warnings, "warning: could not write the deny-only copy: "+err.Error())
+		}
 		return out
 	}
 	out.Grants = copyPath

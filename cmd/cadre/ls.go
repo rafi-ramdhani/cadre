@@ -17,7 +17,13 @@ import (
 )
 
 // The data of cadre ls, which --json prints as it is, so the orchestrator
-// never reads the human layout (M.2).
+// never reads the human layout (M.2). Its shape is versioned: a field is
+// added under the same version, and anything else changes the version.
+// A legacy session's personas have runtime "": they started before cadre
+// recorded which runtime ran them.
+
+// jsonVersion is the version of ls --json's shape.
+const jsonVersion = 1
 
 type cadreView struct {
 	Name    string `json:"name"`
@@ -38,7 +44,7 @@ type sessionView struct {
 	Session  string        `json:"session"` // the tmux session
 	Team     string        `json:"team"`
 	Project  string        `json:"project,omitempty"`
-	Legacy   bool          `json:"legacy,omitempty"` // from before session names carried the cadre
+	Legacy   bool          `json:"legacy"` // from before session names carried the cadre
 	Personas []personaView `json:"personas"`
 }
 
@@ -58,6 +64,7 @@ type otherView struct {
 }
 
 type cadreStatus struct {
+	Version  int                      `json:"version,omitempty"` // set on the top-level object
 	Cadre    cadreView                `json:"cadre"`
 	Running  []sessionView            `json:"running"`
 	Projects []projectView            `json:"projects"`
@@ -67,6 +74,7 @@ type cadreStatus struct {
 }
 
 type allStatus struct {
+	Version int           `json:"version"`
 	Cadres  []cadreStatus `json:"cadres"`
 	Legacy  []sessionView `json:"legacy"`
 	Unknown []sessionView `json:"unknown"`
@@ -143,7 +151,7 @@ func runLs(e *env) int {
 	def := cadres.Default()
 	list, _ := cadres.List()
 	if all {
-		st := allStatus{Cadres: []cadreStatus{}, Legacy: []sessionView{}, Unknown: []sessionView{}}
+		st := allStatus{Version: jsonVersion, Cadres: []cadreStatus{}, Legacy: []sessionView{}, Unknown: []sessionView{}}
 		known := map[string]bool{}
 		for _, c := range list {
 			known[c.Path] = true
@@ -179,6 +187,7 @@ func runLs(e *env) int {
 		return 1
 	}
 	st := statusOf(r.Cadre, r.Default, t)
+	st.Version = jsonVersion
 	st.Cadre.From, st.Cadre.Project = r.From, r.Project
 	for _, c := range list {
 		if c.Path == r.Path {

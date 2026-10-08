@@ -40,12 +40,16 @@ func (e *env) cadreRuntime(r *cadres.Resolved) (runtime.Runtime, bool) {
 	return rt, true
 }
 
-// places are the folders a runtime's fixed denies must name.
-func places() runtime.Places {
-	p := runtime.Places{Root: paths.Real(cadres.Root())}
+// places are the folders a runtime's fixed denies must name: ~/.cadre as
+// resolved, the resolved cadre (registered or not, as with CADRE_HOME), and
+// every known cadre.
+func places(r *cadres.Resolved) runtime.Places {
+	p := runtime.Places{Root: paths.Real(cadres.Root()), Cadres: []string{r.Path}}
 	if list, err := cadres.List(); err == nil {
 		for _, c := range list {
-			p.Cadres = append(p.Cadres, c.Path)
+			if c.Path != r.Path {
+				p.Cadres = append(p.Cadres, c.Path)
+			}
 		}
 	}
 	return p

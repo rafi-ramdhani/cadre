@@ -15,11 +15,17 @@ import (
 // (AC-P2): its command, flags, folders and files, hook events and
 // settings keys.
 var (
-	exact = []string{"claude", "SessionStart", "UserPromptSubmit", "PreToolUse", "Notification", "Stop",
+	exact = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "Notification", "Stop",
 		"PostCompact", "statusLine", "permissions", "autoMode"}
 	inside = []string{"--permission-mode", "--append-system-prompt-file", "--settings", "--session-id", "--resume",
 		".claude", "CLAUDE_CONFIG_DIR", "hasTrustDialogAccepted", "soft_deny", "$defaults", "orchestrator-hook.sh"}
 )
+
+// prose are the only string literals outside the adapter that may name
+// Claude Code: text about the product, not its command or files.
+var prose = map[string]bool{
+	"cadre: a team of Claude Code sessions you lead from one conversation": true,
+}
 
 // TestNoClaudeOutsideTheAdapter scans the string literals of every Go
 // file outside internal/runtime/claude (tests and the test-only fake
@@ -48,12 +54,19 @@ func TestNoClaudeOutsideTheAdapter(t *testing.T) {
 			return err
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
+			if _, ok := n.(*ast.ImportSpec); ok {
+				return false // an import path is not a string the program uses
+			}
 			lit, ok := n.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {
 				return true
 			}
 			s, err := strconv.Unquote(lit.Value)
 			if err != nil {
+				return true
+			}
+			if strings.Contains(strings.ToLower(s), "claude") && !prose[strings.TrimSuffix(s, "\n")] {
+				found = append(found, fset.Position(lit.Pos()).String()+": "+lit.Value)
 				return true
 			}
 			for _, x := range exact {

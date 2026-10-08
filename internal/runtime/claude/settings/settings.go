@@ -228,6 +228,22 @@ func Export(path, dir string, places Places) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return write(root, dir, places)
+}
+
+// ExportDenyOnly writes the copy a persona starts with when the settings
+// file cannot be used: no grants, only the deny rules and the soft_deny
+// lines, so a broken file never means a persona without them.
+func ExportDenyOnly(dir string, places Places) (string, error) {
+	root := jsonx.NewObject(
+		"permissions", jsonx.NewObject("allow", strs(), "deny", strs(Protect...)),
+		"autoMode", jsonx.NewObject("allow", strs(Defaults), "soft_deny", strs(Defaults, FixedSoft)),
+	)
+	return write(root, dir, places)
+}
+
+// write writes the copy of a validated settings document.
+func write(root *jsonx.Value, dir string, places Places) (string, error) {
 	out := jsonx.NewObject()
 	for _, a := range allowed {
 		src := root.Get(a.key)

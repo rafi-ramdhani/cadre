@@ -21,16 +21,17 @@ func scope(r *cadres.Resolved) session.Scope {
 	return session.Scope{Name: r.Name, Path: r.Path, Default: r.Name == r.Default, T: session.Default()}
 }
 
-// tmuxReady checks that tmux 3.0 or newer is there: cadre runs persona
-// commands without a shell, which needs it.
+// tmuxReady checks that tmux 3.2 or newer is there: cadre runs persona
+// commands without a shell, with their environment given by new-session
+// -e, which tmux 3.2 added.
 func (e *env) tmuxReady() bool {
 	major, minor, err := session.Default().Version()
 	if err != nil {
 		e.fail("%s (on macOS: brew install tmux)", err)
 		return false
 	}
-	if major < 3 {
-		e.fail("tmux %d.%d is too old; cadre needs tmux 3.0 or newer", major, minor)
+	if major < 3 || (major == 3 && minor < 2) {
+		e.fail("tmux %d.%d is too old; cadre needs tmux 3.2 or newer", major, minor)
 		return false
 	}
 	return true
@@ -73,7 +74,7 @@ func (e *env) picker(r *cadres.Resolved, team, mode string, values map[string]st
 		}
 		grants, done := prepared[rt.Name()]
 		if !done {
-			p := rt.Permissions().Prepare(r.Path, places())
+			p := rt.Permissions().Prepare(r.Path, places(r))
 			for _, n := range p.Notes {
 				e.say("%s", n)
 			}

@@ -108,14 +108,14 @@ func (s Scope) CheckSession(team, project string) error {
 	return nil
 }
 
-// CheckPersona refuses when the Claude session name a persona would get is
-// already used by a window of another session (another cadre, team,
-// project or role whose names join the same way), since a name must reach
-// one session only.
+// CheckPersona refuses when the session name a persona would get (its
+// messaging address) is already used by a window of another session
+// (another cadre, team, project or role whose names join the same way),
+// since a name must reach one session only.
 func (s Scope) CheckPersona(session, window, persona string) error {
 	for _, p := range s.T.Personas() {
 		if p.Name == persona && !(p.Session == session && p.Window == window) {
-			return fmt.Errorf("the Claude session name %s is already used by window %s of tmux session %s; rename a team, role or cadre folder so the names differ", persona, p.Window, p.Session)
+			return fmt.Errorf("the session name %s is already used by window %s of tmux session %s; rename a team, role or cadre folder so the names differ", persona, p.Window, p.Session)
 		}
 	}
 	return nil

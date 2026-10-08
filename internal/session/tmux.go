@@ -139,24 +139,87 @@ func (t Tmux) Personas() []Persona {
 	return list
 }
 
-// Start runs argv in a new window of session (a new session when it does
-// not run yet), in dir, with env added. The command runs as it is: tmux
-// 3.0 and newer exec a command given as several arguments without a shell,
-// so no value needs quoting.
-func (t Tmux) Start(session, window, dir string, env []string, argv []string) error {
+// Option is a tmux user option to set.
+type Option struct{ Name, Value string }
+
+// StartSpec is a window to start.
+type StartSpec struct {
+	Session, Window, Dir string
+	Env                  []string // KEY=value
+	Argv                 []string // at least the program and one argument
+	SessionOptions       []Option // set on a new session, in the same tmux command
+	WindowOptions        []Option
+}
+
+// word passes one argument to tmux as it is. tmux splits its command line
+// at an argument that is or ends with ";", and reads a trailing "\;" as a
+// literal ";", so a trailing ";" is escaped; an argument that already ends
+// in "\;" is refused, since tmux would change it.
+func word(w string) (string, error) {
+	switch {
+	case strings.HasSuffix(w, `\;`):
+		return "", fmt.Errorf("cannot pass %q to tmux: it ends in a backslash and a semicolon", w)
+	case strings.HasSuffix(w, ";"):
+		return w[:len(w)-1] + `\;`, nil
+	}
+	return w, nil
+}
+
+// Start runs argv in a new window of the session (a new session when it
+// does not run yet), in dir, with env added, and sets the options in the
+// same tmux command, so no other cadre command sees the session without
+// them. The command runs as it is: with several arguments, tmux execs it
+// without a shell (and -e on new-session needs tmux 3.2), so no value
+// needs quoting.
+func (t Tmux) Start(s StartSpec) error {
+	if len(s.Argv) < 2 {
+		// With one argument, tmux hands it to a shell.
+		return fmt.Errorf("tmux: a command needs at least two arguments to run without a shell")
+	}
 	var args []string
-	if t.Has(session) {
-		args = []string{"new-window", "-d", "-t", "=" + session + ":", "-n", window, "-c", dir}
+	var bad error
+	// add escapes each word as it goes in; only the separators added below
+	// are bare ";".
+	add := func(words ...string) {
+		for _, w := range words {
+			e, err := word(w)
+			if err != nil && bad == nil {
+				bad = err
+			}
+			args = append(args, e)
+		}
+	}
+	isNew := !t.Has(s.Session)
+	if isNew {
+		add("new-session", "-d", "-s", s.Session, "-n", s.Window, "-c", s.Dir)
 	} else {
-		args = []string{"new-session", "-d", "-s", session, "-n", window, "-c", dir}
+		add("new-window", "-d", "-t", "="+s.Session+":", "-n", s.Window, "-c", s.Dir)
 	}
-	for _, e := range env {
-		args = append(args, "-e", e)
+	for _, e := range s.Env {
+		add("-e", e)
 	}
-	args = append(append(args, "--"), argv...)
-	if out, err := t.run(args...); err != nil {
+	add("--")
+	add(s.Argv...)
+	set := func(flag, target string, o Option) {
+		args = append(args, ";")
+		add("set-option", flag, "-t", target, o.Name, o.Value)
+	}
+	if isNew {
+		for _, o := range s.SessionOptions {
+			set("-q", "="+s.Session+":", o)
+		}
+	}
+	for _, o := range s.WindowOptions {
+		set("-wq", "="+s.Session+":="+s.Window, o)
+	}
+	if bad != nil {
+		return bad
+	}
+	if out, err := t.run(args...); err != nil && t.Has(s.Session) {
 		return fmt.Errorf("tmux: %s", out)
 	}
+	// A command that ended at once took its session with it before the
+	// options were set; the caller's start check reports that.
 	return nil
 }
 

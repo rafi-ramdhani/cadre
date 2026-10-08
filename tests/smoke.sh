@@ -53,7 +53,7 @@ git init -q --bare "$T/remote.git"
 git -C "$T" clone -q "$T/remote.git" seed 2>/dev/null
 git -C "$T/seed" commit -q --allow-empty -m init
 git -C "$T/seed" push -q origin HEAD 2>/dev/null
-cadre add project app "$T/remote.git" dev "A test app" >/dev/null
+out=$(cadre add project app "$T/remote.git" dev "A test app")
 check "project cloned into projects/" test -d "$C/projects/app/.git"
 check "project listed" bash -c "cadre projects | grep -q app"
 check "path resolves" test "$(cadre path app)" = "$C/projects/app"
@@ -61,6 +61,147 @@ cadre add team ops >/dev/null
 cadre add persona ops/sre >/dev/null
 check "persona created" test -f "$C/personas/ops/sre.md"
 check "duplicate project refused" bash -c "! cadre add project app '$T/remote.git'"
+
+echo "trust"
+CFG="$HOME/.claude.json"
+check "no config: project still added" test -d "$C/projects/app/.git"
+check "no config: none created" test ! -e "$CFG"
+check "no config: explained" grep -q "has not created its config yet" <<<"$out"
+# py <script> [args]: runs a check written in python, exit status is the result.
+py() { python3 -c "$@"; }
+trusted() { py 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d["projects"][sys.argv[2]]["hasTrustDialogAccepted"] is True else 1)' "$1" "$2"; }
+mtime() { py 'import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$1"; }
+mode() { py 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$1"; }
+phys() { (cd "$1" && pwd -P); }
+printf '{"numStartups": 3, "oauthAccount": {"x": 1}, "projects": {"/elsewhere": {"allowedTools": [], "hasTrustDialogAccepted": false}}}' > "$CFG"
+chmod 600 "$CFG"
+cp "$CFG" "$T/cfg.orig"
+out=$(cadre add project t1 "$T/remote.git")
+check "add project trusts" grep -q "t1 added, cloned to $C/projects/t1 and trusted in Claude Code" <<<"$out"
+check "physical path trusted" trusted "$CFG" "$(phys "$C/projects/t1")"
+check "path as typed trusted" trusted "$CFG" "$C/projects/t1"
+check "only the trust keys changed" py '
+import json, sys
+new, old = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
+for k in set(sys.argv[3:]):
+    assert new["projects"].pop(k) == {"hasTrustDialogAccepted": True}
+assert new == old' "$CFG" "$T/cfg.orig" "$C/projects/t1" "$(phys "$C/projects/t1")"
+check "backup written" cmp -s "$CFG.bak-cadre" "$T/cfg.orig"
+check "mode kept" test "$(mode "$CFG")" = 0o600
+rm "$CFG.bak-cadre"; m=$(mtime "$CFG")
+check "already trusted reported" bash -c "cadre trust t1 | grep -q 'already trusted'"
+check "already trusted: no rewrite" test "$(mtime "$CFG")" = "$m" -a ! -e "$CFG.bak-cadre"
+cp "$CFG" "$T/cfg.before"
+cadre add project t2 "$T/remote.git" --no-trust >/dev/null
+check "--no-trust leaves the config alone" cmp -s "$CFG" "$T/cfg.before"
+check "trust one project" bash -c "cadre trust t2 | grep -q 't2: trusted'"
+check "trust one project: written" trusted "$CFG" "$(phys "$C/projects/t2")"
+check "non-registry name refused" bash -c "! cadre trust nope"
+check "plain folder refused" bash -c "! cadre trust '$C/teams'"
+cp "$CFG" "$T/cfg.good"
+printf '{not json' > "$CFG"; cp "$CFG" "$T/cfg.bad"
+out=$(cadre add project t3 "$T/remote.git") || fail "invalid config: add failed"
+check "invalid config: unchanged" cmp -s "$CFG" "$T/cfg.bad"
+check "invalid config: warning names it" grep -q "warning: $CFG" <<<"$out"
+printf '{"projects": []}' > "$CFG"; cp "$CFG" "$T/cfg.bad"
+check "projects not an object: exit 0" cadre trust t3
+check "projects not an object: unchanged" cmp -s "$CFG" "$T/cfg.bad"
+mkdir -p "$T/ccd"; printf '{}' > "$T/ccd/.claude.json"
+cp "$T/cfg.good" "$CFG"
+CLAUDE_CONFIG_DIR="$T/ccd" cadre trust t3 >/dev/null
+check "CLAUDE_CONFIG_DIR honoured" trusted "$T/ccd/.claude.json" "$(phys "$C/projects/t3")"
+check "CLAUDE_CONFIG_DIR: home config untouched" cmp -s "$CFG" "$T/cfg.good"
+cadre add project t4 "$T/remote.git" --no-trust >/dev/null
+rm -rf "$C/projects/t4"
+check "first backup kept" bash -c "cadre trust t3 >/dev/null; cmp -s '$CFG.bak-cadre' '$T/cfg.before'"
+rm -f "$CFG.bak-cadre"
+cp "$CFG" "$T/cfg.before"
+out=$(cadre trust --all)
+check "--all: already trusted" grep -q "t1: already trusted" <<<"$out"
+check "--all: trusted" grep -q "app: trusted" <<<"$out"
+check "--all: missing locally" grep -q "t4: missing locally" <<<"$out"
+check "--all: one backup of the original" cmp -s "$CFG.bak-cadre" "$T/cfg.before"
+m=$(mtime "$CFG")
+cadre trust --all >/dev/null
+check "--all again changes nothing" test "$(mtime "$CFG")" = "$m"
+out=$(cadre sync)
+check "sync clones and trusts" grep -q "t4: trusted" <<<"$out"
+check "sync: trust written" trusted "$CFG" "$(phys "$C/projects/t4")"
+check "sync: present projects left alone" bash -c "! grep -q 'app: .*trusted' <<<'$out'"
+rm -rf "$C/projects/t4"
+py 'import json,sys; d=json.load(open(sys.argv[1])); [d["projects"].pop(k) for k in list(d["projects"]) if k.endswith("/t4")]; json.dump(d, open(sys.argv[1], "w"))' "$CFG"
+cp "$CFG" "$T/cfg.before"
+cadre sync --no-trust >/dev/null
+check "sync --no-trust clones" test -d "$C/projects/t4/.git"
+check "sync --no-trust leaves the config alone" cmp -s "$CFG" "$T/cfg.before"
+untrusted() { ! trusted "$@" 2>/dev/null; }
+check "name with .. refused" bash -c "! cadre add project '../..' '$T/remote.git'"
+check "name with a slash refused" bash -c "! cadre add project 'a/b' '$T/remote.git'"
+check "unknown option refused" bash -c "! cadre add project t9 '$T/remote.git' --no-trsut"
+check "refused names not registered" bash -c "! grep -q -e '^\.\.' -e '^t9:' -e '^a/b:' '$C/projects.yaml'"
+mkdir -p "$T/plain"; git init -q "$C/teams/x"
+printf '\nhome:\n  path: ~\nself:\n  path: .\nteamdir:\n  path: teams/x\nplain:\n  path: %s\n' "$T/plain" >> "$C/projects.yaml"
+out=$(cadre trust --all)
+check "home folder refused" grep -q "home: not trusted, it is your home folder" <<<"$out"
+check "cadre folder refused" grep -q "self: not trusted, it is the cadre folder" <<<"$out"
+check "team folder refused" grep -q "teamdir: not trusted, it is a team folder" <<<"$out"
+check "folder outside a repo refused" grep -q "plain: not trusted, it is not the top folder of a git repo" <<<"$out"
+check "home folder not written" untrusted "$CFG" "$(phys "$HOME")"
+check "cadre folder not written" untrusted "$CFG" "$(phys "$C")"
+git -C "$C" checkout -q projects.yaml; rm -rf "$C/teams/x" "$T/plain"
+cp "$CFG" "$T/cfg.good"
+cp "$CFG" "$T/cfg.before"
+check "persona cannot run cadre trust" bash -c "! CADRE_PERSONA=x cadre trust t1"
+out=$(CADRE_PERSONA=x cadre add project t5 "$T/remote.git")
+check "persona add: cloned" test -d "$C/projects/t5/.git"
+check "persona add: config untouched" cmp -s "$CFG" "$T/cfg.before"
+check "persona add: says why" grep -q "persona sessions cannot trust" <<<"$out"
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["projects"].pop(sys.argv[2], None); d["projects"].pop(sys.argv[3], None); json.dump(d, open(sys.argv[1], "w"))' "$T/cfg.good" "$C/projects/t3" "$(phys "$C/projects/t3")"
+printf '{"history": "pasted \\ud83d broken", "projects": {}}' > "$CFG"
+err=$(cadre trust t3 2>&1 >/dev/null)
+check "lone surrogate: trusted" trusted "$CFG" "$(phys "$C/projects/t3")"
+check "lone surrogate: kept as an escape" grep -q 'ud83d' "$CFG"
+check "lone surrogate: no traceback" test -z "$err"
+cp "$T/cfg.good" "$CFG"; printf '{bad' > "$CFG"; rm -f "$CFG.bak-cadre"
+cadre trust t3 >/dev/null
+check "invalid config: no backup" test ! -e "$CFG.bak-cadre"
+if [ "$(id -u)" != 0 ]; then
+  cp "$T/cfg.good" "$CFG"; chmod 000 "$CFG"
+  out=$(cadre trust t3 2>&1)
+  chmod 600 "$CFG"
+  check "unreadable config: warning" grep -q "not a file cadre can safely edit" <<<"$out"
+  check "unreadable config: unchanged" cmp -s "$CFG" "$T/cfg.good"
+  check "unreadable config: no backup" test ! -e "$CFG.bak-cadre"
+  mkdir -p "$T/ro"; cp "$T/cfg.good" "$T/ro/.claude.json"; chmod 555 "$T/ro"
+  out=$(CLAUDE_CONFIG_DIR="$T/ro" cadre trust t3 2>&1)
+  chmod 755 "$T/ro"
+  check "unwritable folder: warning" grep -q "could not write next to" <<<"$out"
+  check "unwritable folder: unchanged" cmp -s "$T/ro/.claude.json" "$T/cfg.good"
+fi
+rm "$CFG"; cp "$T/cfg.good" "$T/real.json"; ln -s "$T/real.json" "$CFG"
+cadre trust t3 >/dev/null
+check "symlinked config: link kept" test -L "$CFG"
+check "symlinked config: target written" trusted "$T/real.json" "$(phys "$C/projects/t3")"
+rm "$CFG"; cp "$T/cfg.good" "$CFG"; chmod 644 "$CFG"
+cadre trust t3 >/dev/null
+check "mode 0644 kept" test "$(mode "$CFG")" = 0o644
+# A program run between the write and the re-check plays a Claude Code
+# session that rewrites the file: once, then on every attempt.
+printf '%s\n' '#!/usr/bin/env python3' 'import json, sys' 'n, p = int(sys.argv[1]), sys.argv[2]' \
+  'if n == 1 or sys.argv[0].endswith("always"):' \
+  '    d = json.load(open(p)); d["touched"] = n; json.dump(d, open(p, "w"))' > "$T/change-once"
+cp "$T/change-once" "$T/change-always"; chmod +x "$T/change-once" "$T/change-always"
+cp "$T/cfg.good" "$CFG"
+CADRE_TEST_JSON_EDIT_HOOK="$T/change-once" cadre trust t3 >/dev/null
+check "changed once: retried and trusted" trusted "$CFG" "$(phys "$C/projects/t3")"
+check "changed once: the outside change kept" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["touched"] == 1 else 1)' "$CFG"
+cp "$T/cfg.good" "$CFG"
+out=$(CADRE_TEST_JSON_EDIT_HOOK="$T/change-always" cadre trust t3)
+check "always changing: gives up with a warning" grep -q "kept changing" <<<"$out"
+check "always changing: not written by cadre" untrusted "$CFG" "$(phys "$C/projects/t3")"
+check "always changing: the last outside change stands" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["touched"] == 3 else 1)' "$CFG"
+check "no temporary files left" test -z "$(find "$HOME" "$T/ro" -maxdepth 1 -name '.cadre-*')"
+cp "$T/cfg.good" "$CFG"; chmod 600 "$CFG"
 
 echo "sessions"
 cadre up dev/engineer app >/dev/null
@@ -225,9 +366,11 @@ check "back to up to date" bash -c "cadre update | grep -q 'is up to date'"
 
 echo "restore on a new machine"
 rm -rf "$HOME/.local" "$HOME/.config"
-CADRE_REPO="$ROOT" bash "$ROOT/install.sh" --from "$C" --dir "$T/machine2" --yes --no-hook >/dev/null
+cp "$CFG" "$T/cfg.before"
+CADRE_REPO="$ROOT" bash "$ROOT/install.sh" --from "$C" --dir "$T/machine2" --yes --no-hook --no-trust >/dev/null
 check "cadre cloned" test -f "$T/machine2/demo/playbook.md"
 check "projects cloned by sync" test -d "$T/machine2/demo/projects/app/.git"
 check "active cadre switched" grep -qx "$T/machine2/demo" "$HOME/.config/cadre/home"
+check "--from --no-trust leaves the config alone" cmp -s "$CFG" "$T/cfg.before"
 
 echo "$pass checks passed"

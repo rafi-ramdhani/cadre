@@ -75,10 +75,11 @@ cadre up dev/engineer my-app    # one persona
 cadre up research               # a team without a project
 cadre attach dev my-app         # watch a team or talk to it
 cadre down dev my-app           # stop it
-cadre add project <name> <repo> [team] [about]
+cadre add project <name> <repo> [team] [about]   # also trusts its folder (--no-trust skips)
+cadre trust <project> | --all   # trust registered projects added before 0.2.0
 cadre add team <team>
 cadre add persona <team>/<role>
-cadre sync                      # clone registry projects missing on this machine
+cadre sync                      # clone registry projects missing on this machine, and trust them
 cadre init <name>               # generate another cadre from the template
 cadre use <dir>                 # switch the active cadre
 cadre update                    # update the framework (--check only looks)
@@ -101,6 +102,8 @@ See [docs/guide.md](docs/guide.md) for writing personas, shaping the playbook, t
 **Every persona is a full Claude Code session.** Five running personas use roughly five times the usage of one. The orchestrator starts only the personas a task needs and offers to stop them afterwards.
 
 **Permission mode is your call.** Personas run in the mode set in `cadre.conf` (default: `default`). Cross-session messages are delivered without approval only when the orchestrator and the persona run in the same permission-mode class; otherwise they wait for you in the persona's window. Choose `auto` or another mode deliberately, knowing the personas act on messages from the orchestrator.
+
+**Registered projects are trusted.** `cadre add project` and `cadre sync` mark each project's folder as trusted in Claude Code, so personas start there without the trust prompt. Trust also lets that repo's own `.claude/settings.json` rules and hooks take effect, so register only repos you trust, or pass `--no-trust`.
 
 ## Contributing
 

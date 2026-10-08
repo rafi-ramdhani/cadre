@@ -456,6 +456,38 @@ done
 check "an --auto entry about cadre.conf is refused" bash -c "! cadre allow add --auto 'Editing cadre.conf is expected'"
 check "cadre.conf refusals leave the file unchanged" cmp -s "$PS" "$T/ps.before"
 ok "rules reaching cadre.conf refused"
+# Glob classes, escapes and braces are read as Claude Code reads them.
+for rule in "Edit(//$C/cadre.con[f])" "Edit(//$C/[c]adre.conf)" "Edit(//$C/cadre\\.conf)" "Edit(//$C/cadre.co\\nf)" \
+    "Edit(//$C/{cadre,x}.conf)" 'Edit(cadre.con[f])' 'Edit(*.conf)' 'Edit(**/*.conf)' 'Edit(./cadre.c*)' 'Edit(**/cadre.c*)' \
+    'Edit(~/.ss[h]/config)' 'Edit(~/.local/bi[n]/cadre)' 'Edit(~/.local/b*/cadre)' 'Edit(~/.config/cadr[e]/home)' \
+    'Edit(~/.tmux.con[f])' 'Edit(~/Library/LaunchAgent[s]/x.plist)' 'Edit(~/.cla[u]de/settings.json)' \
+    'Edit(src/\.\./x)' 'Edit(src/.[.]/x)'; do
+  if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
+  grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
+done
+check "glob refusals leave the file unchanged" cmp -s "$PS" "$T/ps.before"
+ok "glob classes, escapes and braces cannot hide a refused path"
+for rule in 'Edit(src/app/[id]/**)' 'Edit(src/app/\[id\]/page.tsx)' 'Edit(config/*.yml)' 'Edit(src/*/index.ts)'; do
+  cadre allow add "$rule" >/dev/null || fail "accepted: $rule"
+  cadre allow remove "$rule" >/dev/null
+done
+ok "relative paths with classes and escapes are still accepted"
+# A symlinked folder under home: both the written and the resolved path are checked.
+mkdir -p "$T/h2/dotfiles/config/git" "$T/h2/dotfiles/config/fish"
+ln -s "$T/h2/dotfiles/config" "$T/h2/.config"
+for rule in 'Edit(~/.config/gi?/config)' 'Edit(~/.config/g*/config)' 'Edit(~/.config/fis?/config.fish)'; do
+  if HOME="$T/h2" CADRE_HOME="$C" cadre allow add "$rule" >/dev/null 2>&1; then fail "refused through a symlink: $rule"; fi
+done
+check "symlink refusals leave the file unchanged" cmp -s "$PS" "$T/ps.before"
+ok "rules under a symlinked ~/.config refused"
+for rule in 'Bash(a \\; bash *)' 'Bash(a \\| bash *)' 'Bash(a \\& bash *)' 'Bash(npm test \\; rm -rf *)' 'Bash(echo x\\;bash -c *)'; do
+  if cadre allow add "$rule" >/dev/null 2>&1; then fail "refused: $rule"; fi
+done
+ok "an escaped backslash before an operator leaves the operator real"
+for text in "Editing the cadre conf file is routine" "Editing cadre . conf is routine"; do
+  if cadre allow add --auto "$text" >/dev/null 2>&1; then fail "refused --auto: $text"; fi
+done
+ok "--auto paraphrases of cadre.conf refused"
 check "an escaped ; is an argument, not an operator" cadre allow add 'Bash(find . -name x -exec rm {} \;)'
 cadre allow remove 'Bash(find . -name x -exec rm {} \;)' >/dev/null
 check "find -exec with a wildcard is still refused" bash -c "! cadre allow add 'Bash(find . -name *.x -exec rm {} \;)'"

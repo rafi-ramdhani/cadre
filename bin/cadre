@@ -866,8 +866,11 @@ def program(spec):
 
 
 def operators(spec):
-    """The shell operators outside quotes in a command specifier."""
+    """The shell operators outside quotes in a command specifier. # is never
+    a comment here: shlex would end the specifier at a # inside a word,
+    where the shell keeps reading (echo x#; bash runs bash)."""
     lex = shlex.shlex(spec.replace(":*", " *"), posix=True, punctuation_chars=True)
+    lex.commenters = ""
     lex.whitespace_split = True
     try:
         return [t for t in lex if t and set(t) <= set("&|;")]

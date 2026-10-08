@@ -425,6 +425,14 @@ for rule in 'Edit(~/.z*)' 'Edit(~/**/.zshrc)' 'Edit(//**/.zshrc)' 'Edit(~/.Zshrc
   cmp -s "$PS" "$T/ps.before" || fail "refused leaves the file: $rule"
 done
 ok "third-review bypass rules refused, file unchanged"
+# A # inside a word is not a comment, so the operator after it is real.
+for rule in 'Bash(echo x#; bash *)' 'Bash(npm test x#; bash *)' 'Bash(echo x#&& bash *)' 'Bash(echo x#| bash *)' \
+    'Bash(echo x#& bash *)' 'Bash(git log --format=#; sh *)' "Bash(echo 'x#'; bash *)" 'Bash(echo #; bash *)'; do
+  if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
+  grep -q "chains or backgrounds commands" <<<"$err" || fail "refused as chained: $rule"
+  cmp -s "$PS" "$T/ps.before" || fail "refused leaves the file: $rule"
+done
+ok "a # does not hide an operator"
 for text in "Personas can change their own access list" "Personas may edit files in the dot claude folder"; do
   if cadre allow add --auto "$text" >/dev/null 2>&1; then fail "refused --auto: $text"; fi
 done

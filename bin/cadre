@@ -51,6 +51,8 @@ resolve() {
 CADRE_ROOT=$(cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")/.." && pwd)
 
 CONFIG="$HOME/.config/cadre/home"
+# Hashes of persona settings files as cadre last wrote them, one per line.
+PSET_HASHES="$HOME/.config/cadre/persona-settings.sha256"
 BUILD="${XDG_CACHE_HOME:-$HOME/.cache}/cadre/build"
 
 # The active cadre: $CADRE_HOME, else the one recorded by init or use.
@@ -68,6 +70,7 @@ load_home() {
   MODE=${CADRE_PERMISSION_MODE:-$PERMISSION_MODE}
   PERSONAS="$CADRE_HOME/personas"
   REGISTRY="$CADRE_HOME/projects.yaml"
+  PSET="$CADRE_HOME/.claude/persona-settings.json"
 }
 
 set_home() { mkdir -p "$(dirname "$CONFIG")"; echo "$1" > "$CONFIG"; }
@@ -207,6 +210,7 @@ start_role() {
   } > "$prompt"
 
   local cmd="CADRE_PERSONA=$name claude --name $name --permission-mode $MODE --append-system-prompt-file '$prompt'"
+  if [ -n "${PSET_ARG:-}" ]; then cmd+=" --settings '$PSET_ARG'"; fi
   if tmux has-session -t "=cadre-$key" 2>/dev/null; then
     tmux new-window -d -t "=cadre-$key:" -n "$role" -c "$dir" "$cmd"
   else
@@ -243,6 +247,8 @@ cmd_up() {
   if [ -n "${2:-}" ]; then read -r proj dir <<<"$(locate "$2")"; explicit=$dir; fi
   [ -n "$dir" ] || dir=$(default_dir "$TEAM")
   local key; key=$(key_of "$TEAM" "$proj")
+  ensure_persona_settings
+  check_persona_settings
   if [ -n "$ROLE" ]; then
     start_role "$key" "$TEAM" "$ROLE" "$dir" "$explicit"
   else
@@ -509,6 +515,131 @@ except SystemExit:
 except BaseException:
     sys.exit(5)
 PY
+}
+
+# The persona settings file: a plain Claude Code settings file every persona
+# gets through --settings, holding the user's grants and fixed entries that
+# keep personas from changing it. Only permissions.allow/deny and
+# autoMode.allow/soft_deny are allowed, since a --settings file sits at
+# command-line precedence and could otherwise carry hooks or env.
+#   persona_settings create <file>          write the starting file
+#   persona_settings check <file>           exit 1 and say why when unusable
+#   persona_settings record <file> <hashes> remember the file's hash
+#   persona_settings verify <file> <hashes> exit 0 same, 1 changed, 2 unknown
+# The fixed entries name the file by a pattern, not its path, so they stay
+# valid when the cadre is cloned to another machine.
+persona_settings() {
+  python3 - "$@" <<'PY'
+import hashlib, json, os, sys, tempfile
+
+FIXED_DENY = ["Edit(//**/.claude/persona-settings.json)",
+              "Write(//**/.claude/persona-settings.json)",
+              "Bash(cadre allow:*)"]
+FIXED_SOFT = ("Changing persona permissions (editing a cadre's .claude/persona-settings.json "
+              "or running cadre allow) is only done by the user through the orchestrator")
+ALLOWED = {"permissions": ("allow", "deny"), "autoMode": ("allow", "soft_deny")}
+op, path = sys.argv[1], sys.argv[2]
+
+
+def atomic(target, text):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target) or ".", prefix=".cadre-")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.replace(tmp, target)
+
+
+def problem(data):
+    if not isinstance(data, dict):
+        return "it is not a JSON object"
+    for key, value in data.items():
+        if key not in ALLOWED:
+            return "it has the key %s; only permissions and autoMode are allowed" % key
+        if not isinstance(value, dict):
+            return "%s is not an object" % key
+        for sub, items in value.items():
+            if sub not in ALLOWED[key]:
+                return "it has %s.%s; only %s are allowed" % (key, sub, " and ".join(ALLOWED[key]))
+            if not isinstance(items, list) or not all(isinstance(i, str) for i in items):
+                return "%s.%s is not a list of strings" % (key, sub)
+            if key == "autoMode" and "$defaults" not in items:
+                return "autoMode.%s lacks \"$defaults\", which would replace the built-in rules" % sub
+    deny = data.get("permissions", {}).get("deny", [])
+    if not all(d in deny for d in FIXED_DENY):
+        return "permissions.deny lacks the entries that protect the file"
+    if FIXED_SOFT not in data.get("autoMode", {}).get("soft_deny", []):
+        return "autoMode.soft_deny lacks the entry that protects the file"
+    return None
+
+
+def digest():
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def hashes(hfile):
+    found = {}
+    try:
+        for line in open(hfile):
+            h, _, p = line.rstrip("\n").partition(" ")
+            if p:
+                found[p] = h
+    except OSError:
+        pass
+    return found
+
+
+if op == "create":
+    data = {"permissions": {"allow": [], "deny": FIXED_DENY},
+            "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults", FIXED_SOFT]}}
+    atomic(path, json.dumps(data, indent=2) + "\n")
+elif op == "check":
+    try:
+        why = problem(json.load(open(path)))
+    except OSError:
+        why = "it cannot be read"
+    except ValueError:
+        why = "it is not valid JSON"
+    if why:
+        print(why)
+        sys.exit(1)
+elif op == "record":
+    hfile = sys.argv[3]
+    found = hashes(hfile)
+    found[path] = digest()
+    os.makedirs(os.path.dirname(hfile), exist_ok=True)
+    atomic(hfile, "".join("%s %s\n" % (h, p) for p, h in sorted(found.items())))
+elif op == "verify":
+    want = hashes(sys.argv[3]).get(path)
+    sys.exit(2 if want is None else 0 if want == digest() else 1)
+PY
+}
+
+# Creates the persona settings file when the cadre has none, records its
+# hash and commits it.
+ensure_persona_settings() {
+  [ ! -e "$PSET" ] || return 0
+  mkdir -p "$(dirname "$PSET")"
+  persona_settings create "$PSET"
+  persona_settings record "$PSET" "$PSET_HASHES"
+  commit_change "Add the persona settings file" "$PSET"
+  echo "  created $PSET (grants for personas; change it with cadre allow)"
+}
+
+# Sets PSET_ARG to the persona settings file when personas may use it, and
+# warns when it is unusable or was edited outside cadre allow.
+check_persona_settings() {
+  local why code=0
+  PSET_ARG=""
+  if ! why=$(persona_settings check "$PSET"); then
+    echo "warning: personas start without $PSET because $why; fix it or restore it with git -C $CADRE_HOME checkout -- .claude/persona-settings.json" >&2
+    return 0
+  fi
+  PSET_ARG=$PSET
+  persona_settings verify "$PSET" "$PSET_HASHES" || code=$?
+  case $code in
+    1) echo "warning: $PSET was changed outside cadre allow (see git -C $CADRE_HOME log -p -- .claude/persona-settings.json); personas still get it because it is valid" >&2 ;;
+    2) persona_settings record "$PSET" "$PSET_HASHES" ;;
+  esac
 }
 
 # Claude Code's global config, where workspace trust is stored per folder.

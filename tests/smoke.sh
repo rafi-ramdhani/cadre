@@ -18,8 +18,13 @@ git config --global init.defaultBranch main
 mkdir -p "$HOME/.claude" "$T/bin"
 trap 'command tmux -L "$CADRE_TMUX_SOCKET" kill-server 2>/dev/null || true; rm -rf "$T"' EXIT
 
-# A stand-in for Claude Code that just stays alive like a session would.
-printf '#!/bin/sh\nsleep 300\n' > "$T/bin/claude"
+# A stand-in for Claude Code that records its arguments and stays alive
+# like a session would.
+cat > "$T/bin/claude" <<EOF
+#!/bin/sh
+printf '%s\\n' "\$@" > "$T/args-\$CADRE_PERSONA"
+exec sleep 300
+EOF
 chmod +x "$T/bin/claude"
 export PATH="$T/bin:$HOME/.local/bin:$PATH"
 
@@ -208,6 +213,44 @@ cadre up dev/engineer app >/dev/null
 check "project persona running" bash -c "cadre ls | grep -q '\[running\] dev-app-engineer'"
 check "persona works in the project" test "$(command tmux -L "$CADRE_TMUX_SOCKET" display -p -t cadre-dev-app:engineer '#{pane_current_path}')" = "$(cd "$C/projects/app" && pwd -P)"
 check "prompt built" grep -q "Persona" "${XDG_CACHE_HOME:-$HOME/.cache}/cadre/build/dev-app-engineer.md"
+# args_of <persona>: the arguments the stub claude got, once it has started.
+args_of() { for _ in $(seq 50); do [ -s "$T/args-$1" ] && break; sleep 0.1; done; cat "$T/args-$1" 2>/dev/null || true; }
+settings_arg() { args_of "$1" | grep -A1 -x -- --settings | tail -1; }
+PS="$C/.claude/persona-settings.json"
+check "persona settings created" test -f "$PS"
+check "persona settings committed" git -C "$C" ls-files --error-unmatch .claude/persona-settings.json
+check "persona settings passed to the persona" test "$(settings_arg dev-app-engineer)" = "$PS"
+# shellcheck disable=SC2016 # python reads "$defaults" literally
+check "persona settings start with no grants" py '
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["permissions"]["allow"] == []
+assert d["autoMode"]["allow"] == ["$defaults"] and d["autoMode"]["soft_deny"][0] == "$defaults"
+assert "Bash(cadre allow:*)" in d["permissions"]["deny"]
+assert set(d) == {"permissions", "autoMode"}' "$PS"
+# relaunch: restart dev/engineer for app and print cadre up's output.
+relaunch() { cadre down dev/engineer app >/dev/null; rm -f "$T/args-dev-app-engineer"; cadre up dev/engineer app 2>&1; }
+corrupt() {
+  local name=$1 edit=$2 out
+  py "$edit" "$PS"
+  out=$(relaunch)
+  grep -q "warning: personas start without $PS" <<<"$out" || fail "$name: no warning: $out"
+  [ -z "$(settings_arg dev-app-engineer)" ] || fail "$name: file still passed"
+  [ -n "$(args_of dev-app-engineer)" ] || fail "$name: persona did not start"
+  git -C "$C" checkout -q -- .claude/persona-settings.json
+  ok "$name"
+}
+corrupt "extra key refused" 'import json,sys; d=json.load(open(sys.argv[1])); d["hooks"]={}; json.dump(d, open(sys.argv[1], "w"))'
+corrupt "missing \$defaults refused" 'import json,sys; d=json.load(open(sys.argv[1])); d["autoMode"]["allow"]=[]; json.dump(d, open(sys.argv[1], "w"))'
+corrupt "invalid JSON refused" 'import sys; open(sys.argv[1], "w").write("{")'
+corrupt "missing self-protection refused" 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["deny"]=[]; json.dump(d, open(sys.argv[1], "w"))'
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"].append("Bash(true)"); json.dump(d, open(sys.argv[1], "w"))' "$PS"
+out=$(relaunch)
+check "hand edit warned" grep -q "was changed outside cadre allow" <<<"$out"
+check "hand edit still passed when valid" test "$(settings_arg dev-app-engineer)" = "$PS"
+git -C "$C" checkout -q -- .claude/persona-settings.json
+out=$(relaunch)
+check "restored file: no warning" test -z "$(grep warning <<<"$out" || true)"
 cadre up ops >/dev/null
 check "team without project running" bash -c "cadre ls | grep -q '\[running\] ops-sre'"
 cadre down dev app >/dev/null

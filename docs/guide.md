@@ -102,6 +102,10 @@ To remove it, delete the SessionStart entry whose command ends in `orchestrator-
 
 It never deletes your cadre, your projects or the framework clone, and leaves trust entries in `~/.claude.json` (they are shared with your own Claude Code sessions). The closing message lists all of these with their paths. It exits 2 when a step was skipped with a warning, for example when `settings.json` is not plain JSON. Persona sessions cannot run it. Run it as `<framework>/bin/cadre uninstall` if the `cadre` link is already gone.
 
+## Persona settings
+
+Every persona starts with `claude --settings <cadre>/.claude/persona-settings.json`. The first `cadre up` creates the file and commits it. It holds the grants you make for personas and fixed entries that keep personas from changing it. Change it with `cadre allow`, not by hand: the launcher refuses a file with any other setting (such as `hooks` or `env`), without `"$defaults"` in an `autoMode` list, or without the fixed entries, and starts the personas without it and with a warning. A file changed outside `cadre allow` is still passed when it is valid, with a warning. To undo a hand edit, run `git -C <cadre> checkout -- .claude/persona-settings.json`.
+
 ## Configuration
 
 `cadre.conf` is sourced by the launcher:

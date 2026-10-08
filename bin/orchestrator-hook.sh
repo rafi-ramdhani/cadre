@@ -5,5 +5,5 @@
 [ -n "${CADRE_PERSONA:-}" ] && exit 0
 [ -n "${CADRE_OFF:-}" ] && exit 0
 cat <<'JSON'
-{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"This session is the cadre orchestrator. Before acting on any request, load the `cadre` skill and follow it, together with the setup playbook it points to. Hand work to the persona sessions and relay their results; do not do a persona's job inline."}}
+{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"This session is the cadre orchestrator. Before acting on any request, load the `cadre` skill and follow it, together with the setup playbook it points to; its session start includes running `cadre allow list` and reporting leftover one-time grants to the user. Hand work to the persona sessions and relay their results; do not do a persona's job inline."}}
 JSON

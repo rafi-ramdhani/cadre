@@ -13,6 +13,8 @@
 #   --dir <parent>          where the cadre folder goes (default: ~/Documents)
 #   --from <owner/repo>     clone an existing cadre instead of generating one
 #                           (a new machine), then clone its projects
+#   --no-trust              with --from, do not mark the cloned projects as
+#                           trusted in Claude Code
 #   --orchestrator-default  add the orchestrator hook without asking
 #   --no-hook               skip the hook without asking
 #   --yes                   accept defaults, ask nothing
@@ -24,11 +26,11 @@
 set -euo pipefail
 
 CADRE_REPO=${CADRE_REPO:-rafi-ramdhani/cadre}
-NAME="" PARENT="$HOME/Documents" FROM="" HOOK="ask" YES="" LINK_ONLY=""
+NAME="" PARENT="$HOME/Documents" FROM="" HOOK="ask" YES="" LINK_ONLY="" SYNC_ARGS=()
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'cadre install: %s\n' "$*" >&2; exit 1; }
-usage() { sed -n '2,24p' "${BASH_SOURCE[0]:-$0}" 2>/dev/null | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,25p' "${BASH_SOURCE[0]:-$0}" 2>/dev/null | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case $1 in
@@ -36,6 +38,7 @@ while [ $# -gt 0 ]; do
     --from) FROM=${2:?--from needs owner/repo}; shift ;;
     --orchestrator-default) HOOK=yes ;;
     --no-hook) HOOK=no ;;
+    --no-trust) SYNC_ARGS=(--no-trust) ;;
     --yes|-y) YES=1 ;;
     --link-only) LINK_ONLY=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -156,7 +159,7 @@ if [ "$HOOK" = ask ]; then
 fi
 [ "$HOOK" = yes ] && add_hook "$FRAMEWORK"
 
-if [ -n "$FROM" ]; then say "Cloning projects"; "$HOME/.local/bin/cadre" sync; fi
+if [ -n "$FROM" ]; then say "Cloning projects"; "$HOME/.local/bin/cadre" sync ${SYNC_ARGS[@]+"${SYNC_ARGS[@]}"}; fi
 
 say ""
 say "Done. Your cadre is $DEST"

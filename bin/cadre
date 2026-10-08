@@ -5,7 +5,7 @@
 #
 #   cadre init <name> [parent dir]            generate a new cadre from the template
 #   cadre use <dir>                           make an existing cadre the active one
-#   cadre add project <name> <owner/repo> [team] [about]
+#   cadre add project <name> <owner/repo> [team] [about] [--no-trust]
 #   cadre add team <team> | cadre add persona <team>/<role>
 #   cadre up <team|team/role> [project|dir]   start a team or one persona
 #   cadre down <team|team/role> [project]     stop a team or one persona
@@ -13,9 +13,13 @@
 #   cadre ls                                  list teams, roles and what runs
 #   cadre projects                            list the project registry
 #   cadre path <project>                      print a project's local folder
-#   cadre sync                                clone missing registry projects
+#   cadre sync [--no-trust]                   clone missing registry projects
+#   cadre trust <project> | --all             trust registry project folders in Claude Code
 #   cadre update [--check]                    update the framework (fast-forward only)
 #   cadre version                             print the version
+#
+# Registered projects are trusted in Claude Code when added or cloned, so
+# personas start there without the trust prompt; --no-trust skips that.
 #
 # A team started for a project gets its own sessions: `cadre up dev my-app`
 # names them dev-my-app-<role> in tmux session cadre-dev-my-app. Without a
@@ -224,13 +228,173 @@ cmd_projects() {
 }
 
 cmd_sync() {
+  local trust=1 cloned=()
+  case "${1:-}" in --no-trust) trust="" ;; "") ;; *) die "usage: cadre sync [--no-trust]" ;; esac
   for name in $(reg names); do
     local path repo; path=$(project_dir "$name"); repo=$(reg "$name" repo)
     if [ -d "$path" ]; then echo "  $name: present"; continue; fi
     [ -n "$repo" ] || { echo "  $name: missing, and no repo to clone"; continue; }
     clone "$repo" "$path"
     echo "  $name: cloned to $path"
+    cloned+=("$name")
   done
+  if [ -n "$trust" ] && [ ${#cloned[@]} -gt 0 ]; then trust_report "${cloned[@]}"; fi
+}
+
+# Edits a JSON file that Claude Code also writes (~/.claude.json,
+# ~/.claude/settings.json) without ever damaging it:
+#   json_edit <op> <file> <backup> [args...]
+# It never creates the file, leaves it untouched when it is not the JSON it
+# expects, copies it to <backup> before writing, writes a temporary file with
+# the same mode and renames it over the original, and starts again (up to 3
+# times) when the file changed while it worked. Exit: 0 written, 3 nothing to
+# change, 4 no such file, 5 unreadable or unexpected content, 6 kept changing.
+# Op trust, args "name<TAB>path[<TAB>path...]": sets
+# projects[path].hasTrustDialogAccepted for every path and prints
+# "name<TAB>trusted" or "name<TAB>already" per project.
+json_edit() {
+  python3 - "$@" <<'PY'
+import hashlib, json, os, sys, tempfile
+
+op, path, backup, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+
+
+class Shape(Exception):
+    pass
+
+
+def trust(data):
+    if not isinstance(data, dict):
+        raise Shape()
+    projects = data.setdefault("projects", {})
+    if not isinstance(projects, dict):
+        raise Shape()
+    lines = []
+    for arg in args:
+        name, *dirs = arg.split("\t")
+        if all(isinstance(projects.get(d), dict) and projects[d].get("hasTrustDialogAccepted") is True for d in dirs):
+            lines.append(name + "\talready")
+            continue
+        for d in dirs:
+            entry = projects.setdefault(d, {})
+            if not isinstance(entry, dict):
+                raise Shape()
+            entry["hasTrustDialogAccepted"] = True
+        lines.append(name + "\ttrusted")
+    return lines
+
+
+OPS = {"trust": trust}
+path = os.path.realpath(path)
+
+
+def snapshot():
+    st = os.stat(path)
+    with open(path, "rb") as f:
+        raw = f.read()
+    return (st.st_size, st.st_mtime_ns, hashlib.sha256(raw).hexdigest()), raw, st.st_mode & 0o7777
+
+
+def write(target, data, mode):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".cadre-")
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        return tmp
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
+for _ in range(3):
+    try:
+        stamp, raw, mode = snapshot()
+    except FileNotFoundError:
+        sys.exit(4)
+    except OSError:
+        sys.exit(5)
+    try:
+        data = json.loads(raw)
+        before = json.dumps(data, sort_keys=True)
+        lines = OPS[op](data)
+    except (ValueError, Shape):
+        sys.exit(5)
+    if json.dumps(data, sort_keys=True) == before:
+        print("\n".join(lines))
+        sys.exit(3)
+    os.replace(write(backup, raw, mode), backup)
+    tmp = write(path, (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode(), mode)
+    try:
+        same = snapshot()[0] == stamp
+    except OSError:
+        same = False
+    if same:
+        os.replace(tmp, path)
+        print("\n".join(lines))
+        sys.exit(0)
+    os.unlink(tmp)
+sys.exit(6)
+PY
+}
+
+# Claude Code's global config, where workspace trust is stored per folder.
+claude_config() { echo "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"; }
+
+# Marks registry projects' folders as trusted in Claude Code, in one write
+# with one backup. Each folder is keyed by its physical path and, when it
+# differs, by the path as cadre spells it. Sets TRUST_RESULT to
+# "name<TAB>trusted|already|skipped" lines and TRUST_NOTE to a note for the
+# user when the config was left alone.
+trust_projects() {
+  local cfg args=() name dir phys code=0 out=""
+  cfg=$(claude_config)
+  TRUST_RESULT="" TRUST_NOTE=""
+  for name in "$@"; do
+    dir=$(cd "$(project_dir "$name")" && pwd); phys=$(cd "$dir" && pwd -P)
+    if [ "$dir" = "$phys" ]; then args+=("$name"$'\t'"$phys"); else args+=("$name"$'\t'"$phys"$'\t'"$dir"); fi
+  done
+  out=$(json_edit trust "$cfg" "$cfg.bak-cadre" "${args[@]}") || code=$?
+  case $code in
+    0|3) TRUST_RESULT=$out; return ;;
+    4) TRUST_NOTE="Claude Code has not created its config yet; it will ask to trust the folder on first launch" ;;
+    6) TRUST_NOTE="warning: $cfg kept changing (a running Claude Code session?), so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
+    *) TRUST_NOTE="warning: $cfg could not be read as Claude Code's config, so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
+  esac
+  for name in "$@"; do TRUST_RESULT+="$name"$'\t'"skipped"$'\n'; done
+}
+
+trust_of() { awk -F'\t' -v n="$1" '$1 == n { print $2 }' <<<"$TRUST_RESULT"; }
+
+# Trusts the given projects and prints one line per project.
+trust_report() {
+  local name
+  trust_projects "$@"
+  for name in "$@"; do
+    case $(trust_of "$name") in
+      trusted) echo "  $name: trusted in Claude Code" ;;
+      already) echo "  $name: already trusted in Claude Code" ;;
+      *) echo "  $name: not trusted (see below)" ;;
+    esac
+  done
+  if [ -n "$TRUST_NOTE" ]; then echo "$TRUST_NOTE"; fi
+}
+
+cmd_trust() {
+  local names=() name
+  case "${1:-}" in
+    --all)
+      [ -z "${2:-}" ] || die "usage: cadre trust <project> | --all"
+      for name in $(reg names); do
+        if [ -d "$(project_dir "$name")" ]; then names+=("$name"); else echo "  $name: missing locally, skipped (run cadre sync)"; fi
+      done ;;
+    ""|-*) die "usage: cadre trust <project> | --all" ;;
+    *)
+      [ -n "$(reg has "$1")" ] || die "'$1' is not a registered project (only registry projects are trusted; see cadre projects)"
+      [ -d "$(project_dir "$1")" ] || die "project '$1' is not at $(project_dir "$1") (run cadre sync)"
+      names=("$1") ;;
+  esac
+  if [ ${#names[@]} -gt 0 ]; then trust_report "${names[@]}"; fi
 }
 
 # Clone owner/repo (through gh when signed in), a URL, or a local path.
@@ -356,13 +520,23 @@ commit_change() {
 cmd_add() {
   case "${1:-}" in
     project)
-      local name=${2:-} repo=${3:-} team=${4:-dev} about=${5:-}
-      if [ -z "$name" ] || [ -z "$repo" ]; then die "usage: cadre add project <name> <owner/repo> [team] [about]"; fi
+      shift
+      local trust=1 a pos=()
+      for a in "$@"; do if [ "$a" = --no-trust ]; then trust=""; else pos+=("$a"); fi; done
+      local name=${pos[0]:-} repo=${pos[1]:-} team=${pos[2]:-dev} about=${pos[3]:-}
+      if [ -z "$name" ] || [ -z "$repo" ]; then die "usage: cadre add project <name> <owner/repo> [team] [about] [--no-trust]"; fi
       [ -z "$(reg has "$name")" ] || die "project '$name' is already in projects.yaml"
       printf '\n%s:\n  repo: %s\n  team: %s\n  about: %s\n' "$name" "$repo" "$team" "$about" >> "$REGISTRY"
       commit_change "Add project $name" "$REGISTRY"
-      local path; path=$(project_dir "$name")
-      if [ -d "$path" ]; then echo "  $name added; already at $path"; else clone "$repo" "$path"; echo "  $name added and cloned to $path"; fi ;;
+      local path where; path=$(project_dir "$name")
+      if [ -d "$path" ]; then where="already at $path"; else clone "$repo" "$path"; where="cloned to $path"; fi
+      if [ -z "$trust" ]; then echo "  $name added, $where"; return; fi
+      trust_projects "$name"
+      case $(trust_of "$name") in
+        trusted) echo "  $name added, $where and trusted in Claude Code (registered projects are trusted; use --no-trust to skip)" ;;
+        already) echo "  $name added, $where; its folder was already trusted in Claude Code" ;;
+        *) echo "  $name added, $where"; echo "${TRUST_NOTE/the folder/$path}" ;;
+      esac ;;
     team)
       [ -n "${2:-}" ] || die "usage: cadre add team <team>"
       mkdir -p "$PERSONAS/$2"; echo "  team $2 added; add personas with cadre add persona $2/<role>" ;;
@@ -382,7 +556,7 @@ case "${1:-}" in
   init)     shift; cmd_init "$@"; exit ;;
   use)      shift; cmd_use "$@"; exit ;;
   update)   shift; cmd_update "$@"; exit ;;
-  ""|-h|--help|help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
+  ""|-h|--help|help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
   version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
 esac
 load_home
@@ -395,6 +569,7 @@ case "$1" in
   ls)       cmd_ls ;;
   projects) cmd_projects ;;
   path)     [ -n "${2:-}" ] || die "usage: cadre path <project>"; read -r _ p <<<"$(locate "$2")"; echo "$p" ;;
-  sync)     cmd_sync ;;
+  sync)     shift; cmd_sync "$@" ;;
+  trust)    shift; cmd_trust "$@" ;;
   *)        die "unknown command '$1' (see cadre help)" ;;
 esac

@@ -69,6 +69,10 @@ my-app:
 
 `cadre add project` appends an entry, clones the repo and commits the change. `cadre sync` clones every entry that is missing locally.
 
+Both also mark the project's folder as trusted in Claude Code (`projects[<path>].hasTrustDialogAccepted` in `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`), so a persona starts there without the trust prompt. The folder is recorded by its physical path and, when different, by the path as cadre spells it. The edit is careful: it never creates the file, leaves a file it cannot read as Claude Code's config untouched with a warning, keeps a backup at `.claude.json.bak-cadre`, keeps the file's mode, and changes nothing else. Pass `--no-trust` to skip it. Team folders and folders given to `cadre up` that are not registered projects keep the normal prompt.
+
+`cadre trust <project>` trusts one registered project's folder, and `cadre trust --all` every registered project present on this machine (for projects added before 0.2.0 or with `--no-trust`). Both are safe to repeat.
+
 ## The orchestrator hook
 
 `install.sh --orchestrator-default` adds a SessionStart hook to `~/.claude/settings.json` that tells every new session to act as the orchestrator. It stays silent in persona sessions (the launcher sets `CADRE_PERSONA`) and in sessions started with `CADRE_OFF=1 claude`. Without the hook, ask any session to use the cadre skill.
@@ -99,6 +103,7 @@ Environment variables: `CADRE_HOME` (use another cadre for one command), `CADRE_
 ## Troubleshooting
 
 - **A persona never replies.** Attach (`cadre attach <team> [project]`) and look. A new folder shows Claude Code's trust prompt on first launch; accept it once.
+- **The trust prompt still shows for a registered project.** Run `cadre trust <project>`. A Claude Code session that was running during the change may have written its own copy of `~/.claude.json` over it; accept the prompt once, or run `cadre trust` again with no sessions running.
 - **Messages wait for approval.** The persona runs in a different permission-mode class from the orchestrator. Align `PERMISSION_MODE` with the mode you run the orchestrator in.
 - **`cadre: no active cadre`.** Run `cadre use <your cadre folder>`.
 - **Moved the framework.** Run `projects/cadre/install.sh --link-only` to relink.

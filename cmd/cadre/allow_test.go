@@ -125,7 +125,7 @@ func TestAllowRestartNote(t *testing.T) {
 	must(t, "up", "dev/engineer")
 	out := must(t, "allow", "add", "Bash(true)")
 	if !strings.Contains(out, "Running personas will not see this change until restarted") ||
-		!strings.Contains(out, "  cadre stop dev/engineer && cadre up dev/engineer") {
+		!strings.Contains(out, "  CADRE_HOME="+home+"/.cadre/work cadre stop dev/engineer && CADRE_HOME="+home+"/.cadre/work cadre up dev/engineer\n") {
 		t.Errorf("restart note:\n%s", out)
 	}
 }

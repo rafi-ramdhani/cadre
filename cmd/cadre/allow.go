@@ -82,9 +82,13 @@ func runAllowList(e *env) int {
 }
 
 // allowLock serializes cadre allow changes in one cadre (read, change,
-// write, commit).
-func allowLock(file string) (*fsx.Lock, error) {
-	l, err := fsx.Acquire(filepath.Join(filepath.Dir(file), ".allow.lock"), 10*time.Second)
+// write, commit). The lock file stays in the build folder, which git
+// ignores, so the cadre's repository stays clean.
+func allowLock(build, file string) (*fsx.Lock, error) {
+	if err := session.EnsureBuild(build); err != nil {
+		return nil, err
+	}
+	l, err := fsx.Acquire(filepath.Join(build, "allow.lock"), 10*time.Second)
 	if errors.Is(err, fsx.ErrBusy) {
 		return nil, fmt.Errorf("another cadre allow is changing %s; try again", file)
 	}
@@ -137,7 +141,7 @@ func allowChange(e *env, op string) int {
 	if existed != nil {
 		e.say("  created %s (grants for personas; change it with cadre allow)", file)
 	}
-	lock, err := allowLock(file)
+	lock, err := allowLock(rt.BuildDir(r.Path), file)
 	if err != nil {
 		return e.fail("%s", err)
 	}
@@ -277,6 +281,8 @@ func (e *env) restartNote(r *cadres.Resolved) {
 	}
 	e.say("Running personas will not see this change until restarted (each has the copy it started with):")
 	e.showSessions(s.T, list, nil)
+	// The commands carry the cadre, since the user may run them anywhere.
+	pin := "CADRE_HOME=" + session.Quote(r.Path) + " "
 	e.say("Restart one with:")
 	generic := false
 	for _, i := range list {
@@ -293,11 +299,11 @@ func (e *env) restartNote(r *cadres.Resolved) {
 			if i.Project != "" {
 				project = " " + i.Project
 			}
-			e.say("  cadre stop %s/%s%s && cadre up %s/%s%s", i.Team, role, project, i.Team, role, target)
+			e.say("  %scadre stop %s/%s%s && %scadre up %s/%s%s", pin, i.Team, role, project, pin, i.Team, role, target)
 		}
 	}
 	if generic {
-		e.say("  cadre stop <team> [project] && cadre up <team> [project]")
+		e.say("  %scadre stop <team> [project] && %scadre up <team> [project]", pin, pin)
 		e.say("  (session cadre-<team>-<project> is team <team>, project <project>)")
 	}
 }

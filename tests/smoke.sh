@@ -448,6 +448,14 @@ for rule in 'Bash(npm test)' "Edit(//$C/projects/app/**)" 'Edit(src/**)' 'Read(.
   cadre allow remove "$rule" >/dev/null
 done
 ok "narrow rules are still accepted"
+# cadre.conf is sourced as shell code by every cadre command.
+for rule in 'Edit(cadre.conf)' "Edit(//$C/cadre.conf)" "Edit(//$C/*.conf)" "Edit(//$C/**)" "Edit(~/x/CADRE.conf)" 'Bash(tee cadre.conf)'; do
+  if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
+  grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
+done
+check "an --auto entry about cadre.conf is refused" bash -c "! cadre allow add --auto 'Editing cadre.conf is expected'"
+check "cadre.conf refusals leave the file unchanged" cmp -s "$PS" "$T/ps.before"
+ok "rules reaching cadre.conf refused"
 check "an escaped ; is an argument, not an operator" cadre allow add 'Bash(find . -name x -exec rm {} \;)'
 cadre allow remove 'Bash(find . -name x -exec rm {} \;)' >/dev/null
 check "find -exec with a wildcard is still refused" bash -c "! cadre allow add 'Bash(find . -name *.x -exec rm {} \;)'"

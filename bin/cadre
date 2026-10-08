@@ -804,9 +804,9 @@ SUBRUNNERS = {"docker": {"run", "exec"}, "podman": {"run", "exec"}, "kubectl": {
 FROM_FILES = {"make": None, "gmake": None, "just": None, "rake": None, "gradle": None, "mvn": None,
               "npm": {"run", "test", "start"}, "pnpm": {"run", "test", "start"}, "yarn": {"run", "test", "start"},
               "pip": {"install"}, "pip3": {"install"}}
-HOME = os.path.expanduser("~").rstrip("/")
+HOME = os.path.realpath(os.path.expanduser("~"))
 CADRE = os.path.dirname(os.path.dirname(os.path.realpath(path)))
-CACHE = (os.environ.get("XDG_CACHE_HOME") or HOME + "/.cache").rstrip("/")
+CACHE = os.path.realpath(os.environ.get("XDG_CACHE_HOME") or HOME + "/.cache")
 # Files Claude Code protects: allow rules never pre-approve writes to them.
 PROTECTED = [".bashrc", ".bash_profile", ".bash_login", ".bash_aliases", ".zshrc", ".zprofile",
              ".zshenv", ".zlogin", ".profile", ".envrc", ".gitconfig", ".gitmodules", ".npmrc",
@@ -829,7 +829,7 @@ AUTO_REFUSED = re.compile(
     r"|zshrc|bashrc|bash_profile|zprofile|zshenv|\.profile|gitconfig|gitmodules|npmrc|envrc|\.ssh|authorized_keys"
     r"|launchagents|crontab|tmux\.conf|vimrc|\.config/fish|autostart|systemd|\.local/bin|\.mcp\.json|\.claude\.json"
     r"|\b(user|owner|human)'?s?\b.{0,40}\b(wish|wants?|ok with|fine with)\b"
-    r"|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b"
+    r"|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b|cadre\.conf"
     r"|\b(user|owner|human|you)\b.{0,40}\b(approv|consent|authori[sz]|agree)")
 
 
@@ -939,6 +939,11 @@ def check_path(rule, tool, spec):
         full = HOME + spec[1:]
     else:
         full = None
+    if full:
+        # Compare real paths: resolve the folders before the first wildcard.
+        head = re.split(r"[*?\[{]", full)[0]
+        head = head[:head.rfind("/") + 1] or "/"
+        full = os.path.realpath(head).rstrip("/") + "/" + full[len(head):]
     parts = [norm(x) for x in spec.replace("\\", "/").split("/")]
     if ".." in parts:
         refuse("refused: %s has a .. segment; name the path without it" % rule)
@@ -957,6 +962,8 @@ def check_path(rule, tool, spec):
     if ".claude" in parts or (full and (path_regex(full).match(HOME + "/.claude/settings.json")
                                         or path_regex(full).match(HOME + "/.config/git/config"))):
         refuse("refused: Claude Code never pre-approves writes under .claude or .config/git; make that edit yourself")
+    if full and path_regex(full).match(CADRE + "/cadre.conf"):
+        refuse("refused: %s reaches %s/cadre.conf, which cadre runs as shell code; make that edit yourself" % (rule, CADRE))
     if full:
         fixed = re.split(r"[*?\[{]", full)[0].rstrip("/")
         if fixed == "" or HOME == fixed or HOME.startswith(fixed + "/"):
@@ -981,6 +988,8 @@ def check_rule(rule):
     n = norm(rule)
     if "persona-settings" in n or "persona_settings" in n or re.search(r"cadre\W*allow", n):
         refuse("refused: %s targets the persona settings or cadre allow, which only the user changes" % rule)
+    if "cadre.conf" in n:
+        refuse("refused: %s reaches cadre.conf, which cadre runs as shell code; make that edit yourself" % rule)
     if "*" in tool:
         refuse("refused: %s puts a wildcard in the tool name; name one tool" % rule)
     for k in KNOWN:

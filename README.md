@@ -84,7 +84,9 @@ cadre add team <team>
 cadre add persona <team>/<role>
 cadre sync                      # clone registry projects missing on this machine, and trust them
 cadre init <name>               # generate another cadre from the template
-cadre use <dir>                 # switch the active cadre
+cadre use <dir>                 # make a cadre the default (used outside every cadre folder)
+cadre which                     # the cadre this folder uses, and why
+cadre cadres                    # every cadre on this machine (add <dir>, remove <name>)
 cadre update                    # update the framework (--check only looks)
 cadre version
 cadre uninstall                 # undo the install (asks first; --dry-run shows the plan)

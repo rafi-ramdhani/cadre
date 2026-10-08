@@ -16,6 +16,9 @@ git config --global user.name "Cadre Test"
 git config --global user.email "test@example.com"
 git config --global init.defaultBranch main
 mkdir -p "$HOME/.claude" "$T/bin"
+# Run from a folder outside every cadre: cadre resolves the cadre from the
+# current folder, and the repo under test may sit inside a real cadre.
+cd "$T"
 trap 'command tmux -L "$CADRE_TMUX_SOCKET" kill-server 2>/dev/null || true; rm -rf "$T"' EXIT
 
 # A stand-in for Claude Code that records its arguments and stays alive
@@ -48,7 +51,7 @@ check "cadre generated" test -f "$C/playbook.md"
 check "framework placed inside" test -x "$C/projects/cadre/bin/cadre"
 check "command linked" test -L "$HOME/.local/bin/cadre"
 check "skill linked" test -L "$HOME/.claude/skills/cadre"
-check "active cadre recorded" grep -qx "$C" "$HOME/.config/cadre/home"
+check "default cadre recorded" grep -qx "$C" "$HOME/.config/cadre/home"
 check "hook added" grep -q orchestrator-hook.sh "$HOME/.claude/settings.json"
 check "framework registered" grep -q '^cadre:' "$C/projects.yaml"
 check "cadre repo is clean" test -z "$(git -C "$C" status --porcelain)"
@@ -233,6 +236,53 @@ check "always changing: not written by cadre" untrusted "$CFG" "$(phys "$C/proje
 check "always changing: the last outside change stands" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["touched"] == 3 else 1)' "$CFG"
 check "no temporary files left" test -z "$(find "$HOME" "$T/ro" -maxdepth 1 -name '.cadre-*')"
 cp "$T/cfg.good" "$CFG"; chmod 600 "$CFG"
+
+echo "several cadres: which cadre a command uses"
+mkdir -p "$T/multi"
+out=$(cd "$T/multi" && cadre init a)
+check "init keeps a present default" grep -q "default cadre stays demo" <<<"$out"
+(cd "$T/multi" && cadre init b) >/dev/null
+A=$(cd "$T/multi/a" && pwd -P) B=$(cd "$T/multi/b" && pwd -P)
+check "init registers the cadres" bash -c "cadre cadres list 2>/dev/null; cadre cadres | grep -q '$A' && cadre cadres | grep -q '$B'"
+check "the list marks the default" bash -c "cadre cadres | grep -q '^\* demo '"
+check "the list marks the cadre in use here" bash -c "cd '$T/multi/b' && cadre cadres | grep '$B' | grep -q '(here)'"
+mkdir -p "$T/multi/b/projects/x/src"
+check "a subfolder resolves to its cadre" test "$(cd "$T/multi/b/projects/x/src" && cadre which)" = "b $B (from the current folder)"
+check "outside every cadre: the default" bash -c "cd '$T' && cadre which | grep -q '^demo .* (default)$'"
+check "CADRE_HOME wins wherever it runs" test "$(cd "$T/multi/b" && CADRE_HOME="$T/multi/a" cadre which)" = "a $T/multi/a (from CADRE_HOME)"
+mkdir -p "$T/look/personas"; touch "$T/look/projects.yaml"
+echo "touch '$T/look-marker'" > "$T/look/cadre.conf"
+err=$(cd "$T/look" && cadre ls 2>&1 >/dev/null)
+check "an unregistered look-alike is never sourced" test ! -e "$T/look-marker"
+check "and the note says how to register it" grep -q "looks like a cadre but is not registered" <<<"$err"
+err=$(cd "$C/projects/cadre/template" && cadre which 2>&1)
+check "the framework template never counts as a cadre" bash -c "grep -q '^demo ' <<<'$err' && ! grep -q 'looks like' <<<'$err'"
+mkdir -p "$T/multi2"
+check "a second cadre with a known name is refused" bash -c "cd '$T/multi2' && ! cadre init a 2>/dev/null && test ! -e '$T/multi2/a'"
+mv "$T/multi/a" "$T/multi/a.moved"
+check "a known name whose folder is gone can be reused" bash -c "cd '$T/multi2' && cadre init a >/dev/null"
+check "the old entry shows as missing" bash -c "cadre cadres | grep '$A' | grep -q '(missing)'"
+check "a name shared by two entries is not removed by name" bash -c "! cadre cadres remove a 2>/dev/null"
+cadre cadres remove "$A" >/dev/null
+cadre cadres remove "$(cd "$T/multi2/a" && pwd -P)" >/dev/null
+rm -rf "$T/multi2/a"; mv "$T/multi/a.moved" "$T/multi/a"
+cadre cadres add "$T/multi/a" >/dev/null
+check "cadres remove forgets a cadre" bash -c "cadre cadres remove b >/dev/null && ! cadre cadres | grep -q '$B' && test -d '$B'"
+check "cadres add registers it again" bash -c "cadre cadres add '$T/multi/b' >/dev/null && cadre cadres | grep -q '$B'"
+check "the present default cannot be removed" bash -c "! cadre cadres remove demo 2>/dev/null"
+check "use makes a cadre the default" bash -c "cadre use '$T/multi/b' >/dev/null && cd '$T' && cadre which | grep -q '^b '"
+cadre use "$C" >/dev/null
+mkdir -p "$T/multi3/a/personas"
+check "use refuses a second cadre with a known name" bash -c "! cadre use '$T/multi3/a' 2>/dev/null"
+check "cadres add refuses it too" bash -c "! cadre cadres add '$T/multi3/a' 2>/dev/null"
+for i in 1 2 3 4 5 6; do mkdir -p "$T/par/p$i/personas"; done
+for i in 1 2 3 4 5 6; do cadre cadres add "$T/par/p$i" >/dev/null & done; wait
+check "parallel registrations all land" test "$(grep -c '/par/p' "$HOME/.config/cadre/cadres")" = 6
+for i in 1 2 3 4 5 6; do cadre cadres remove "p$i" >/dev/null; done
+check "no list lock left behind" test ! -e "$HOME/.config/cadre/cadres.lock"
+mv "$HOME/.config/cadre/cadres" "$T/cadres.saved"
+check "the list is seeded from the default" test "$(cadre cadres | grep -c '^[ *] ')" = 1
+mv "$T/cadres.saved" "$HOME/.config/cadre/cadres"
 
 echo "sessions"
 cadre up dev/engineer app >/dev/null
@@ -711,13 +761,15 @@ cp "$CFG" "$T/cfg.before"
 CADRE_REPO="$T/src.git" bash -s -- --from "$C" --dir "$T/machine2" --yes --no-hook --no-trust <"$ROOT/install.sh" >/dev/null
 check "cadre cloned" test -f "$T/machine2/demo/playbook.md"
 check "projects cloned by sync" test -d "$T/machine2/demo/projects/app/.git"
-check "active cadre switched" grep -qx "$T/machine2/demo" "$HOME/.config/cadre/home"
+check "default cadre switched" grep -qx "$T/machine2/demo" "$HOME/.config/cadre/home"
 check "--from --no-trust leaves the config alone" cmp -s "$CFG" "$T/cfg.before"
 
 echo "uninstall"
 SET="$HOME/.claude/settings.json"
 CADRE_REPO="$T/src.git" bash -s -- u1 --dir "$T/u" --yes --orchestrator-default <"$ROOT/install.sh" >/dev/null
 U="$T/u/u1" FW="$T/u/u1/projects/cadre"
+# A second cadre does not take over the default; this section works on u1.
+cadre use "$U" >/dev/null
 check "fresh install to uninstall" test "$(readlink "$HOME/.local/bin/cadre")" = "$FW/bin/cadre"
 # Next to the cadre hook: someone else's SessionStart hook, another hook
 # event and another key, all of which must stay.
@@ -902,6 +954,7 @@ wiring() {
   { readlink "$HOME/.local/bin/cadre"; readlink "$HOME/.claude/skills/cadre"; cat "$HOME/.claude/settings.json"
     (cd "$HOME" && find . -type l | sort); ls -A "$HOME/.config/cadre"; } | sed "s#$fw#<framework>#g"
 }
+cadre cadres >/dev/null   # first use seeds the known-cadres list from the default
 upgraded=$(wiring "$UF")
 rm -f "$T/args-research-writer"
 cadre up research/writer >/dev/null

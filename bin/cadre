@@ -4,7 +4,9 @@
 # by name.
 #
 #   cadre init <name> [parent dir]            generate a new cadre from the template
-#   cadre use <dir>                           make an existing cadre the active one
+#   cadre use <dir>                           make an existing cadre the default one
+#   cadre which                               the cadre this folder uses, and why
+#   cadre cadres [add <dir> | remove <name>]  list, register or forget cadres
 #   cadre add project <name> <owner/repo> [team] [about] [--no-trust]
 #   cadre add team <team> | cadre add persona <team>/<role>
 #   cadre up <team|team/role> [project|dir]   start a team or one persona
@@ -24,6 +26,9 @@
 #   cadre version                             print the version
 #   cadre uninstall [--yes | --dry-run]       remove the command, skill, hook and
 #                                             config (keeps your cadre and projects)
+#
+# Commands act on the cadre whose folder they run in: CADRE_HOME, then the
+# nearest registered cadre at or above the current folder, then the default.
 #
 # Registered projects are trusted in Claude Code when added or cloned, so
 # personas start there without the trust prompt; --no-trust skips that.
@@ -58,13 +63,164 @@ CONFIG="$HOME/.config/cadre/home"
 # Hashes of persona settings files as cadre last wrote them, one per line.
 PSET_HASHES="$HOME/.config/cadre/persona-settings.sha256"
 
-# The active cadre: $CADRE_HOME, else the one recorded by init or use.
+# The known cadres on this machine, one physical path per line.
+CADRES="$HOME/.config/cadre/cadres"
+
+# Reads and changes the known-cadres list. Every op first seeds the list
+# from the default cadre when it does not exist yet. Writes take a lock in
+# ~/.config/cadre/ and replace the file atomically.
+#   cadres_db list                  print the known paths
+#   cadres_db check <name> <path>   exit 1 and say why when another known
+#                                   cadre with this name exists elsewhere
+#   cadres_db add <dir>             register a cadre (same check first)
+#   cadres_db remove <name|dir>     forget a cadre (not the present default);
+#                                   prints its path
+#   cadres_db resolve <dir>         the nearest known cadre at or above dir
+cadres_db() {
+  python3 - "$CADRES" "$CONFIG" "$@" <<'PY'
+import os, re, sys, tempfile, time
+
+listfile, config, op, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+
+
+def phys(p):
+    return os.path.realpath(os.path.expanduser(p))
+
+
+def read():
+    try:
+        with open(listfile) as f:
+            return [l.rstrip("\n") for l in f if l.strip()]
+    except FileNotFoundError:
+        return None
+
+
+class Lock:
+    def __enter__(self):
+        os.makedirs(os.path.dirname(listfile), exist_ok=True)
+        self.path = listfile + ".lock"
+        for i in range(100):
+            try:
+                os.mkdir(self.path)
+                return self
+            except FileExistsError:
+                if i == 0 and time.time() - os.stat(self.path).st_mtime > 60:
+                    os.rmdir(self.path)
+                    continue
+                time.sleep(0.1)
+        sys.exit("another cadre command is changing %s; try again" % listfile)
+
+    def __exit__(self, *exc):
+        os.rmdir(self.path)
+
+
+def write(paths):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(listfile), prefix=".cadre-")
+    with os.fdopen(fd, "w") as f:
+        f.write("".join(p + "\n" for p in paths))
+    os.replace(tmp, listfile)
+
+
+def known():
+    paths = read()
+    if paths is None:
+        with Lock():
+            paths = read()
+            if paths is None:
+                paths = []
+                try:
+                    first = open(config).readline().strip()
+                except OSError:
+                    first = ""
+                if first:
+                    paths = [phys(first)]
+                write(paths)
+    return paths
+
+
+def clash(name, path):
+    for p in known():
+        if os.path.basename(p) == name and p != path and os.path.isdir(p):
+            return p
+    return None
+
+
+paths = known()
+if op == "list":
+    for p in paths:
+        print(p)
+elif op in ("check", "add"):
+    if op == "check":
+        name, path = args[0], phys(args[1])
+    else:
+        path = phys(args[0])
+        name = os.path.basename(path)
+        if not os.path.isdir(os.path.join(path, "personas")):
+            sys.exit("%s is not a cadre (no personas/ folder)" % args[0])
+    if not NAME.fullmatch(name):
+        sys.exit("a cadre's folder name may use letters, digits, - and _ (got %s)" % name)
+    other = clash(name, path)
+    if other:
+        sys.exit("a cadre named %s is already at %s; rename one of the folders" % (name, other))
+    if op == "add":
+        with Lock():
+            current = read() or []
+            if path not in current:
+                write(current + [path])
+elif op == "remove":
+    target = args[0]
+    match = [p for p in paths if p == phys(target) or os.path.basename(p) == target]
+    if not match:
+        sys.exit("%s is not a known cadre (see cadre cadres)" % target)
+    if len(match) > 1:
+        sys.exit("several known cadres are named %s; give the path instead" % target)
+    try:
+        default = phys(open(config).readline().strip())
+    except OSError:
+        default = None
+    if match[0] == default and os.path.isdir(default):
+        sys.exit("%s is the default cadre; make another one the default first (cadre use <dir>)" % target)
+    with Lock():
+        write([p for p in (read() or []) if p != match[0]])
+    print(match[0])
+elif op == "resolve":
+    d = phys(args[0])
+    known_set = set(paths)
+    note = None
+    while True:
+        if d in known_set:
+            print(d)
+            break
+        looks = all(os.path.exists(os.path.join(d, x)) for x in ("personas", "projects.yaml"))
+        framework = os.path.exists(os.path.join(os.path.dirname(d), "bin", "orchestrator-hook.sh"))
+        if looks and not framework and note is None:
+            note = d
+        if d == "/":
+            break
+        d = os.path.dirname(d)
+    if note:
+        sys.stderr.write("note: %s looks like a cadre but is not registered; run cadre cadres add %s to use it\n" % (note, note))
+PY
+}
+
+# The default cadre's folder, as recorded by init or use (may be missing).
+default_home() { if [ -f "$CONFIG" ]; then expand "$(head -1 "$CONFIG")"; fi; }
+
+# Which cadre a command uses: $CADRE_HOME, else the nearest known cadre at or
+# above the current folder, else the default. Sets CADRE_HOME and CADRE_FROM.
+resolve_home() {
+  if [ -n "${CADRE_HOME:-}" ]; then CADRE_FROM="from CADRE_HOME"; return; fi
+  CADRE_HOME=$(cadres_db resolve "$(pwd -P)")
+  if [ -n "$CADRE_HOME" ]; then CADRE_FROM="from the current folder"; return; fi
+  CADRE_HOME=$(default_home) CADRE_FROM="default"
+}
+
+# The cadre this command acts on (see resolve_home), with its settings.
 load_home() {
-  if [ -z "${CADRE_HOME:-}" ] && [ -f "$CONFIG" ]; then
-    CADRE_HOME=$(expand "$(head -1 "$CONFIG")")
-  fi
+  resolve_home
   if [ -z "${CADRE_HOME:-}" ] || [ ! -d "$CADRE_HOME" ]; then
-    die "no active cadre; run cadre init <name> or cadre use <dir>"
+    die "no cadre here and no default cadre; run cadre init <name>, cadre use <dir>, or work inside a cadre folder"
   fi
   # cadre.conf may set PERMISSION_MODE.
   PERMISSION_MODE=default
@@ -80,6 +236,58 @@ load_home() {
 }
 
 set_home() { mkdir -p "$(dirname "$CONFIG")"; echo "$1" > "$CONFIG"; }
+
+# Registers cadre folder $1 and makes it the default when there is no
+# default or the default's folder is gone. Prints what happened to the
+# default.
+register_cadre() {
+  local dir=$1 def
+  cadres_db add "$dir" || exit 1
+  def=$(default_home)
+  if [ -z "$def" ] || [ ! -d "$def" ]; then set_home "$dir"; echo "$(basename "$dir") is the default cadre"
+  elif [ "$(phys_of "$def")" != "$(phys_of "$dir")" ]; then
+    echo "default cadre stays $(basename "$def"); run cadre use $dir to change it, or work inside $dir"
+  fi
+}
+
+cmd_which() {
+  [ $# -eq 0 ] || die "usage: cadre which"
+  resolve_home
+  if [ -z "${CADRE_HOME:-}" ] || [ ! -d "$CADRE_HOME" ]; then
+    echo "no cadre here and no default cadre" >&2; exit 1
+  fi
+  echo "$(basename "$CADRE_HOME") $CADRE_HOME ($CADRE_FROM)"
+}
+
+cmd_cadres() {
+  local sub=${1:-list} p def here mark
+  if [ $# -gt 0 ]; then shift; fi
+  case $sub in
+    list)
+      [ $# -eq 0 ] || die "usage: cadre cadres"
+      def=$(default_home); if [ -n "$def" ] && [ -d "$def" ]; then def=$(phys_of "$def"); fi
+      here=$(resolve_home 2>/dev/null; if [ -d "${CADRE_HOME:-}" ]; then phys_of "$CADRE_HOME"; fi)
+      while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        mark="  "; if [ "$p" = "$def" ]; then mark="* "; fi
+        printf '%s%-16s %s' "$mark" "$(basename "$p")" "$p"
+        if [ "$p" = "$here" ]; then printf '  (here)'; fi
+        if [ ! -d "$p" ]; then printf '  (missing)'; fi
+        printf '\n'
+      done <<<"$(cadres_db list)"
+      echo "(* is the default cadre, used outside every cadre folder)" ;;
+    add)
+      [ $# -eq 1 ] || die "usage: cadre cadres add <dir>"
+      [ -d "$1/personas" ] || die "$1 is not a cadre (no personas/ folder)"
+      register_cadre "$(cd "$1" && pwd)"
+      echo "added cadre $(basename "$(phys_of "$1")")" ;;
+    remove)
+      [ $# -eq 1 ] || die "usage: cadre cadres remove <name|dir>"
+      p=$(cadres_db remove "$1") || exit 1
+      echo "forgot cadre $(basename "$p") ($p); its folder is untouched" ;;
+    *) die "usage: cadre cadres [add <dir> | remove <name|dir>]" ;;
+  esac
+}
 
 # A project's folder: its `path` (relative paths are inside the cadre),
 # else projects/<name>.
@@ -1333,6 +1541,7 @@ cmd_init() {
   parent=$(cd "$parent" && pwd)
   local dest="$parent/$name"
   [ -e "$dest" ] && die "$dest already exists"
+  cadres_db check "$name" "$dest" || exit 1
   cp -R "$CADRE_ROOT/template" "$dest"
   mkdir -p "$dest/projects"
   find "$dest" -type f -name '*.md' -exec perl -pi -e "s/\{\{name\}\}/$name/g" {} +
@@ -1343,14 +1552,16 @@ cmd_init() {
   else
     echo "note: git has no user identity, so $name was left uncommitted; set one (git config --global user.name/user.email) and commit"
   fi
-  set_home "$dest"
-  echo "created $dest and made it the active cadre"
+  echo "created $dest"
+  register_cadre "$dest"
 }
 
 cmd_use() {
   if [ -z "${1:-}" ] || [ ! -d "$1/personas" ]; then die "usage: cadre use <cadre dir> (a folder with personas/)"; fi
-  set_home "$(cd "$1" && pwd)"
-  echo "active cadre: $(cat "$CONFIG")"
+  local dir; dir=$(cd "$1" && pwd)
+  cadres_db add "$dir" || exit 1
+  set_home "$dir"
+  echo "default cadre: $(basename "$dir") ($dir)"
 }
 
 version_in() { sed -n 's/^CADRE_VERSION=//p' "$1" | head -1; }
@@ -1731,10 +1942,12 @@ cmd_add() {
 case "${1:-}" in
   init)     shift; cmd_init "$@"; exit ;;
   use)      shift; cmd_use "$@"; exit ;;
+  cadres)   shift; cmd_cadres "$@"; exit ;;
+  which)    shift; cmd_which "$@"; exit ;;
   update)   shift; cmd_update "$@"; exit ;;
   down)     case " $* " in *" --all "*) shift; cmd_down_all "$@"; exit ;; esac ;;
   uninstall) shift; cmd_uninstall "$@"; exit ;;
-  ""|-h|--help|help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
+  ""|-h|--help|help) sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
   version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
 esac
 load_home

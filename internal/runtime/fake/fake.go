@@ -8,6 +8,7 @@
 package fake
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,6 +81,12 @@ func (permissions) Validate(cadre string, known []string, rule string, auto bool
 func (permissions) Prepare(cadre string, places runtime.Places) runtime.Prepared {
 	return runtime.Prepared{Grants: "fake-grants"}
 }
+func (permissions) Open(string, bool) (runtime.GrantStore, error) {
+	return nil, errors.New("the fake runtime keeps no grants")
+}
+func (permissions) Unchanged(string) bool { return true }
+func (permissions) Record(string)         {}
+func (permissions) BuiltIn() string       { return "" }
 
 type trust struct{}
 

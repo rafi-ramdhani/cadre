@@ -3,11 +3,13 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // sandbox gives a test its own HOME, git identity and working folder.
@@ -26,6 +28,11 @@ func sandbox(t *testing.T) string {
 	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Chdir(home)
+	// Every test gets a private tmux server, so no test can ever see or
+	// stop the user's own sessions.
+	socket := fmt.Sprintf("cadre-gotest-%d-%d", os.Getpid(), time.Now().UnixNano())
+	t.Setenv("CADRE_TMUX_SOCKET", socket)
+	t.Cleanup(func() { exec.Command("tmux", "-L", socket, "kill-server").Run() })
 	return home
 }
 

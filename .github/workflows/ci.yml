@@ -28,9 +28,9 @@ jobs:
           git config --global user.email "ci@example.com"
           git config --global init.defaultBranch main
       - name: Lint
-        run: shellcheck -x bin/cadre bin/orchestrator-hook.sh install.sh tests/smoke.sh
-      - name: Smoke test
-        run: tests/smoke.sh
+        run: shellcheck -x bin/cadre bin/orchestrator-hook.sh install.sh tests/smoke-bash.sh tests/smoke.sh
+      - name: Smoke test (bash version, until the Go one reaches parity)
+        run: tests/smoke-bash.sh
 
   go:
     strategy:
@@ -46,6 +46,17 @@ jobs:
         with:
           go-version-file: ${{ matrix.go == 'go.mod' && 'go.mod' || '' }}
           go-version: ${{ matrix.go == 'stable' && 'stable' || '' }}
+      - name: Install tmux (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install tmux (macOS)
+        if: runner.os == 'macOS'
+        run: brew install tmux
+      - name: Configure git
+        run: |
+          git config --global user.name CI
+          git config --global user.email ci@example.com
+          git config --global init.defaultBranch main
       - name: Format
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: Vet
@@ -56,6 +67,8 @@ jobs:
         run: go test -race ./...
       - name: Test with the test-only parts (-tags cadretest)
         run: go test -race -tags cadretest ./...
+      - name: Smoke test against the Go binary
+        run: tests/smoke.sh
       - name: Windows build (the binary refuses to run there)
         if: runner.os == 'Linux' && matrix.go == 'stable'
         run: GOOS=windows go build -o /dev/null ./cmd/cadre

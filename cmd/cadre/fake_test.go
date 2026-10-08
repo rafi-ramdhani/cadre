@@ -95,3 +95,21 @@ func TestLsShowsEachPersonasRuntime(t *testing.T) {
 		t.Errorf("runtimes %v", got)
 	}
 }
+
+// AC-P5: cadre allow says which personas a grant cannot reach.
+func TestAllowSaysWhichPersonasCannotReceiveGrants(t *testing.T) {
+	fakeCadre(t)
+	fake.Off = map[string]bool{"Grants": true}
+	out := must(t, "allow", "add", "Bash(npm test)")
+	if !strings.Contains(out, "these personas cannot receive grants, because their runtime has none: dev/engineer (fake)") {
+		t.Errorf("Grants off: %q", out)
+	}
+	fake.Off = map[string]bool{"AutoModeText": true}
+	out = must(t, "allow", "add", "--auto", "Running the tests is expected")
+	if !strings.Contains(out, "stored but not applied to these personas") || !strings.Contains(out, "dev/engineer (fake)") {
+		t.Errorf("AutoModeText off: %q", out)
+	}
+	if out := must(t, "allow", "add", "Bash(make)"); strings.Contains(out, "cannot receive") {
+		t.Errorf("a rule with AutoModeText off: %q", out)
+	}
+}

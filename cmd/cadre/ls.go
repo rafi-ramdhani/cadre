@@ -186,6 +186,7 @@ func runLs(e *env) int {
 	if !ok {
 		return 1
 	}
+	e.conf(r) // a status screen says when cadre.conf has lines it ignores
 	st := statusOf(r.Cadre, r.Default, t)
 	st.Version = jsonVersion
 	st.Cadre.From, st.Cadre.Project = r.From, r.Project

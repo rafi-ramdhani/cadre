@@ -862,7 +862,7 @@ echo "upgrade from 0.1.1"
 export HOME="$T/home-upg"
 export PATH="$T/bin:$HOME/.local/bin:$PATH"
 mkdir -p "$HOME/.claude"
-git clone -q "$ROOT" "$T/old"
+git clone -q "$T/src.git" "$T/old"
 git -C "$T/old" checkout -q -B main v0.1.1
 CADRE_REPO="$T/old" bash "$T/old/install.sh" up --dir "$T/upg" --yes --orchestrator-default >/dev/null
 UF="$T/upg/up/projects/cadre"
@@ -870,7 +870,7 @@ check "0.1.1 installed" test "$(cadre version)" = "cadre 0.1.1"
 links() { readlink "$HOME/.local/bin/cadre"; readlink "$HOME/.claude/skills/cadre"; }
 links0=$(links); cp "$HOME/.claude/settings.json" "$T/upg-settings.json"
 # The framework's origin holds the release under test as main.
-git clone -q --bare "$ROOT" "$T/rel.git"
+git clone -q --bare "$T/src.git" "$T/rel.git"
 git -C "$T/rel.git" update-ref refs/heads/main "$(git -C "$ROOT" rev-parse HEAD)"
 git -C "$T/rel.git" symbolic-ref HEAD refs/heads/main
 git -C "$UF" remote set-url origin "$T/rel.git"
@@ -903,7 +903,7 @@ cadre down --all --yes >/dev/null
 export HOME="$T/home-fresh"
 export PATH="$T/bin:$HOME/.local/bin:$PATH"
 mkdir -p "$HOME/.claude"
-CADRE_REPO="$ROOT" bash "$ROOT/install.sh" up --dir "$T/fresh" --yes --orchestrator-default >/dev/null
+CADRE_REPO="$T/src.git" bash -s -- up --dir "$T/fresh" --yes --orchestrator-default <"$ROOT/install.sh" >/dev/null
 check "a fresh install wires nothing more than an upgraded one" test "$(wiring "$T/fresh/up/projects/cadre")" = "$upgraded"
 
 echo "$pass checks passed"

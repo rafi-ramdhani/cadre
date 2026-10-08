@@ -33,8 +33,16 @@ ok() { pass=$((pass + 1)); printf '  ok  %s\n' "$1"; }
 fail() { printf '  FAIL %s\n' "$1" >&2; exit 1; }
 check() { local name=$1; shift; if "$@" >/dev/null 2>&1; then ok "$name"; else fail "$name"; fi; }
 
+# Installs clone a private bare copy of the commit under test, not the
+# working repo: a local clone hard-links or copies its objects and can fail
+# when something else writes to that repo meanwhile. Piping install.sh, as
+# curl | bash does, makes it fetch from CADRE_REPO.
+git clone -q --no-local --bare "$ROOT" "$T/src.git"
+git -C "$T/src.git" update-ref refs/heads/under-test "$(git -C "$ROOT" rev-parse HEAD)"
+git -C "$T/src.git" symbolic-ref HEAD refs/heads/under-test
+
 echo "install"
-CADRE_REPO="$ROOT" bash "$ROOT/install.sh" demo --dir "$T/work" --yes --orchestrator-default >/dev/null
+CADRE_REPO="$T/src.git" bash -s -- demo --dir "$T/work" --yes --orchestrator-default <"$ROOT/install.sh" >/dev/null
 C="$T/work/demo"
 check "cadre generated" test -f "$C/playbook.md"
 check "framework placed inside" test -x "$C/projects/cadre/bin/cadre"
@@ -688,7 +696,7 @@ check "back to up to date" bash -c "cadre update | grep -q 'is up to date'"
 echo "restore on a new machine"
 rm -rf "$HOME/.local" "$HOME/.config"
 cp "$CFG" "$T/cfg.before"
-CADRE_REPO="$ROOT" bash "$ROOT/install.sh" --from "$C" --dir "$T/machine2" --yes --no-hook --no-trust >/dev/null
+CADRE_REPO="$T/src.git" bash -s -- --from "$C" --dir "$T/machine2" --yes --no-hook --no-trust <"$ROOT/install.sh" >/dev/null
 check "cadre cloned" test -f "$T/machine2/demo/playbook.md"
 check "projects cloned by sync" test -d "$T/machine2/demo/projects/app/.git"
 check "active cadre switched" grep -qx "$T/machine2/demo" "$HOME/.config/cadre/home"
@@ -696,7 +704,7 @@ check "--from --no-trust leaves the config alone" cmp -s "$CFG" "$T/cfg.before"
 
 echo "uninstall"
 SET="$HOME/.claude/settings.json"
-CADRE_REPO="$ROOT" bash "$ROOT/install.sh" u1 --dir "$T/u" --yes --orchestrator-default >/dev/null
+CADRE_REPO="$T/src.git" bash -s -- u1 --dir "$T/u" --yes --orchestrator-default <"$ROOT/install.sh" >/dev/null
 U="$T/u/u1" FW="$T/u/u1/projects/cadre"
 check "fresh install to uninstall" test "$(readlink "$HOME/.local/bin/cadre")" = "$FW/bin/cadre"
 # Next to the cadre hook: someone else's SessionStart hook, another hook

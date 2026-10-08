@@ -36,7 +36,7 @@ func layout(t *testing.T, kind string) (*Checker, map[string]string) {
 		os.MkdirAll(home+"/.ssh", 0o755)
 	}
 	os.Symlink(cadre, home+"/Documents/link")
-	c := &Checker{Home: home, Cache: home + "/.cache", Cadre: cadre, Cadres: []string{cadre, cadre, other}}
+	c := &Checker{Root: home + "/.cadre", Home: home, Cache: home + "/.cache", Cadre: cadre, Cadres: []string{cadre, cadre, other}}
 	return c, map[string]string{"{CADRE}": cadre, "{OTHER}": other, "{PARENT}": home + "/work", "{HOME}": home, "{ROOT}": root}
 }
 
@@ -142,6 +142,7 @@ func TestDifferences(t *testing.T) {
 	c, ph := layout(t, "plain")
 	for _, d := range readTSV(t, "differences.tsv") {
 		got, msg := check(c, d[0], fill(d[1], ph))
+		msg = mask(msg, ph)
 		if got != d[2] || !strings.Contains(msg, d[3]) {
 			t.Errorf("%s (%s): got %s %q, want %s with %q", d[1], d[4], got, msg, d[2], d[3])
 		}

@@ -151,6 +151,11 @@ func spells(seg, name string) bool {
 	return !hasWildcard(seg) && fullMatch(segRegex(seg), name)
 }
 
+// anyName, as a segment of a target, stands for any name: a rule reaches
+// ~/.cadre/<anyName>/personas whatever it names in that place, so cadres
+// made later are covered too. No file can have this name.
+const anyName = "\x00"
+
 // reaches reports whether glob matches target, a folder holding it, or,
 // when target is a folder (ends in /), anything inside it.
 func reaches(glob, target string) bool {
@@ -180,6 +185,8 @@ func reaches(glob, target string) bool {
 			}
 		case rule[i] == "**":
 			v = walk(i+1, j) || walk(i, j+1)
+		case want[j] == anyName:
+			v = walk(i+1, j+1)
 		default:
 			v = fullMatch(segRegex(rule[i]), want[j]) && walk(i+1, j+1)
 		}

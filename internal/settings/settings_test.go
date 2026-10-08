@@ -93,6 +93,17 @@ func TestExport(t *testing.T) {
 			t.Errorf("the copy lacks %s", d)
 		}
 	}
+	for _, d := range []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/*/personas/**)", "Edit(//**/.cadre/*/.git/**)"} {
+		if !contains(deny, d) {
+			t.Errorf("the copy lacks the N.7 entry %s", d)
+		}
+	}
+	if soft, _ := texts(root.Get("autoMode").Get("soft_deny")); !contains(soft, CadreSoft) || !contains(soft, FixedSoft) {
+		t.Errorf("the copy's soft_deny: %q", soft)
+	}
+	if strings.Contains(string(raw), "teams") {
+		t.Error("a deny entry covers team folders, where personas work")
+	}
 	if contains(deny, legacy[0]) {
 		t.Error("the copy keeps the legacy Write rule")
 	}

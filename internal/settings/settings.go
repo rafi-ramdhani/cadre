@@ -28,13 +28,26 @@ import (
 // rules also cover the Write tool; Claude Code ignores Write(path) rules.
 var Protect = []string{"Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)"}
 
-// FixedDeny is added to every persona's copy: Protect, and the commands
-// that register or switch cadres.
-var FixedDeny = append(append([]string{}, Protect...), "Bash(cadre use:*)", "Bash(cadre cadres:*)", "Bash(cadre init:*)")
+// cadreDeny keeps personas off cadre's own files under ~/.cadre (N.7).
+// Team folders (~/.cadre/<name>/teams) stay writable: personas work there.
+// Edit rules also cover the Write tool.
+var cadreDeny = []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/framework/**)",
+	"Edit(//**/.cadre/*/.claude/**)", "Edit(//**/.cadre/*/cadre.conf)", "Edit(//**/.cadre/*/personas/**)",
+	"Edit(//**/.cadre/*/playbook.md)", "Edit(//**/.cadre/*/protocol.md)", "Edit(//**/.cadre/*/projects.yaml)",
+	"Edit(//**/.cadre/*/.git/**)"}
+
+// FixedDeny is added to every persona's copy: Protect, the commands that
+// register or switch cadres, and cadre's own files.
+var FixedDeny = append(append(append([]string{}, Protect...), "Bash(cadre use:*)", "Bash(cadre cadres:*)", "Bash(cadre init:*)"), cadreDeny...)
 
 // FixedSoft is the autoMode.soft_deny entry a file must hold.
 const FixedSoft = "Changing persona permissions (editing a cadre's .claude/persona-settings.json " +
 	"or running cadre allow) is only done by the user through the orchestrator"
+
+// CadreSoft is added to every copy's autoMode.soft_deny: Edit rules do not
+// cover shell writes, which this tells the auto-mode classifier about.
+const CadreSoft = "Changing cadre's own files under ~/.cadre (settings, personas, playbook, registry, " +
+	"cadre.conf, build files), other than team folders, is only done by the user through the orchestrator"
 
 // legacy entries are dropped from the copy: Claude Code ignores Write(path)
 // rules and warns about them at startup.
@@ -214,6 +227,19 @@ func Export(path, dir string) (string, error) {
 		}
 	}
 	perms.Set("deny", strs(deny...))
+	mode := out.Get("autoMode")
+	if mode == nil {
+		mode = jsonx.NewObject()
+		out.Set("autoMode", mode)
+	}
+	soft, ok := texts(mode.Get("soft_deny"))
+	if !ok {
+		soft = []string{Defaults}
+	}
+	if !contains(soft, CadreSoft) {
+		soft = append(soft, CadreSoft)
+	}
+	mode.Set("soft_deny", strs(soft...))
 	text := jsonx.Format(out, "  ")
 	sum := sha256.Sum256(text)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

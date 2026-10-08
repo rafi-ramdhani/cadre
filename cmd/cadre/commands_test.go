@@ -8,9 +8,12 @@ import (
 	"testing"
 )
 
-func call(args ...string) (code int, out, errOut string) {
+func call(args ...string) (code int, out, errOut string) { return callIn("", args...) }
+
+// callIn runs cadre with stdin as its input.
+func callIn(stdin string, args ...string) (code int, out, errOut string) {
 	var o, e bytes.Buffer
-	code = run(args, strings.NewReader(""), &o, &e)
+	code = run(args, strings.NewReader(stdin), &o, &e)
 	return code, o.String(), e.String()
 }
 

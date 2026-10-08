@@ -30,6 +30,7 @@ func (r Refused) Error() string { return string(r) }
 
 // Checker holds the folders a check needs, all physical.
 type Checker struct {
+	Root   string   // ~/.cadre, where cadres live (section N)
 	Home   string   // the user's home folder
 	Cache  string   // $XDG_CACHE_HOME, or ~/.cache
 	Cadre  string   // the cadre whose personas get the grant
@@ -44,7 +45,7 @@ func New(cadre string, known []string) *Checker {
 	if cache == "" {
 		cache = home + "/.cache"
 	}
-	c := &Checker{Home: home, Cache: paths.Real(cache), Cadre: paths.Real(cadre)}
+	c := &Checker{Root: home + "/.cadre", Home: home, Cache: paths.Real(cache), Cadre: paths.Real(cadre)}
 	c.Cadres = append([]string{c.Cadre}, known...)
 	return c
 }
@@ -411,12 +412,18 @@ func (c *Checker) path(rule, tool, spec string) string {
 	}
 	for _, t := range c.outside() {
 		if hit(t) {
-			refuse("refused: %s lets a persona change %s, which runs code outside its session or holds cadre's own state; make that edit yourself", rule, strings.TrimSuffix(t, "/"))
+			shown := strings.ReplaceAll(strings.TrimSuffix(t, "/"), anyName, "<cadre>")
+			refuse("refused: %s lets a persona change %s, which runs code outside its session or holds cadre's own state; make that edit yourself", rule, shown)
 		}
 	}
 	for _, x := range outsideNames {
 		if named(x) {
 			refuse("refused: %s lets a persona change files that run code outside its session; make that edit yourself", rule)
+		}
+	}
+	for _, cadre := range c.Cadres {
+		if cadre != c.Cadre && hit(cadre+"/teams/") {
+			return fmt.Sprintf("warning: %s reaches the team folders of the cadre at %s; this cadre's personas would change that cadre's work", rule, cadre)
 		}
 	}
 	return ""
@@ -430,8 +437,18 @@ func (c *Checker) outside() []string {
 		h + "/Library/LaunchAgents/", h + "/.config/autostart/", h + "/.config/systemd/user/",
 		h + "/.local/bin/", h + "/.config/cadre/", c.Cache + "/cadre/",
 		"/var/spool/cron/", "/usr/lib/cron/tabs/", "/etc/crontab"}
-	for _, cadre := range c.Cadres {
-		out = append(out, cadre+"/.claude/build/")
+	cadres := c.Cadres
+	if c.Root != "" {
+		// Cadre's own files under ~/.cadre (N.7), for any cadre there, also
+		// ones made later.
+		any := c.Root + "/" + anyName
+		out = append(out, c.Root+"/config/", c.Root+"/framework/", any+"/cadre.conf")
+		cadres = append(append([]string{}, cadres...), any)
+	}
+	for _, cadre := range cadres {
+		// A cadre's own files: everything but its team folders.
+		out = append(out, cadre+"/.claude/build/", cadre+"/.claude/", cadre+"/personas/", cadre+"/playbook.md",
+			cadre+"/protocol.md", cadre+"/projects.yaml", cadre+"/.git/")
 	}
 	return out
 }

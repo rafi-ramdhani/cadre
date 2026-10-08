@@ -7,7 +7,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-T=$(mktemp -d)
+# Physical, as cadre keeps the paths of cadres (macOS: /var is /private/var).
+T=$(cd "$(mktemp -d)" && pwd -P)
 export HOME="$T/home" CADRE_TMUX_SOCKET="cadre-test-$$"
 unset TMUX CADRE_HOME CADRE_PERSONA CADRE_OFF
 # The throwaway HOME has no git identity; give it one so commits work.
@@ -283,6 +284,42 @@ check "no list lock left behind" test ! -e "$HOME/.config/cadre/cadres.lock"
 mv "$HOME/.config/cadre/cadres" "$T/cadres.saved"
 check "the list is seeded from the default" test "$(cadre cadres | grep -c '^[ *] ')" = 1
 mv "$T/cadres.saved" "$HOME/.config/cadre/cadres"
+for cmd in "use '$T/multi/b'" "cadres add '$T/multi/b'" "cadres remove b" "init z '$T/multi'"; do
+  check "a persona cannot run cadre $cmd" bash -c "! CADRE_PERSONA=x cadre $cmd 2>&1 | grep -v 'persona sessions cannot register or switch cadres' | grep -q . && test ! -e '$T/multi/z'"
+done
+check "a persona's cadre registration left the default alone" bash -c "cd '$T' && cadre which | grep -q '^demo '"
+cp "$HOME/.config/cadre/home" "$T/home.saved"
+echo "$T/gone" >"$HOME/.config/cadre/home"
+mkdir -p "$T/multi/c/personas"
+cadre cadres add "$T/multi/c" >/dev/null
+check "cadres add never changes the default" grep -qx "$T/gone" "$HOME/.config/cadre/home"
+cadre cadres remove c >/dev/null
+ln -s "$T/multi/b" "$T/alias"
+cadre use "$T/alias" >/dev/null
+check "the default is kept as a physical path" grep -qx "$B" "$HOME/.config/cadre/home"
+check "a cadre reached through a symlink keeps its name" test "$(cd "$T" && cadre which)" = "b $B (default)"
+echo "$T/alias" >"$HOME/.config/cadre/home"
+check "a default written as given resolves physically" test "$(cd "$T" && cadre which)" = "b $B (default)"
+check "and the pointer is rewritten physically" grep -qx "$B" "$HOME/.config/cadre/home"
+check "CADRE_HOME is used physically" test "$(CADRE_HOME="$T/alias" cadre which)" = "b $B (from CADRE_HOME)"
+cp "$T/home.saved" "$HOME/.config/cadre/home"
+cp "$HOME/.config/cadre/cadres" "$T/cadres.saved"
+printf '  %s/  \nrelative/x\n~/x\n%s\n' "$B" "$B" >>"$HOME/.config/cadre/cadres"
+out=$(cadre cadres)
+check "odd list lines are normalized" bash -c "test \$(grep -c ' $B' <<<'$out') = 1 && ! grep -q 'relative\|~/x' <<<'$out'"
+mkdir -p "$T/multi3/B/personas"
+check "a name differing only in case is refused" bash -c "! cadre cadres add '$T/multi3/B' 2>/dev/null"
+mkdir -p "$T/multi3/a/personas"; echo "$T/multi3/a" >>"$HOME/.config/cadre/cadres"
+check "two present cadres with one name are not used" bash -c "cd '$T/multi/a' && ! cadre which 2>/dev/null"
+check "and the error says so" bash -c "cd '$T/multi/a' && cadre which 2>&1 | grep -q 'share the name a'"
+check "the list flags them" bash -c "cadre cadres | grep '$A' | grep -q 'same name as another cadre'"
+cp "$T/cadres.saved" "$HOME/.config/cadre/cadres"
+mkdir "$HOME/.config/cadre/cadres.lock"; touch -t 202001010000 "$HOME/.config/cadre/cadres.lock"
+check "a stale list lock is taken over" bash -c "cadre cadres add '$T/multi/b' >/dev/null && test ! -e '$HOME/.config/cadre/cadres.lock'"
+mkdir -p "$T/odd/my.cadre/personas"
+mv "$HOME/.config/cadre/cadres" "$T/cadres.saved"; echo "$T/odd/my.cadre" >"$HOME/.config/cadre/home"
+check "seeding warns about a name that breaks session names" bash -c "cadre cadres 2>&1 | grep -q 'does not work in session names'"
+mv "$T/cadres.saved" "$HOME/.config/cadre/cadres"; cp "$T/home.saved" "$HOME/.config/cadre/home"
 
 echo "sessions"
 cadre up dev/engineer app >/dev/null
@@ -309,6 +346,7 @@ d = json.load(open(sys.argv[1]))
 assert d["permissions"]["allow"] == []
 assert d["autoMode"]["allow"] == ["$defaults"] and d["autoMode"]["soft_deny"][0] == "$defaults"
 assert "Bash(cadre allow:*)" in d["permissions"]["deny"]
+assert all("Bash(cadre %s:*)" % c in d["permissions"]["deny"] for c in ("use", "cadres", "init"))
 assert set(d) == {"permissions", "autoMode"}' "$PS"
 # relaunch: restart dev/engineer for app and print cadre up's output.
 relaunch() { cadre down dev/engineer app >/dev/null; rm -f "$T/args-dev-app-engineer"; cadre up dev/engineer app 2>&1; }
@@ -499,7 +537,8 @@ for rule in 'Bash(npm test)' "Edit(//$C/projects/app/**)" 'Edit(src/**)' 'Read(.
 done
 ok "narrow rules are still accepted"
 # cadre.conf is sourced as shell code by every cadre command.
-for rule in 'Edit(cadre.conf)' "Edit(//$C/cadre.conf)" "Edit(//$C/*.conf)" "Edit(//$C/**)" "Edit(~/x/CADRE.conf)" 'Bash(tee cadre.conf)'; do
+for rule in 'Edit(cadre.conf)' "Edit(//$C/cadre.conf)" "Edit(//$C/*.conf)" "Edit(//$C/**)" "Edit(~/x/CADRE.conf)" 'Bash(tee cadre.conf)' \
+    "Edit(//$B/*.conf)" "Edit(//$B/.claude/b*/x)" 'Bash(cadre use:*)' 'Bash(cadre cadres add x)' 'Bash(cadre init x)'; do
   if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
   grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
 done

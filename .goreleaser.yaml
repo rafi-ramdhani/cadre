@@ -1,0 +1,31 @@
+# Release builds for cadre (spec section O.4): a static binary for macOS and
+# Linux, amd64 and arm64, with SHA-256 checksums.
+version: 2
+project_name: cadre
+
+builds:
+  - id: cadre
+    main: ./cmd/cadre
+    binary: cadre
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  disable: true

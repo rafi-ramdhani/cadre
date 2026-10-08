@@ -61,6 +61,16 @@ Dependencies, kept small and vendored:
 - No CLI framework: a hand-written dispatch table, so the advanced commands
   and old names stay one table that `help` and `help advanced` print from.
 
+## The runtime boundary (section P)
+
+Built in O-T4 (P-T1):
+- `internal/runtime` holds the interface (`Runtime`, `Capabilities`, `LaunchSpec`, `Command`, `PermissionOps`, `TrustOps`), the registry, selection (`For`: role `.runtime`, team `.runtime`, `RUNTIME`, then the default) and `Usable` (fixed denies, messaging, permission mode).
+- `internal/runtime/claude` is the only adapter, and the only code that names Claude Code: its command and flags, `.claude` folders, `~/.claude.json` trust and hooks. It holds `settings` and `allow` (moved there) and the trust and hook edits that used to be in `jsonx`, which is now a generic editor.
+- `internal/runtime/fake` (`-tags cadretest` only) is the test adapter.
+- `session.Up` runs what `Launch` returns, as argv with `-e` environment, never through a shell. The prompt goes into the runtime's `BuildDir`.
+- A Go test parses every other source file and fails on Claude Code names in string literals (AC-P2).
+- Operations of later steps (health, hooks and instructions, sessions, context) join the interface in those steps.
+
 ## Data model (section N)
 
 ```

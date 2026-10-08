@@ -193,3 +193,31 @@ func FuzzRule(f *testing.F) {
 		c.Auto(rule)
 	})
 }
+
+// TestNeverWeakerThanBash runs the review kit's 12,000 generated rules
+// (dfz-rules.txt), recorded with the bash 0.2.0 checker's outcome in
+// testdata/dfz.tsv. The Go checker may be stricter, never weaker: what bash
+// refused, Go refuses; what bash warned about, Go warns about or refuses.
+func TestNeverWeakerThanBash(t *testing.T) {
+	rows := readTSV(t, "dfz.tsv")
+	if len(rows) < 12000 {
+		t.Fatalf("only %d rows", len(rows))
+	}
+	c, ph := layout(t, "plain")
+	rank := map[string]int{"accept": 0, "warn": 1, "refuse": 2}
+	weaker, stricter := 0, 0
+	for _, r := range rows {
+		want, rule := r[0], r[1]
+		got, msg := check(c, "R", fill(rule, ph))
+		switch {
+		case rank[got] < rank[want]:
+			weaker++
+			if weaker <= 20 {
+				t.Errorf("%s: bash %s, Go %s %q", rule, want, got, mask(msg, ph))
+			}
+		case rank[got] > rank[want]:
+			stricter++
+		}
+	}
+	t.Logf("%d rules: %d weaker, %d stricter than bash", len(rows), weaker, stricter)
+}

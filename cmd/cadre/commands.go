@@ -72,9 +72,9 @@ func init() {
 	commands = []command{
 		// Visible (section M.2).
 		{name: "", summary: "open this cadre's orchestrator in this terminal", run: notBuilt("cadre")},
-		{name: "ls", usage: "[--all]", summary: "what runs, your projects and your other cadres", run: notBuilt("cadre ls")},
-		{name: "attach", usage: "<team> [project]", summary: "watch or talk to a running team (tmux)", run: notBuilt("cadre attach")},
-		{name: "stop", usage: "[team[/role]] [project] [--all]", summary: "stop a team; with no team, every team of this cadre (asks first)", run: notBuilt("cadre stop")},
+		{name: "ls", usage: "[--all]", summary: "what runs, your projects and your other cadres", run: runLs},
+		{name: "attach", usage: "<team> [project]", summary: "watch or talk to a running team (tmux)", run: runAttach},
+		{name: "stop", usage: "[team[/role]] [project] [--all]", summary: "stop a team; with no team, every team of this cadre (asks first)", run: runStop},
 		{name: "help", usage: "[advanced]", summary: "these commands; advanced lists the rest", run: runHelp},
 		{name: "--version", summary: "the version and how cadre was installed", run: runVersion},
 		{name: "uninstall", usage: "[--yes | --dry-run]", summary: "remove cadre's links, skill, hook and config (keeps your cadres and projects)", run: notBuilt("cadre uninstall")},
@@ -97,7 +97,7 @@ func init() {
 		{name: "project path", usage: "<name>", summary: "print a project's folder", group: "Projects", run: runProjectPath},
 		{name: "project dir", usage: "[<dir>]", summary: "where new clones go", group: "Projects", run: runProjectDir},
 
-		{name: "up", usage: "<team|team/role> [project|dir]", summary: "start a team or one persona", group: "Teams", run: notBuilt("cadre up")},
+		{name: "up", usage: "<team|team/role> [project|dir]", summary: "start a team or one persona", group: "Teams", run: runUp},
 		{name: "team add", usage: "<team>", summary: "add a team", group: "Teams", run: runTeamAdd},
 		{name: "persona add", usage: "<team>/<role>", summary: "add a persona", group: "Teams", run: runPersonaAdd},
 
@@ -111,7 +111,7 @@ func init() {
 		{name: "--check", summary: "the full health check", group: "Framework", run: notBuilt("cadre --check")},
 		{name: "--tmux", usage: "[--detach]", summary: "open the orchestrator in tmux", group: "Framework", run: notBuilt("cadre --tmux")},
 
-		{name: "ls --json", summary: "the status screen's data, for the orchestrator", group: "Data", run: notBuilt("cadre ls --json")},
+		{name: "ls --json", summary: "the status screen's data, for the orchestrator", group: "Data", run: runLsJSON},
 
 		// Hidden: the 0.1.x projects listing, kept as an old name (M.2).
 		{name: "projects", hidden: true, run: runProjects},
@@ -122,6 +122,12 @@ func init() {
 		{name: "hook state", hidden: true, run: notBuilt("cadre hook state")},
 		{name: "hook session", hidden: true, run: notBuilt("cadre hook session")},
 	}
+}
+
+// runLsJSON is cadre ls --json: the table's entry takes the flag.
+func runLsJSON(e *env) int {
+	e.args = append([]string{"--json"}, e.args...)
+	return runLs(e)
 }
 
 // notBuilt stands in for a command until its porting step lands.

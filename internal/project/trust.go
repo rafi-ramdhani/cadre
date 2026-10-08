@@ -2,31 +2,22 @@
 package project
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
-	"github.com/rafi-ramdhani/cadre/internal/jsonx"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
+	"github.com/rafi-ramdhani/cadre/internal/runtime"
 )
-
-// ClaudeConfig is Claude Code's config file, where folder trust is kept.
-func ClaudeConfig() string {
-	dir := os.Getenv("CLAUDE_CONFIG_DIR")
-	if dir == "" {
-		dir = paths.Home()
-	}
-	return filepath.Join(dir, ".claude.json")
-}
 
 // TrustRefusal says why folder dir (physical) must not be trusted, or ""
 // when it may be. Only the top folder of a project's git repository is
 // trusted: never /, the home folder, ~/.cadre or a folder containing it,
-// a cadre's folder or anything in it (team folders included), or a folder
-// containing an outside cadre (N.7).
-func TrustRefusal(dir string) string {
+// a cadre's folder or anything in it (team folders included), a folder
+// containing an outside cadre (N.7), or anything inside a folder the
+// runtime loads code from (protected).
+func TrustRefusal(dir string, protected []string) string {
 	home := paths.Home()
 	root := paths.Real(cadres.Root())
 	switch {
@@ -38,8 +29,11 @@ func TrustRefusal(dir string) string {
 		return "it is ~/.cadre or contains it"
 	case paths.Within(dir, root):
 		return "it is inside ~/.cadre, where cadre keeps its own files"
-	case paths.Within(dir, filepath.Join(home, ".claude")):
-		return "it is inside ~/.claude"
+	}
+	for _, p := range protected {
+		if paths.Within(dir, p) {
+			return "it is inside " + cadres.Tilde(p)
+		}
 	}
 	list, _ := cadres.List()
 	for _, c := range list {
@@ -57,74 +51,31 @@ func TrustRefusal(dir string) string {
 	return ""
 }
 
-// TrustResult is what happened to one project's trust.
-type TrustResult struct {
-	Name   string
-	State  string // "trusted", "already", "refused" or "skipped"
-	Reason string // why it was refused
-}
-
-// Folder is a project to trust: its name and its folder as cadre spells
-// it (the registry's path, expanded).
-type Folder struct {
-	Name string
-	Dir  string
-}
-
-// Trust marks the folders as trusted in Claude Code's config, in one write
-// with one backup. Each folder is keyed by its physical path and, when it
-// differs, by the path as cadre spells it (section C). It returns a result
-// per project and, when the config was left alone, a note for the user.
-func Trust(folders []Folder) ([]TrustResult, string) {
-	cfg := ClaudeConfig()
-	var results []TrustResult
-	var entries []jsonx.TrustEntry
+// Trust marks folders as trusted in the runtime, refusing the ones
+// TrustRefusal names. It returns a result per folder and, when the
+// runtime's config was left alone, a note for the user.
+func Trust(rt runtime.Runtime, folders []runtime.Folder) ([]runtime.TrustResult, string) {
+	var results []runtime.TrustResult
+	var ok []runtime.Folder
+	protected := rt.Trust().Protected()
 	for _, f := range folders {
-		phys := paths.Real(f.Dir)
-		if why := TrustRefusal(phys); why != "" {
-			results = append(results, TrustResult{f.Name, "refused", why})
+		if why := TrustRefusal(paths.Real(f.Dir), protected); why != "" {
+			results = append(results, runtime.TrustResult{Name: f.Name, State: "refused", Reason: why})
 			continue
 		}
-		dirs := []string{phys}
-		if abs, err := filepath.Abs(f.Dir); err == nil && filepath.Clean(abs) != phys {
-			dirs = append(dirs, filepath.Clean(abs))
-		}
-		entries = append(entries, jsonx.TrustEntry{Name: f.Name, Dirs: dirs})
+		ok = append(ok, f)
 	}
-	if len(entries) == 0 {
-		return results, ""
-	}
-	code, lines := jsonx.Edit(cfg, jsonx.Options{Backup: cfg + ".bak-cadre"}, jsonx.Trust(entries))
-	var note string
-	switch code {
-	case jsonx.Changed, jsonx.Unchanged:
-		for _, l := range lines {
-			name, state, _ := strings.Cut(l, "\t")
-			results = append(results, TrustResult{Name: name, State: state})
-		}
-		return results, ""
-	case jsonx.Missing:
-		note = "Claude Code has not created its config yet; it will ask to trust the folder on first launch"
-	case jsonx.KeptChanged:
-		note = "warning: " + cfg + " kept changing (a running Claude Code session?), so it was left unchanged; Claude Code will ask to trust the folder on first launch"
-	case jsonx.WriteFailed:
-		note = "warning: could not write next to " + cfg + " (folder not writable, or disk full?), so it was left unchanged; Claude Code will ask to trust the folder on first launch"
-	default:
-		note = "warning: " + cfg + " is not a file cadre can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user), so it was left unchanged; Claude Code will ask to trust the folder on first launch"
-	}
-	for _, e := range entries {
-		results = append(results, TrustResult{Name: e.Name, State: "skipped"})
-	}
-	return results, note
+	marked, note := rt.Trust().Mark(ok)
+	return append(results, marked...), note
 }
 
-// Line is how cadre reports one trust result.
-func (r TrustResult) Line() string {
+// Line is how cadre reports one trust result in runtime title's settings.
+func Line(r runtime.TrustResult, title string) string {
 	switch r.State {
 	case "trusted":
-		return "  " + r.Name + ": trusted in Claude Code"
+		return "  " + r.Name + ": trusted in " + title
 	case "already":
-		return "  " + r.Name + ": already trusted in Claude Code"
+		return "  " + r.Name + ": already trusted in " + title
 	case "refused":
 		return "  " + r.Name + ": not trusted, " + r.Reason
 	}

@@ -12,12 +12,13 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/project"
 	"github.com/rafi-ramdhani/cadre/internal/registry"
+	"github.com/rafi-ramdhani/cadre/internal/runtime"
 )
 
 // projectsDir returns where new clones go. It is asked once and remembered
 // (N.2): on a terminal cadre asks; without one it refuses, so the
 // orchestrator asks the user in the chat instead.
-func (e *env) projectsDir() (string, bool) {
+func (e *env) projectsDir(protected []string) (string, bool) {
 	if d := cadres.ProjectsDir(); d != "" {
 		return d, true
 	}
@@ -30,11 +31,11 @@ func (e *env) projectsDir() (string, bool) {
 	if answer == "" {
 		answer = suggest
 	}
-	dir, ok := e.setProjectsDir(answer)
+	dir, ok := e.setProjectsDir(answer, protected)
 	return dir, ok
 }
 
-func (e *env) setProjectsDir(answer string) (string, bool) {
+func (e *env) setProjectsDir(answer string, protected []string) (string, bool) {
 	dir := answer
 	if dir == "~" || strings.HasPrefix(dir, "~/") {
 		dir = paths.Home() + dir[1:]
@@ -42,7 +43,7 @@ func (e *env) setProjectsDir(answer string) (string, bool) {
 	if !filepath.IsAbs(dir) {
 		dir, _ = filepath.Abs(dir)
 	}
-	if why := project.DestRefusal(paths.Real(dir)); why != "" {
+	if why := project.DestRefusal(paths.Real(dir), protected); why != "" {
 		e.fail("%s cannot hold projects: %s", dir, why)
 		return "", false
 	}
@@ -77,7 +78,12 @@ func runProjectDir(e *env) int {
 		if e.persona("change where projects are cloned") || !e.home() {
 			return 1
 		}
-		if _, ok := e.setProjectsDir(e.args[0]); !ok {
+		// Every runtime's protected folders; in 0.2.0, Claude Code's.
+		rt, err := runtime.Get(runtime.Default())
+		if err != nil {
+			return e.fail("%s", err)
+		}
+		if _, ok := e.setProjectsDir(e.args[0], rt.Trust().Protected()); !ok {
 			return 1
 		}
 		return 0
@@ -136,18 +142,23 @@ func runProjectAdd(e *env) int {
 	if !ok {
 		return 1
 	}
+	rt, ok := e.cadreRuntime(r)
+	if !ok {
+		return 1
+	}
+	protected := rt.Trust().Protected()
 	var added project.Added
 	var err error
 	if linking {
-		added, err = project.Link(r.Cadre, s, path)
+		added, err = project.Link(r.Cadre, s, path, protected)
 	} else {
 		dir := ""
 		if !r.External {
-			if dir, ok = e.projectsDir(); !ok {
+			if dir, ok = e.projectsDir(protected); !ok {
 				return 1
 			}
 		}
-		added, err = project.Add(r.Cadre, s, dir)
+		added, err = project.Add(r.Cadre, s, dir, protected)
 	}
 	if err != nil {
 		return e.fail("%s", err)
@@ -161,17 +172,17 @@ func runProjectAdd(e *env) int {
 		e.say("%s", head)
 	case os.Getenv("CADRE_PERSONA") != "":
 		e.say("%s", head)
-		e.say("persona sessions cannot trust folders in Claude Code; run cadre project trust %s from the orchestrator", s.Name)
+		e.say("persona sessions cannot trust folders in %s; run cadre project trust %s from the orchestrator", rt.Title(), s.Name)
 	default:
-		results, note := project.Trust([]project.Folder{{Name: s.Name, Dir: added.Dir}})
+		results, note := project.Trust(rt, []runtime.Folder{{Name: s.Name, Dir: added.Dir}})
 		res := results[0]
 		switch res.State {
 		case "trusted":
-			e.say("%s and trusted in Claude Code (registered projects are trusted; use --no-trust to skip)", head)
+			e.say("%s and trusted in %s (registered projects are trusted; use --no-trust to skip)", head, rt.Title())
 		case "already":
-			e.say("%s; its folder was already trusted in Claude Code", head)
+			e.say("%s; its folder was already trusted in %s", head, rt.Title())
 		case "refused":
-			e.say("%s; not trusted in Claude Code, %s", head, res.Reason)
+			e.say("%s; not trusted in %s, %s", head, rt.Title(), res.Reason)
 		default:
 			e.say("%s", head)
 			e.say("%s", strings.Replace(note, "the folder", added.Dir, 1))
@@ -192,16 +203,20 @@ func runProjectSync(e *env) int {
 	if !ok {
 		return 1
 	}
+	rt, ok := e.cadreRuntime(r)
+	if !ok {
+		return 1
+	}
 	if !r.External && cadres.ProjectsDir() == "" && needsProjectsDir(r) {
-		if _, ok := e.projectsDir(); !ok {
+		if _, ok := e.projectsDir(rt.Trust().Protected()); !ok {
 			return 1
 		}
 	}
-	results, err := project.Sync(r.Cadre)
+	results, err := project.Sync(r.Cadre, rt.Trust().Protected())
 	if err != nil {
 		return e.fail("%s", err)
 	}
-	var cloned []project.Folder
+	var cloned []runtime.Folder
 	code := 0
 	for _, res := range results {
 		switch res.State {
@@ -209,7 +224,7 @@ func runProjectSync(e *env) int {
 			e.say("  %s: present", res.Name)
 		case "cloned":
 			e.say("  %s: cloned to %s", res.Name, res.Dir)
-			cloned = append(cloned, project.Folder{Name: res.Name, Dir: res.Dir})
+			cloned = append(cloned, runtime.Folder{Name: res.Name, Dir: res.Dir})
 		case "no repo":
 			e.say("  %s: missing, and no repo to clone", res.Name)
 		case "no folder":
@@ -220,7 +235,7 @@ func runProjectSync(e *env) int {
 		}
 	}
 	if trust && len(cloned) > 0 {
-		e.trustReport(cloned)
+		e.trustReport(rt, cloned)
 	}
 	return code
 }
@@ -240,21 +255,21 @@ func needsProjectsDir(r *cadres.Resolved) bool {
 }
 
 // trustReport trusts folders and prints a line each, then any note.
-func (e *env) trustReport(folders []project.Folder) {
+func (e *env) trustReport(rt runtime.Runtime, folders []runtime.Folder) {
 	if os.Getenv("CADRE_PERSONA") != "" {
 		var names []string
 		for _, f := range folders {
 			e.say("  %s: not trusted (see below)", f.Name)
 			names = append(names, f.Name)
 		}
-		e.say("persona sessions cannot trust folders in Claude Code; run cadre project trust %s from the orchestrator", strings.Join(names, " "))
+		e.say("persona sessions cannot trust folders in %s; run cadre project trust %s from the orchestrator", rt.Title(), strings.Join(names, " "))
 		return
 	}
-	results, note := project.Trust(folders)
+	results, note := project.Trust(rt, folders)
 	for _, f := range folders {
 		for _, res := range results {
 			if res.Name == f.Name {
-				e.say("%s", res.Line())
+				e.say("%s", project.Line(res, rt.Title()))
 			}
 		}
 	}
@@ -264,7 +279,7 @@ func (e *env) trustReport(folders []project.Folder) {
 }
 
 func runProjectTrust(e *env) int {
-	if e.persona("trust folders in Claude Code") {
+	if e.persona("trust project folders") {
 		return 1
 	}
 	if len(e.args) != 1 || (strings.HasPrefix(e.args[0], "-") && e.args[0] != "--all") {
@@ -274,11 +289,15 @@ func runProjectTrust(e *env) int {
 	if !ok {
 		return 1
 	}
+	rt, ok := e.cadreRuntime(r)
+	if !ok {
+		return 1
+	}
 	reg, err := registry.Load(r.Registry())
 	if err != nil {
 		return e.fail("%s", err)
 	}
-	var folders []project.Folder
+	var folders []runtime.Folder
 	if e.args[0] == "--all" {
 		for _, entry := range reg.Entries() {
 			d := cadres.ProjectDir(r.Cadre, entry)
@@ -286,7 +305,7 @@ func runProjectTrust(e *env) int {
 				e.say("  %s: missing locally, skipped (run cadre project sync)", entry.Name)
 				continue
 			}
-			folders = append(folders, project.Folder{Name: entry.Name, Dir: d})
+			folders = append(folders, runtime.Folder{Name: entry.Name, Dir: d})
 		}
 	} else {
 		entry := reg.Get(e.args[0])
@@ -297,10 +316,10 @@ func runProjectTrust(e *env) int {
 		if st, err := os.Stat(d); d == "" || err != nil || !st.IsDir() {
 			return e.fail("project '%s' is not at %s (run cadre project sync)", e.args[0], d)
 		}
-		folders = []project.Folder{{Name: entry.Name, Dir: d}}
+		folders = []runtime.Folder{{Name: entry.Name, Dir: d}}
 	}
 	if len(folders) > 0 {
-		e.trustReport(folders)
+		e.trustReport(rt, folders)
 	}
 	return 0
 }

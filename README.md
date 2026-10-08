@@ -1,5 +1,7 @@
 # Cadre
 
+[![CI](https://github.com/rafi-ramdhani/cadre/actions/workflows/ci.yml/badge.svg)](https://github.com/rafi-ramdhani/cadre/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **A team of Claude Code sessions that you lead from one conversation.**
 
 Cadre turns Claude Code into a small standing team. You talk to one session, the orchestrator. It hands work to persona sessions (a PM, an engineer, a reviewer, a researcher, a tutor, whatever you define), each a full Claude Code session in its own tmux window with its own role and working folder. It passes results between them and reports back to you. When the work is interactive, you attach to a persona's window and talk to it directly.

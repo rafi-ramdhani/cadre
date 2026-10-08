@@ -1,0 +1,14 @@
+{
+  "cadre": {
+    "default": "bool",
+    "from": "string",
+    "name": "string",
+    "path": "string"
+  },
+  "other_cadres": "array of {\"name\":\"string\",\"path\":\"string\",\"running\":\"number\"}",
+  "problems": "array of ",
+  "projects": "array of {\"about\":\"string\",\"cloned\":\"bool\",\"name\":\"string\",\"path\":\"string\",\"team\":\"string\"}",
+  "running": "array of {\"legacy\":\"bool\",\"personas\":\"array of {\\\"name\\\":\\\"string\\\",\\\"role\\\":\\\"string\\\",\\\"runtime\\\":\\\"string\\\"}\",\"session\":\"string\",\"team\":\"string\"}",
+  "teams": "map of array of \"array of {\\\"name\\\":\\\"string\\\",\\\"role\\\":\\\"string\\\",\\\"runtime\\\":\\\"string\\\"}\"",
+  "version": "number"
+}

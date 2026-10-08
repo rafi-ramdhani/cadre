@@ -136,7 +136,7 @@ type Added struct {
 // cadre, as in 0.1.x. A folder already there is linked when it is the same
 // repository and refused otherwise. The clone comes first, so a failed
 // clone registers nothing.
-func Add(c cadres.Cadre, s Spec, projectsDir string) (Added, error) {
+func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added, error) {
 	var a Added
 	if err := CheckName(s.Name); err != nil {
 		return a, err
@@ -152,7 +152,7 @@ func Add(c cadres.Cadre, s Spec, projectsDir string) (Added, error) {
 	if !c.External {
 		dir = filepath.Join(projectsDir, s.Name)
 	}
-	if why := DestRefusal(paths.Real(dir)); why != "" {
+	if why := DestRefusal(paths.Real(dir), protected); why != "" {
 		return a, fmt.Errorf("cannot clone into %s: %s", dir, why)
 	}
 	if st, err := os.Stat(dir); err == nil && st.IsDir() {
@@ -184,8 +184,8 @@ func Add(c cadres.Cadre, s Spec, projectsDir string) (Added, error) {
 
 // LinkRefusal says why a folder (physical) cannot be linked as a project,
 // or "" (L.7, with N's ~/.cadre).
-func LinkRefusal(dir string) string {
-	if why := DestRefusal(dir); why != "" {
+func LinkRefusal(dir string, protected []string) string {
+	if why := DestRefusal(dir, protected); why != "" {
 		return why
 	}
 	if !TopLevel(dir) {
@@ -196,9 +196,9 @@ func LinkRefusal(dir string) string {
 
 // DestRefusal says why a folder (physical) cannot hold a project, whether
 // linked or cloned there, or "": a registry may be shared, so its paths are
-// checked like a link (a project under ~/.claude/skills would be loaded by
-// Claude Code as a skill).
-func DestRefusal(dir string) string {
+// checked like a link. protected lists the folders the runtime loads code
+// from (a project there would be loaded as a skill, for example).
+func DestRefusal(dir string, protected []string) string {
 	home := paths.Home()
 	root := paths.Real(cadres.Root())
 	switch {
@@ -210,10 +210,14 @@ func DestRefusal(dir string) string {
 		return "it is inside ~/.cadre, where cadre keeps its own files"
 	case paths.Within(root, dir):
 		return "it contains ~/.cadre"
-	case paths.Within(dir, filepath.Join(home, ".claude")):
-		return "it is inside ~/.claude"
-	case paths.Within(filepath.Join(home, ".claude"), dir):
-		return "it contains ~/.claude"
+	}
+	for _, p := range protected {
+		switch {
+		case paths.Within(dir, p):
+			return "it is inside " + cadres.Tilde(p)
+		case paths.Within(p, dir):
+			return "it contains " + cadres.Tilde(p)
+		}
 	}
 	list, _ := cadres.List()
 	for _, c := range list {
@@ -230,7 +234,7 @@ func DestRefusal(dir string) string {
 // Link registers a folder the user already has (L.7): it must be the top
 // folder of a git repository and not cadre's own. The repo is the one given,
 // else the folder's origin. The path is stored as ~/... under home.
-func Link(c cadres.Cadre, s Spec, dir string) (Added, error) {
+func Link(c cadres.Cadre, s Spec, dir string, protected []string) (Added, error) {
 	var a Added
 	if err := CheckName(s.Name); err != nil {
 		return a, err
@@ -240,7 +244,7 @@ func Link(c cadres.Cadre, s Spec, dir string) (Added, error) {
 		return a, fmt.Errorf("%s is not a folder", dir)
 	}
 	phys := paths.Real(dir)
-	if why := LinkRefusal(phys); why != "" {
+	if why := LinkRefusal(phys, protected); why != "" {
 		return a, fmt.Errorf("%s cannot be linked: %s", dir, why)
 	}
 	reg, err := registry.Load(c.Registry())
@@ -290,7 +294,7 @@ type SyncResult struct {
 // recorded folders (N.2), creating parent folders under the home folder
 // only. noDir is returned when a project has no folder because the
 // projects folder is not set.
-func Sync(c cadres.Cadre) ([]SyncResult, error) {
+func Sync(c cadres.Cadre, protected []string) ([]SyncResult, error) {
 	reg, err := registry.Load(c.Registry())
 	if err != nil {
 		return nil, err
@@ -306,8 +310,8 @@ func Sync(c cadres.Cadre) ([]SyncResult, error) {
 			r.State = "present"
 		case e.Get("repo") == "":
 			r.State = "no repo"
-		case DestRefusal(paths.Real(d)) != "":
-			r.State, r.Err = "failed", fmt.Errorf("not cloned into %s: %s", d, DestRefusal(paths.Real(d)))
+		case DestRefusal(paths.Real(d), protected) != "":
+			r.State, r.Err = "failed", fmt.Errorf("not cloned into %s: %s", d, DestRefusal(paths.Real(d), protected))
 		default:
 			parent := filepath.Dir(paths.Real(d))
 			if _, err := os.Stat(parent); err != nil && !paths.Within(parent, paths.Home()) {

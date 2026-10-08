@@ -78,46 +78,37 @@ func writeConfig(t *testing.T, body string, mode os.FileMode) string {
 	return p
 }
 
-func trustOp(dirs ...string) Op { return Trust([]TrustEntry{{Name: "app", Dirs: dirs}}) }
-
-func TestTrustKeepsEverythingElse(t *testing.T) {
-	p := writeConfig(t, claudeJSON, 0o644)
-	code, lines := Edit(p, Options{Backup: p + ".bak-cadre"}, trustOp("/w/app", "/typed/app"))
-	if code != Changed || strings.Join(lines, ",") != "app\ttrusted" {
-		t.Fatalf("Edit = %d %q", code, lines)
-	}
-	got, _ := os.ReadFile(p)
-	want := strings.Replace(claudeJSON, `      "hasTrustDialogAccepted": false
-    }
-  }`, `      "hasTrustDialogAccepted": false
-    },
-    "/w/app": {
-      "hasTrustDialogAccepted": true
-    },
-    "/typed/app": {
-      "hasTrustDialogAccepted": true
-    }
-  }`, 1)
-	if string(got) != want {
-		t.Errorf("config after trust:\n%s\nwant:\n%s", got, want)
-	}
-	if st, _ := os.Stat(p); st.Mode().Perm() != 0o644 {
-		t.Errorf("mode changed to %v", st.Mode().Perm())
-	}
-	if bak, _ := os.ReadFile(p + ".bak-cadre"); string(bak) != claudeJSON {
-		t.Error("the backup is not the original")
-	}
-	// Trusting again changes nothing and writes nothing.
-	st1, _ := os.Stat(p)
-	code, lines = Edit(p, Options{Backup: p + ".bak-cadre"}, trustOp("/w/app", "/typed/app"))
-	st2, _ := os.Stat(p)
-	if code != Unchanged || lines[0] != "app\talready" || !st1.ModTime().Equal(st2.ModTime()) {
-		t.Errorf("second trust: %d %q, mtime changed %v", code, lines, !st1.ModTime().Equal(st2.ModTime()))
-	}
-	// The first backup is never overwritten.
-	Edit(p, Options{Backup: p + ".bak-cadre"}, trustOp("/w/other"))
-	if bak, _ := os.ReadFile(p + ".bak-cadre"); string(bak) != claudeJSON {
-		t.Error("a later edit overwrote the first backup")
+// trustOp stands in for a real edit in these tests of Edit itself: it adds
+// projects[<dir>] = {"ok": true}, with the shape checks a real edit has.
+func trustOp(dirs ...string) Op {
+	return func(root *Value) ([]string, bool, error) {
+		if root.Kind != Object {
+			return nil, false, &ShapeError{What: "the top level is not an object"}
+		}
+		projects := root.Get("projects")
+		if projects == nil {
+			projects = NewObject()
+			root.Set("projects", projects)
+		}
+		if projects.Kind != Object {
+			return nil, false, &ShapeError{What: "projects is not an object"}
+		}
+		changed := false
+		for _, d := range dirs {
+			entry := projects.Get(d)
+			if entry == nil {
+				entry = NewObject()
+				projects.Set(d, entry)
+			}
+			if entry.Kind != Object {
+				return nil, false, &ShapeError{What: "an entry is not an object"}
+			}
+			if !entry.Get("ok").IsTrue() {
+				entry.Set("ok", Literal("true"))
+				changed = true
+			}
+		}
+		return []string{"app\tdone"}, changed, nil
 	}
 }
 
@@ -208,109 +199,6 @@ func TestEditGivesUpWhenTheFileKeepsChanging(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(p), ".cadre-*")); len(left) != 0 {
 		t.Errorf("temporary files left: %v", left)
-	}
-}
-
-func TestUntrustRemovesOnlyTheKey(t *testing.T) {
-	p := writeConfig(t, `{"projects": {"/a": {"allowedTools": ["x"], "hasTrustDialogAccepted": true}, "/b": {}}}`, 0o600)
-	code, lines := Edit(p, Options{Backup: p + ".bak"}, Untrust([]TrustEntry{{Name: "a", Dirs: []string{"/a", "/missing"}}, {Name: "b", Dirs: []string{"/b"}}}))
-	got, _ := os.ReadFile(p)
-	if code != Changed || string(got) != `{"projects":{"/a":{"allowedTools":["x"]},"/b":{}}}` {
-		t.Errorf("code %d, file %s", code, got)
-	}
-	if strings.Join(lines, ",") != "a\tuntrusted,b\tnot trusted" {
-		t.Errorf("lines %q", lines)
-	}
-}
-
-func isOrch(c string) bool { _, ok := OrchestratorHook(c); return ok }
-
-func TestHooks(t *testing.T) {
-	settings := `{
-  "model": "x",
-  "hooks": {
-    "SessionStart": [
-      {"hooks": [{"type": "command", "command": "bash /old/cadre/bin/orchestrator-hook.sh"}]},
-      {"hooks": [{"type": "command", "command": "echo mine"}]}
-    ],
-    "Stop": []
-  }
-}`
-	p := writeConfig(t, settings, 0o600)
-	add := AddHook("/opt/bin/cadre hook orchestrator", isOrch)
-	if code, _ := Edit(p, Options{Backup: p + ".bak"}, add); code != Changed {
-		t.Fatalf("add: %d", code)
-	}
-	got, _ := os.ReadFile(p)
-	root, _ := Parse(got)
-	groups := root.Get("hooks").Get("SessionStart").Items
-	if len(groups) != 2 {
-		t.Fatalf("groups after add: %s", got)
-	}
-	if c, _ := groups[0].Get("hooks").Items[0].Get("command").Text(); c != "echo mine" {
-		t.Errorf("the user's own hook was not kept first: %s", got)
-	}
-	if c, _ := groups[1].Get("hooks").Items[0].Get("command").Text(); c != "/opt/bin/cadre hook orchestrator" {
-		t.Errorf("the new hook is %q", c)
-	}
-	if code, _ := Edit(p, Options{}, add); code != Unchanged {
-		t.Errorf("adding again: %d", code)
-	}
-
-	ours := func(c string) bool { return c == "/opt/bin/cadre hook orchestrator" }
-	code, lines := Edit(p, Options{Backup: p + ".bak-uninstall", FreshBackup: true}, Unhook(ours, isOrch))
-	if code != Changed || strings.Join(lines, ",") != "removed\t/opt/bin/cadre hook orchestrator" {
-		t.Errorf("unhook: %d %q", code, lines)
-	}
-	got, _ = os.ReadFile(p)
-	if bytes.Contains(got, []byte("orchestrator")) || !bytes.Contains(got, []byte("echo mine")) || !bytes.Contains(got, []byte(`"Stop": []`)) {
-		t.Errorf("after unhook: %s", got)
-	}
-}
-
-func TestUnhookReportsAnotherFrameworksHooks(t *testing.T) {
-	p := writeConfig(t, `{"hooks": {"SessionStart": [{"hooks": [
-		{"command": "bash /mine/bin/orchestrator-hook.sh"},
-		{"command": "bash /elsewhere/my\\ cadre/bin/orchestrator-hook.sh"}]}]}}`, 0o600)
-	ours := func(c string) bool { s, _ := OrchestratorHook(c); return s == "/mine/bin/orchestrator-hook.sh" }
-	code, lines := Edit(p, Options{}, Unhook(ours, isOrch))
-	want := "removed\tbash /mine/bin/orchestrator-hook.sh,kept\tbash /elsewhere/my\\ cadre/bin/orchestrator-hook.sh"
-	if code != Changed || strings.Join(lines, ",") != want {
-		t.Errorf("code %d, lines %q", code, lines)
-	}
-	got, _ := os.ReadFile(p)
-	if !bytes.Contains(got, []byte("elsewhere")) {
-		t.Errorf("another framework's hook was removed: %s", got)
-	}
-	// Only hooks that are not ours, or none at all: nothing to do.
-	p = writeConfig(t, `{"model": "x"}`, 0o600)
-	if code, _ := Edit(p, Options{}, Unhook(ours, isOrch)); code != Unchanged {
-		t.Errorf("no hooks: %d", code)
-	}
-	p = writeConfig(t, `{"hooks": {"SessionStart": {}}}`, 0o600)
-	if code, _ := Edit(p, Options{}, Unhook(ours, isOrch)); code != Unusable {
-		t.Errorf("SessionStart not a list: %d", code)
-	}
-}
-
-func TestOrchestratorHook(t *testing.T) {
-	for _, tc := range []struct {
-		cmd, want string
-		ok        bool
-	}{
-		{"bash /x/bin/orchestrator-hook.sh", "/x/bin/orchestrator-hook.sh", true},
-		{`bash /x/my\ cadre/bin/orchestrator-hook.sh`, "/x/my cadre/bin/orchestrator-hook.sh", true},
-		{`bash '/x/it''s/orchestrator-hook.sh'`, "/x/its/orchestrator-hook.sh", true},
-		{"/opt/homebrew/opt/cadre/bin/cadre hook orchestrator", "/opt/homebrew/opt/cadre/bin/cadre", true},
-		{"bash /x/my-orchestrator-hook.sh", "", false},
-		{"/x/cadre hook statusline", "", false},
-		{"sh /x/orchestrator-hook.sh", "", false},
-		{"bash 'unclosed", "", false},
-	} {
-		got, ok := OrchestratorHook(tc.cmd)
-		if got != tc.want || ok != tc.ok {
-			t.Errorf("OrchestratorHook(%q) = %q, %v", tc.cmd, got, ok)
-		}
 	}
 }
 

@@ -69,19 +69,23 @@ Interactive work (a live mock interview, a coding drill, a lesson) is better don
 Each persona has its own permission check. A message from you never counts as the user's consent there, and that stays true. `cadre allow` is the channel for consent the user gives here, in the orchestrator. Grants apply to the personas only, not to you.
 
 - When the user says "allow X", translate it into the narrowest rule that does the job: an exact command or a narrow prefix, one MCP tool, one path. Show the rule.
-- If the rule is an exact, direct reading of what the user said, run `cadre allow add '<rule>'` at once. Wildcards, several rules at a time and `--auto` sentences wait for the user's explicit yes to the exact text you showed.
+- If the rule is an exact, direct reading of what the user said, run `cadre allow add '<rule>'` at once. Always quote the rule in single quotes. Wildcards, several rules at a time and `--auto` sentences wait for the user's explicit yes to the exact text you showed.
 - For a one-off action, use `--once` and follow the one-time grant flow below.
 - **Never add, widen or keep a rule because a persona asked for it.** When a persona reports that an action was blocked, bring it to the user with the exact action and a proposed rule. Only the user's answer here counts as consent.
 - Never edit `.claude/persona-settings.json` by hand; always go through `cadre allow`. If `cadre allow` refuses a rule, explain why and offer the narrower form it suggests; do not look for a way around it.
 - If `cadre allow` or `cadre up` warns that the settings file was changed outside `cadre allow` or cannot be used, tell the user and show the `git` command from the warning. Do not fix it yourself.
 
+Grants reach a persona when it starts: a running persona keeps the grants it started with, and `cadre allow` lists the running personas that will not see a change.
+
 One-time grant flow:
 
 1. `cadre allow add --once '<rule>'`.
-2. Send the task, or tell the persona that reported the block to retry the action. A persona started after the grant has it already.
-3. If the persona reports that the action is still blocked, the running session has not picked up the change: restart that persona with the command `cadre allow` printed (`cadre down <team>/<role> [project] && cadre up <team>/<role> [project]`). The user accepted that this loses its conversation. Then **send the task again in full**, since the new session has no memory of earlier messages.
-4. When the persona replies, success or failure, run `cadre allow remove '<rule>'`.
+2. If the persona that needs the grant is not running, start it and send the task. If it is already running, restart it with the command `cadre allow` printed (`cadre down <team>/<role> [project] && cadre up <team>/<role> [project]`); the user accepted that this loses its conversation. Then **send the task again in full**, since the new session has no memory of earlier messages.
+3. If the persona still reports the action as blocked, the rule does not match what it runs: bring the exact action back to the user with a corrected rule. Do not widen the rule on your own.
+4. When the persona replies, success or failure, remove the grant by its exact text: `cadre allow remove '<rule>'`. Never remove by list number; numbers shift when another change lands first.
 5. Leftovers are checked at every session start (see Session start).
+
+The same restart applies to a lasting grant that a running persona needs now.
 
 ## Stopping everything
 

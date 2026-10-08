@@ -213,6 +213,17 @@ check "team without project running" bash -c "cadre ls | grep -q '\[running\] op
 cadre down dev app >/dev/null
 cadre down ops >/dev/null
 check "sessions stopped" bash -c "! cadre ls | grep -q running"
+# tmux targets must match names exactly, not by prefix.
+tm() { command tmux -L "$CADRE_TMUX_SOCKET" "$@"; }
+cadre up dev/engineer app >/dev/null
+check "team session is not mistaken for a project session" bash -c "cadre up dev/engineer | grep -q 'dev-engineer started'"
+cadre down dev >/dev/null
+check "down <team> leaves the project session alone" tm has-session -t =cadre-dev-app
+tm new-window -d -t =cadre-dev-app: -n engineer-lead "sleep 300"
+cadre down dev/engineer app >/dev/null
+check "down <team>/<role> leaves a longer window name alone" bash -c "cadre down dev/engineer app | grep -q 'not running'"
+check "the longer window still runs" bash -c "command tmux -L '$CADRE_TMUX_SOCKET' list-windows -t =cadre-dev-app -F '#W' | grep -qx engineer-lead"
+cadre down dev app >/dev/null
 
 echo "update"
 # The installed framework tracks main on a local bare remote; a seed clone

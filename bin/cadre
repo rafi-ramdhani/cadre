@@ -281,6 +281,9 @@ cmd_up() {
   local key; key=$(key_of "$TEAM" "$proj")
   ensure_persona_settings
   check_persona_settings
+  if [ -s "${PSET%.json}.once" ]; then
+    echo "note: one-time grants are still in place; see cadre allow list and remove each when its task is done"
+  fi
   local failed=""
   if [ -n "$ROLE" ]; then
     start_role "$key" "$TEAM" "$ROLE" "$dir" "$explicit" || failed=1

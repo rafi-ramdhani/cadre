@@ -24,6 +24,10 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 - The orchestrator skill's capture-pane command matches the persona's window exactly.
 - tmux targets match session and window names exactly. Before, `cadre down dev` could stop `cadre-dev-app`, `cadre up dev/engineer` could think it was already running when `cadre-dev-app` was, and a role name could match a longer window name.
 
+### Security
+
+- 0.1.x ran its Python helpers with the current folder on the module path, so a folder holding a file such as `json.py` or `tempfile.py` could run code as you whenever you ran `cadre` there. Every Python helper now runs isolated (`python3 -I`).
+
 ### Upgrading
 
 0.1.x has no `cadre update`, so this one upgrade is by hand.

@@ -92,7 +92,7 @@ project_dir() {
 # Registry lookups. projects.yaml is a flat list of entries, each a name
 # line followed by indented "key: value" lines.
 reg() {
-  python3 - "$REGISTRY" "$@" <<'PY'
+  python3 -I - "$REGISTRY" "$@" <<'PY'
 import os, sys
 path, args = sys.argv[1], sys.argv[2:]
 entries, cur = {}, None
@@ -399,7 +399,7 @@ cmd_sync() {
 # every write, unlike the other ops, which keep the first one.
 # An op ending in :dry only reports: exit 0 when it would write, 3 when not.
 json_edit() {
-  python3 - "$@" <<'PY'
+  python3 -I - "$@" <<'PY'
 import hashlib, json, os, shlex, subprocess, sys, tempfile
 
 op, path, backup, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
@@ -589,7 +589,7 @@ PY
 # valid when the cadre is cloned to another machine. Edit rules also cover
 # the Write tool; Claude Code ignores Write(path) rules.
 persona_settings() {
-  python3 - "$@" <<'PY'
+  python3 -I - "$@" <<'PY'
 import hashlib, json, os, sys, tempfile
 
 FIXED_DENY = ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)"]
@@ -778,7 +778,7 @@ check_persona_settings() {
 # add and remove print the commit message first, then what changed. Exit: 0
 # changed, 3 nothing to change, 1 refused (with the reason).
 allow_edit() {
-  python3 - "$@" <<'PY'
+  python3 -I - "$@" <<'PY'
 import json, os, re, shlex, sys, tempfile, time, unicodedata
 
 op, path, oncefile, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
@@ -1422,7 +1422,7 @@ version_in() { sed -n 's/^CADRE_VERSION=//p' "$1" | head -1; }
 # Prints the CHANGELOG's Unreleased section when it has entries, then the
 # sections newer than version $2; nothing when it has no sections it can read.
 changes_since() {
-  python3 - "$1" "$2" <<'PY'
+  python3 -I - "$1" "$2" <<'PY'
 import re, sys
 path, old = sys.argv[1], sys.argv[2]
 def ver(s):

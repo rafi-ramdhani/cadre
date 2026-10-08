@@ -75,6 +75,17 @@ my-app:
 
 To remove it, delete the SessionStart entry whose command ends in `orchestrator-hook.sh`.
 
+## Updating
+
+`cadre update` updates the framework folder the `cadre` command runs from (normally `projects/cadre`):
+
+- It fast-forwards to the remote's default branch, prints the old and new version and the CHANGELOG sections in between (read any `### Upgrading` notes), and relinks the command, skill and hook.
+- It refuses, and changes nothing, when the framework has local changes to tracked files, is on another branch or a detached `HEAD`, or has commits the remote lacks. Move your work to a branch first.
+- It never touches your cadre or your projects.
+- Running persona sessions keep the old version until restarted; the output lists them with the commands to restart.
+
+`cadre update --check` only reports whether an update exists: exit 0 when up to date, 3 when an update is available, 1 on an error.
+
 ## Configuration
 
 `cadre.conf` is sourced by the launcher:

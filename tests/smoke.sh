@@ -73,6 +73,83 @@ cadre down dev app >/dev/null
 cadre down ops >/dev/null
 check "sessions stopped" bash -c "! cadre ls | grep -q running"
 
+echo "update"
+# The installed framework tracks main on a local bare remote; a seed clone
+# pushes a fake release to it.
+F="$C/projects/cadre"
+git -C "$F" switch -q -C main
+git clone -q --bare "$F" "$T/fw.git"
+git -C "$F" remote set-url origin "$T/fw.git"
+git -C "$F" fetch -q origin
+git -C "$F" remote set-head origin main >/dev/null
+git -C "$F" branch -q -u origin/main
+git clone -q "$T/fw.git" "$T/fwseed"
+head_of() { git -C "$F" rev-parse HEAD; }
+snap() { (cd "$C" && find . -path ./projects/cadre -prune -o -type f -print | LC_ALL=C sort | xargs shasum); }
+v0=$(cadre version)
+check "up to date" bash -c "cadre update | grep -qx '${v0} is up to date'"
+check "check without update exits 0" cadre update --check
+
+python3 - "$T/fwseed" <<'PY'
+import sys
+root = sys.argv[1]
+p = root + "/bin/cadre"
+s = open(p).read().replace("CADRE_VERSION=", "CADRE_VERSION=9.9.9\nOLD_VERSION=", 1)
+filler = "".join("# filler line %d that moves every later byte of the script\n" % i for i in range(400))
+s = s.replace("set -euo pipefail\n", "set -euo pipefail\n" + filler, 1)
+open(p, "w").write(s)
+p = root + "/CHANGELOG.md"
+s = open(p).read().replace("## Unreleased\n", "## Unreleased\n\n## 9.9.9 - 2026-10-09\n\n- Test release.\n\n### Upgrading\n\n- Nothing to do by hand.\n", 1)
+open(p, "w").write(s)
+PY
+git -C "$T/fwseed" commit -qam "Release 9.9.9"
+git -C "$T/fwseed" push -q origin HEAD:main 2>/dev/null
+
+h0=$(head_of)
+code=0; out=$(cadre update --check) || code=$?
+check "check finds the update" test "$code" = 3
+check "check names both versions" grep -qx "update available: ${v0#cadre } -> 9.9.9" <<<"$out"
+check "check changes nothing" test "$(head_of)" = "$h0" -a -z "$(git -C "$F" status --porcelain)"
+
+refused() { local name=$1 want=$2; shift 2; local o; if o=$(cadre update 2>&1); then fail "$name"; fi; grep -q "$want" <<<"$o" || fail "$name: $o"; test "$(head_of)" = "$h0" || fail "$name: HEAD moved"; ok "$name"; }
+echo "# local edit" >> "$F/README.md"
+refused "dirty tree refused" "$F has local changes"
+git -C "$F" checkout -q -- README.md
+git -C "$F" switch -q -c other
+refused "other branch refused" "on branch other, not main"
+git -C "$F" switch -q main
+git -C "$F" switch -q --detach
+refused "detached HEAD refused" "detached HEAD"
+git -C "$F" switch -q main
+git -C "$F" commit -q --allow-empty -m "local work"
+h0=$(head_of)
+refused "local commit refused" "local commit"
+git -C "$F" reset -q --hard HEAD~1
+h0=$(head_of)
+git -C "$F" remote set-url origin "$T/missing.git"
+refused "failing fetch reported" "could not fetch"
+git -C "$F" remote set-url origin "$T/fw.git"
+
+cadre up dev/engineer app >/dev/null
+before=$(snap)
+out=$(cadre update 2>"$T/update.err")
+check "update applied" test "$(cadre version)" = "cadre 9.9.9"
+check "update prints the versions" grep -qx "updated cadre ${v0#cadre } -> 9.9.9" <<<"$out"
+check "update prints the changelog" grep -q "Test release" <<<"$out"
+check "update prints the upgrading notes" grep -qx "### Upgrading" <<<"$out"
+check "old script ran without errors" test ! -s "$T/update.err"
+check "command still linked here" test "$(readlink "$HOME/.local/bin/cadre")" = "$F/bin/cadre"
+check "skill still linked here" test "$(readlink "$HOME/.claude/skills/cadre")" = "$F/skills/cadre"
+check "hook kept" grep -q orchestrator-hook.sh "$HOME/.claude/settings.json"
+check "running persona listed" grep -q "cadre-dev-app: dev-app-engineer" <<<"$out"
+check "running persona not stopped" bash -c "cadre ls | grep -q '\[running\] dev-app-engineer'"
+check "cadre and projects unchanged" test "$(snap)" = "$before"
+check "cadre repo still clean" test -z "$(git -C "$C" status --porcelain)"
+cadre down dev app >/dev/null
+mv "$HOME/.config/cadre/home" "$T/home.saved"
+check "works without an active cadre" bash -c "cadre update | grep -q 'is up to date'"
+mv "$T/home.saved" "$HOME/.config/cadre/home"
+
 echo "restore on a new machine"
 rm -rf "$HOME/.local" "$HOME/.config"
 CADRE_REPO="$ROOT" bash "$ROOT/install.sh" --from "$C" --dir "$T/machine2" --yes --no-hook >/dev/null

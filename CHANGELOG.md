@@ -4,6 +4,8 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
+- `cadre update` updates the framework (fast-forward only, refuses on local changes, local commits or another branch), prints the CHANGELOG since your version and lists the persona sessions to restart. `cadre update --check` only reports.
+
 ## 0.1.1 - 2026-10-08
 
 - `cadre init`, `cadre add` and the installer work on a machine without a git identity: the change is left uncommitted with a note instead of failing.

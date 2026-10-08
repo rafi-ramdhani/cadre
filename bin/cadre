@@ -14,6 +14,7 @@
 #   cadre projects                            list the project registry
 #   cadre path <project>                      print a project's local folder
 #   cadre sync                                clone missing registry projects
+#   cadre update [--check]                    update the framework (fast-forward only)
 #   cadre version                             print the version
 #
 # A team started for a project gets its own sessions: `cadre up dev my-app`
@@ -98,6 +99,15 @@ elif args[0] == "has":
 else:
     print(entries.get(args[0], {}).get(args[1], ""))
 PY
+}
+
+# Running cadre sessions, one per line: the tmux session, a tab, and the
+# personas in it (its windows are named by role).
+running_sessions() {
+  local s
+  for s in $(tmux ls -F '#S' 2>/dev/null | grep '^cadre-' || true); do
+    printf '%s\t%s\n' "$s" "$(tmux list-windows -t "$s" -F "${s#cadre-}-#W" 2>/dev/null | paste -sd ' ' -)"
+  done
 }
 
 roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
@@ -260,6 +270,81 @@ cmd_use() {
   echo "active cadre: $(cat "$CONFIG")"
 }
 
+version_in() { sed -n 's/^CADRE_VERSION=//p' "$1" | head -1; }
+
+# Prints the CHANGELOG sections newer than version $2, or nothing when the
+# file has no sections it can read.
+changes_since() {
+  python3 - "$1" "$2" <<'PY'
+import re, sys
+path, old = sys.argv[1], sys.argv[2]
+def ver(s):
+    return tuple(int(x) for x in s.split("."))
+try:
+    lines = open(path).read().splitlines()
+    old = ver(old)
+except (OSError, ValueError):
+    sys.exit(0)
+out, keep = [], False
+for line in lines:
+    m = re.match(r"## (\d+\.\d+\.\d+)\b", line)
+    if line.startswith("## "):
+        keep = bool(m) and ver(m.group(1)) > old
+    if keep:
+        out.append(line)
+print("\n".join(out).strip())
+PY
+}
+
+# Updates the framework this command runs from. The whole update runs inside
+# this function, which bash has parsed in full before the merge rewrites
+# bin/cadre, and the caller exits right after it returns.
+cmd_update() {
+  local check=""
+  case "${1:-}" in
+    --check) check=1 ;;
+    "") ;;
+    *) die "usage: cadre update [--check]" ;;
+  esac
+  local fw=$CADRE_ROOT top branch def ahead old new notes
+  top=$(git -C "$fw" rev-parse --show-toplevel 2>/dev/null || true)
+  [ "$top" = "$(cd "$fw" && pwd -P)" ] || die "$fw is not a git checkout; update it by hand"
+  [ -z "$(git -C "$fw" status --porcelain --untracked-files=no)" ] \
+    || die "$fw has local changes to tracked files; commit or stash them, then run cadre update again"
+  def=$(git -C "$fw" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  def=${def#origin/}; def=${def:-main}
+  branch=$(git -C "$fw" symbolic-ref -q --short HEAD || true)
+  [ -n "$branch" ] || die "$fw has a detached HEAD; switch to $def first (git -C $fw switch $def)"
+  [ "$branch" = "$def" ] || die "$fw is on branch $branch, not $def; switch to $def first (git -C $fw switch $def)"
+  git -C "$fw" fetch -q origin || die "could not fetch from origin in $fw (offline, or no access?)"
+  git -C "$fw" rev-parse -q --verify "origin/$def" >/dev/null || die "origin has no branch $def"
+
+  old=$(version_in "$fw/bin/cadre")
+  if [ "$(git -C "$fw" rev-parse HEAD)" = "$(git -C "$fw" rev-parse "origin/$def")" ]; then
+    echo "cadre $old is up to date"; return 0
+  fi
+  ahead=$(git -C "$fw" rev-list --count "origin/$def..HEAD")
+  [ "$ahead" = 0 ] || die "$fw has $ahead local commit(s) that origin/$def lacks; cadre update only fast-forwards, so move them to a branch first"
+  new=$(git -C "$fw" show "origin/$def:bin/cadre" | sed -n 's/^CADRE_VERSION=//p' | head -1)
+  if [ -n "$check" ]; then echo "update available: $old -> $new"; exit 3; fi
+
+  git -C "$fw" merge -q --ff-only "origin/$def" || die "the fast-forward to origin/$def failed in $fw"
+  new=$(version_in "$fw/bin/cadre")
+  echo "updated cadre $old -> $new"
+  notes=$(changes_since "$fw/CHANGELOG.md" "$old" || true)
+  if [ -n "$notes" ]; then echo; echo "$notes"; echo
+  else echo "see $fw/CHANGELOG.md for what changed"; fi
+  bash "$fw/install.sh" --link-only
+
+  local sessions; sessions=$(running_sessions)
+  if [ -n "$sessions" ]; then
+    echo "These sessions still run the old version until restarted:"
+    while IFS=$'\t' read -r s personas; do echo "  $s: $personas"; done <<<"$sessions"
+    echo "Restart each with: cadre down <team> [project] && cadre up <team> [project]"
+    echo "(session cadre-<team>-<project> is team <team>, project <project>)"
+  fi
+}
+
 # Records a change to the cadre in its own git history, when it has one.
 commit_change() {
   local msg=$1; shift
@@ -296,7 +381,8 @@ cmd_add() {
 case "${1:-}" in
   init)     shift; cmd_init "$@"; exit ;;
   use)      shift; cmd_use "$@"; exit ;;
-  ""|-h|--help|help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
+  update)   shift; cmd_update "$@"; exit ;;
+  ""|-h|--help|help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
   version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
 esac
 load_home

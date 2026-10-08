@@ -224,12 +224,14 @@ cadre down dev/engineer app >/dev/null
 check "down <team>/<role> leaves a longer window name alone" bash -c "cadre down dev/engineer app | grep -q 'not running'"
 check "the longer window still runs" bash -c "command tmux -L '$CADRE_TMUX_SOCKET' list-windows -t =cadre-dev-app -F '#W' | grep -qx engineer-lead"
 cadre down dev app >/dev/null
-running() { tm has-session -t "$1" 2>/dev/null; }
+running() { tm has-session -t "=$1" 2>/dev/null; }
 cadre_sessions() { tm ls -F '#S' 2>/dev/null | grep '^cadre-' || true; }
 cadre up dev/engineer app >/dev/null
 cadre up ops >/dev/null
+tm new-session -d -s mywork "sleep 300"
 code=0; out=$(cadre down --all </dev/null 2>&1) || code=$?
 check "down --all without a terminal exits 1" test "$code" = 1
+check "down --all without a terminal says how to confirm" grep -q "run with --yes to confirm" <<<"$out"
 check "down --all without a terminal stops nothing" test "$(cadre_sessions | wc -l | tr -d ' ')" = 2
 check "down --all lists sessions and personas" grep -q "cadre-dev-app: dev-app-engineer" <<<"$out"
 check "down --all lists the other team" grep -q "cadre-ops: ops-sre" <<<"$out"
@@ -240,7 +242,11 @@ out=$(cadre down --all --yes)
 check "down --all --yes stops every session" test -z "$(cadre_sessions)"
 check "down --all prints a line for one session" grep -qx "  cadre-dev-app stopped" <<<"$out"
 check "down --all prints a line for the other" grep -qx "  cadre-ops stopped" <<<"$out"
-check "nothing running" bash -c "cadre down --all </dev/null | grep -qx 'no cadre sessions running'"
+check "down --all leaves other tmux sessions" running mywork
+tm kill-session -t =mywork
+code=0; out=$(cadre down --all </dev/null) || code=$?
+check "nothing running: exit 0" test "$code" = 0
+check "nothing running: said so" grep -qx "no cadre sessions running" <<<"$out"
 cadre up dev/engineer app >/dev/null
 cadre up ops >/dev/null
 tm new-session -d -s cadre-self "cadre down --all --yes > '$T/down.out' 2>&1"

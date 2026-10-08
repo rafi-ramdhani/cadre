@@ -120,6 +120,7 @@ running_sessions() {
 # Prints running_sessions output for a person to read.
 show_sessions() {
   local s personas
+  [ -n "$1" ] || return 0
   while IFS=$'\t' read -r s personas; do echo "  $s: $personas"; done <<<"$1"
 }
 
@@ -139,7 +140,7 @@ stop_sessions() {
   OWN_SESSION=$(own_session) STOP_FAILED=""
   for s in "$@"; do
     [ "$s" != "$OWN_SESSION" ] || continue
-    if tmux kill-session -t "$s" 2>/dev/null; then echo "  $s stopped"; else STOP_FAILED+=" $s"; echo "  $s could not be stopped"; fi
+    if tmux kill-session -t "=$s" 2>/dev/null; then echo "  $s stopped"; else STOP_FAILED+=" $s"; echo "  $s could not be stopped"; fi
   done
   case " $* " in *" $OWN_SESSION "*) ;; *) OWN_SESSION="" ;; esac
 }
@@ -147,7 +148,21 @@ stop_sessions() {
 stop_own_session() {
   [ -n "$OWN_SESSION" ] || return 0
   echo "  stopping $OWN_SESSION last (this command runs in it)"
-  tmux kill-session -t "$OWN_SESSION"
+  tmux kill-session -t "=$OWN_SESSION" 2>/dev/null || true
+}
+
+# Stops the given sessions except the one this command runs in, runs
+# <then> (the rest of the caller's work and its closing message), and stops
+# that own session last. Returns 2 when a session would not stop, else the
+# status of <then>.
+stop_all() {
+  local then=$1 rc=0; shift
+  stop_sessions "$@"
+  if [ -n "$STOP_FAILED" ]; then echo "cadre: could not stop:$STOP_FAILED" >&2; fi
+  "$then" || rc=$?
+  stop_own_session
+  if [ -n "$STOP_FAILED" ]; then return 2; fi
+  return "$rc"
 }
 
 # Asks "<question> [y/N]" on a terminal. Succeeds with --yes ($2 set) or a
@@ -265,15 +280,13 @@ cmd_down_all() {
   echo "Running cadre sessions:"
   show_sessions "$sessions"
   confirm "Stop these sessions?" "$yes" || exit 1
+  local code=0
   # shellcheck disable=SC2046 # session names have no spaces
-  stop_sessions $(cut -f1 <<<"$sessions")
-  if [ -n "$STOP_FAILED" ]; then
-    echo "cadre: could not stop:$STOP_FAILED" >&2
-    stop_own_session; exit 2
-  fi
-  echo "stopped every cadre session"
-  stop_own_session
+  stop_all down_all_done $(cut -f1 <<<"$sessions") || code=$?
+  exit "$code"
 }
+
+down_all_done() { if [ -z "$STOP_FAILED" ]; then echo "stopped every cadre session"; fi; }
 
 cmd_attach() {
   [ -n "${1:-}" ] || die "usage: cadre attach <team> [project]"

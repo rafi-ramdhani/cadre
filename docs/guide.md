@@ -128,6 +128,18 @@ cadre allow remove --once                              # every one-time grant
 - Persona sessions cannot add or remove grants.
 - A running persona may not see a change until it restarts; `cadre allow` lists the running personas with the exact restart commands. Personas started later get it.
 
+## Several cadres
+
+A machine can have several cadres, each in its own folder. A `cadre` command acts on:
+
+1. the cadre in `CADRE_HOME`, when that is set (used as given, registered or not: whoever sets the environment already decides what runs);
+2. otherwise the nearest registered cadre at or above the current folder;
+3. otherwise the default cadre (`cadre use <dir>` sets it).
+
+`cadre which` prints the cadre a folder uses and why. `cadre cadres` lists the cadres cadre knows (`~/.config/cadre/cadres`), marks the default with `*`, the one in use here, and any whose folder is gone; `cadre cadres add <dir>` registers one without changing the default, and `cadre cadres remove <name|dir>` forgets one (its folder is untouched). `cadre init` registers the new cadre and makes it the default only when there is no default yet or its folder is gone. Paths are kept physical (symlinks resolved), and a cadre's name is the last part of its physical path. Two cadres whose folder names differ only in letter case or not at all are refused, since the name is part of every session name; if an old folder comes back and two registered cadres share a name, cadre refuses to use either until you rename or forget one.
+
+Only registered cadres count when cadre looks at the current folder: a folder that merely looks like a cadre (a cloned repo with `personas/` and `projects.yaml`) is never used, so its `cadre.conf` is never run, and cadre prints a note saying how to register it. Register it only if you trust it. Persona sessions cannot run `cadre init`, `cadre use` or `cadre cadres add|remove`, and their settings deny those commands.
+
 ## Configuration
 
 `cadre.conf` is sourced by the launcher:

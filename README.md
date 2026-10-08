@@ -84,7 +84,9 @@ cadre add team <team>
 cadre add persona <team>/<role>
 cadre sync                      # clone registry projects missing on this machine, and trust them
 cadre init <name>               # generate another cadre from the template
-cadre use <dir>                 # switch the active cadre
+cadre use <dir>                 # make a cadre the default (used outside every cadre folder)
+cadre which                     # the cadre this folder uses, and why
+cadre cadres                    # every cadre on this machine (add <dir>, remove <name>)
 cadre update                    # update the framework (--check only looks)
 cadre version
 cadre uninstall                 # undo the install (asks first; --dry-run shows the plan)
@@ -135,6 +137,7 @@ Cadre installs no programs or packages. `install.sh` only checks that git, tmux,
 | The orchestrator skill (a link) | `~/.claude/skills/cadre` | the installer | Removed, if it points to this framework |
 | The orchestrator hook (optional) and a backup of the file before it was added | one SessionStart entry in `~/.claude/settings.json` (the file is created if missing); `~/.claude/settings.json.bak-cadre` | the installer, if you said yes | Hook removed (with a new backup, `settings.json.bak-cadre-uninstall`); backups kept |
 | The active-cadre pointer and the persona settings fingerprint | `~/.config/cadre/` (`home`, `persona-settings.sha256`) | the installer, `cadre use`, `cadre up`, `cadre allow` | Removed |
+| The list of known cadres | `~/.config/cadre/cadres` | the installer, `cadre init`, `cadre use`, `cadre cadres add`; seeded from the default on the first command after an upgrade | Removed (the cadre folders are kept) |
 | Generated persona prompts and the settings copy each persona starts with | `<cadre>/.claude/build/` (ignored by the cadre's git) | `cadre up`, rebuilt at every start | Kept, as part of your cadre (0.1.x kept them in `~/.cache/cadre/`, which uninstall removes) |
 | Workspace trust for registered projects, and a backup | entries in `~/.claude.json`; `~/.claude.json.bak-cadre` | `cadre add project`, `cadre sync`, `cadre trust` | Kept: the entries are shared with your other Claude Code sessions, and you may have trusted those folders yourself |
 

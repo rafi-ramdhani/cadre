@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rafi-ramdhani/cadre/internal/testguard"
 )
 
 // sandbox gives a test its own HOME, git identity and working folder.
@@ -20,8 +22,11 @@ func sandbox(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
-	for _, v := range []string{"CADRE_HOME", "CADRE_PERSONA", "CADRE_TEST_TTY", "XDG_CACHE_HOME"} {
+	// Nothing may point cadre or Claude Code at the user's own setup: a
+	// set CLAUDE_CONFIG_DIR would send trust edits to the real config.
+	for _, v := range []string{"CADRE_HOME", "CADRE_PERSONA", "CADRE_TEST_TTY", "XDG_CACHE_HOME", "CLAUDE_CONFIG_DIR", "TMUX", "TMUX_PANE"} {
 		t.Setenv(v, "")
+		os.Unsetenv(v)
 	}
 	cfg := filepath.Join(home, ".gitconfig-test")
 	os.WriteFile(cfg, []byte("[user]\n\tname = T\n\temail = t@example.com\n[init]\n\tdefaultBranch = main\n"), 0o644)
@@ -33,6 +38,7 @@ func sandbox(t *testing.T) string {
 	socket := fmt.Sprintf("cadre-gotest-%d-%d", os.Getpid(), time.Now().UnixNano())
 	t.Setenv("CADRE_TMUX_SOCKET", socket)
 	t.Cleanup(func() { exec.Command("tmux", "-L", socket, "kill-server").Run() })
+	testguard.Check(t)
 	return home
 }
 

@@ -28,8 +28,8 @@ var prose = map[string]bool{
 }
 
 // TestNoClaudeOutsideTheAdapter scans the string literals of every Go
-// file outside internal/runtime/claude (tests and the test-only fake
-// excepted) for Claude Code specifics.
+// file outside internal/runtime/claude (tests, the test-only fake and
+// testguard, which only tests import, excepted) for Claude Code specifics.
 func TestNoClaudeOutsideTheAdapter(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var found []string
@@ -41,7 +41,7 @@ func TestNoClaudeOutsideTheAdapter(t *testing.T) {
 		rel, _ := filepath.Rel(root, path)
 		if d.IsDir() {
 			switch rel {
-			case ".git", "internal/runtime/claude", "internal/runtime/fake", "dist":
+			case ".git", "internal/runtime/claude", "internal/runtime/fake", "internal/testguard", "dist":
 				return filepath.SkipDir
 			}
 			return nil

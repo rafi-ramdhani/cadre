@@ -6,12 +6,15 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/rafi-ramdhani/cadre/internal/testguard"
 )
 
 func call(args ...string) (code int, out, errOut string) { return callIn("", args...) }
 
 // callIn runs cadre with stdin as its input.
 func callIn(stdin string, args ...string) (code int, out, errOut string) {
+	testguard.MustBeSafe()
 	var o, e bytes.Buffer
 	code = run(args, strings.NewReader(stdin), &o, &e)
 	return code, o.String(), e.String()

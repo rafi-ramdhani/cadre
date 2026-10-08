@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadre/internal/testguard"
 )
 
 // private gives a test its own tmux server, stopped at the end.
@@ -19,6 +20,7 @@ func private(t *testing.T) Tmux {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")
 	}
+	testguard.Check(t)
 	tm := Tmux{Socket: fmt.Sprintf("cadre-gotest-%d-%d", os.Getpid(), time.Now().UnixNano())}
 	t.Cleanup(func() { tm.command("kill-server").Run() })
 	return tm

@@ -49,7 +49,8 @@ func TestProjectsFolderIsAskedOnce(t *testing.T) {
 		t.Error("a refused add was registered")
 	}
 	// On a terminal: asked, answered with the default, remembered.
-	t.Setenv("CADRE_TEST_TTY", "1")
+	ttyForTests = true
+	t.Cleanup(func() { ttyForTests = false })
 	code, out, errOut := callIn("\n", "project", "add", "app", repo)
 	if code != 0 || !strings.Contains(errOut, "Where do you keep your projects? [~/Developer]") {
 		t.Fatalf("add on a terminal: %d %q %q", code, out, errOut)
@@ -67,7 +68,7 @@ func TestProjectsFolderIsAskedOnce(t *testing.T) {
 	if _, err := os.Stat(home + "/.cadre/work/projects"); err == nil {
 		t.Error("the add made projects/ inside the cadre")
 	}
-	t.Setenv("CADRE_TEST_TTY", "")
+	ttyForTests = false
 	if out := must(t, "project", "dir"); strings.TrimSpace(out) != "~/Developer" {
 		t.Errorf("project dir: %q", out)
 	}

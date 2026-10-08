@@ -405,4 +405,113 @@ check "projects cloned by sync" test -d "$T/machine2/demo/projects/app/.git"
 check "active cadre switched" grep -qx "$T/machine2/demo" "$HOME/.config/cadre/home"
 check "--from --no-trust leaves the config alone" cmp -s "$CFG" "$T/cfg.before"
 
+echo "uninstall"
+SET="$HOME/.claude/settings.json"
+CADRE_REPO="$ROOT" bash "$ROOT/install.sh" u1 --dir "$T/u" --yes --orchestrator-default >/dev/null
+U="$T/u/u1" FW="$T/u/u1/projects/cadre"
+check "fresh install to uninstall" test "$(readlink "$HOME/.local/bin/cadre")" = "$FW/bin/cadre"
+# Next to the cadre hook: someone else's SessionStart hook, another hook
+# event and another key, all of which must stay.
+py '
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["hooks"]["SessionStart"].insert(0, {"hooks": [{"type": "command", "command": "echo mine"}]})
+d["hooks"]["PreToolUse"] = [{"matcher": "Bash", "hooks": [{"type": "command", "command": "true"}]}]
+d["model"] = "x"
+json.dump(d, open(p, "w"), indent=2)' "$SET"
+chmod 640 "$SET"
+cp "$SET" "$T/set.orig"; cp "$SET.bak-cadre" "$T/set.bak.orig"
+git clone -q "$T/remote.git" "$T/ext"
+printf '\next:\n  repo: %s\n  path: %s\n' "$T/remote.git" "$T/ext" >> "$U/projects.yaml"
+git -C "$U" commit -qam "Add a project outside the cadre"
+cadre up research/writer >/dev/null
+cp "$CFG" "$T/cfg.before"
+tree() { python3 -c '
+import hashlib, os, sys
+out = []
+for root in sys.argv[1:]:
+    for d, _, files in os.walk(root):
+        for f in files:
+            p = os.path.join(d, f)
+            out.append(p + " " + hashlib.sha256(open(p, "rb").read()).hexdigest())
+print("\n".join(sorted(out)))' "$@"; }
+before=$(tree "$U" "$T/ext")
+code=0; out=$(cadre uninstall --yes) || code=$?
+check "uninstall exits 0" test "$code" = 0
+check "uninstall stops every cadre session" test -z "$(cadre_sessions)"
+check "command link removed" test ! -e "$HOME/.local/bin/cadre" -a ! -L "$HOME/.local/bin/cadre"
+check "skill link removed" test ! -e "$HOME/.claude/skills/cadre" -a ! -L "$HOME/.claude/skills/cadre"
+check "only the cadre hook removed" py '
+import json, sys
+new, old = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
+old["hooks"]["SessionStart"] = [g for g in old["hooks"]["SessionStart"]
+    if not all(h.get("command", "").endswith("orchestrator-hook.sh") for h in g["hooks"])]
+sys.exit(0 if new == old else 1)' "$SET" "$T/set.orig"
+check "settings backup holds the original" cmp -s "$SET.bak-cadre-uninstall" "$T/set.orig"
+check "installer backup untouched" cmp -s "$SET.bak-cadre" "$T/set.bak.orig"
+check "settings mode kept" test "$(mode "$SET")" = 0o640
+check "config folder removed" test ! -e "$HOME/.config/cadre"
+check "build cache removed" test ! -e "$HOME/.cache/cadre"
+check "cadre, projects and framework unchanged" test "$(tree "$U" "$T/ext")" = "$before"
+check "trust entries unchanged" cmp -s "$CFG" "$T/cfg.before"
+check "closing message names the cadre" grep -q "your cadre: $U" <<<"$out"
+check "closing message lists outside projects" grep -q "projects outside the cadre folder:" <<<"$out"
+check "closing message names an outside project" grep -qx "    $T/ext" <<<"$out"
+check "closing message names the framework" grep -q "the framework: $FW" <<<"$out"
+check "closing message shows how to reinstall" grep -q "$FW/install.sh --link-only" <<<"$out"
+check "closing message explains trust entries" grep -q "hasTrustDialogAccepted" <<<"$out"
+code=0; out=$("$FW/bin/cadre" uninstall --yes) || code=$?
+check "second uninstall has nothing to do" test "$code" = 0
+check "and says so" grep -q "not installed here; nothing to do" <<<"$out"
+
+bash "$FW/install.sh" --link-only --orchestrator-default >/dev/null
+"$FW/bin/cadre" use "$U" >/dev/null
+cadre up research/writer >/dev/null
+state() { { readlink "$HOME/.local/bin/cadre"; readlink "$HOME/.claude/skills/cadre"; cat "$SET" "$HOME/.config/cadre/home"; ls -R "$HOME/.cache/cadre"; cadre_sessions; } 2>&1; }
+s0=$(state)
+code=0; plan=$(cadre uninstall --dry-run) || code=$?
+check "dry run exits 0" test "$code" = 0
+check "dry run changes nothing" test "$(state)" = "$s0"
+check "dry run shows the plan" grep -q "remove the orchestrator hook" <<<"$plan"
+code=0; out=$(cadre uninstall </dev/null 2>"$T/un.err") || code=$?
+check "no terminal, no --yes: refused" test "$code" != 0
+check "no terminal: says how to confirm" grep -q "run with --yes to confirm" "$T/un.err"
+check "no terminal: same plan as the dry run" test "$out" = "$plan"
+check "no terminal: nothing changed" test "$(state)" = "$s0"
+check "persona cannot uninstall" bash -c "! CADRE_PERSONA=x cadre uninstall --yes"
+check "persona: nothing changed" test "$(state)" = "$s0"
+
+mkdir -p "$T/other/bin"; touch "$T/other/bin/cadre"
+ln -sfn "$T/other/bin/cadre" "$HOME/.local/bin/cadre"
+rm "$HOME/.claude/skills/cadre"; echo "mine" > "$HOME/.claude/skills/cadre"
+code=0; out=$("$FW/bin/cadre" uninstall --yes) || code=$?
+check "foreign links: other steps still run" test "$code" = 0 -a ! -e "$HOME/.config/cadre"
+check "link to another framework left in place" test "$(readlink "$HOME/.local/bin/cadre")" = "$T/other/bin/cadre"
+check "and the reason given" grep -q "not this framework; left in place" <<<"$out"
+check "regular file left in place" grep -qx mine "$HOME/.claude/skills/cadre"
+check "and the reason given for it" grep -q "is not a link; left in place" <<<"$out"
+rm -f "$HOME/.local/bin/cadre" "$HOME/.claude/skills/cadre"
+
+bash "$FW/install.sh" --link-only --orchestrator-default >/dev/null
+printf '{not json' > "$SET"; cp "$SET" "$T/set.bad"
+code=0; out=$(CADRE_HOME="$T/missing" "$FW/bin/cadre" uninstall --yes 2>&1) || code=$?
+check "invalid settings: exit 2" test "$code" = 2
+check "invalid settings: unchanged" cmp -s "$SET" "$T/set.bad"
+check "invalid settings: warning names the file" grep -q "warning: $SET" <<<"$out"
+check "invalid settings: links still removed" test ! -L "$HOME/.local/bin/cadre" -a ! -L "$HOME/.claude/skills/cadre"
+check "missing cadre folder is fine" grep -q "your cadre: $T/missing (not found)" <<<"$out"
+cp "$T/set.orig" "$SET"
+
+if [ "$(id -u)" != 0 ]; then
+  bash "$FW/install.sh" --link-only >/dev/null
+  "$FW/bin/cadre" use "$U" >/dev/null
+  chmod 555 "$HOME/.config"
+  code=0; out=$("$FW/bin/cadre" uninstall --yes 2>&1) || code=$?
+  chmod 755 "$HOME/.config"
+  check "a failing step: exit 2" test "$code" = 2
+  check "a failing step: named" grep -q "could not remove $HOME/.config/cadre" <<<"$out"
+  check "a failing step: the rest still done" test ! -L "$HOME/.local/bin/cadre"
+  rm -rf "$HOME/.config/cadre"
+fi
+
 echo "$pass checks passed"

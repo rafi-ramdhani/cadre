@@ -85,6 +85,7 @@ cadre init <name>               # generate another cadre from the template
 cadre use <dir>                 # switch the active cadre
 cadre update                    # update the framework (--check only looks)
 cadre version
+cadre uninstall                 # undo the install (asks first; --dry-run shows the plan)
 ```
 
 The orchestrator runs these for you; they are there when you want to drive by hand.
@@ -105,6 +106,10 @@ See [docs/guide.md](docs/guide.md) for writing personas, shaping the playbook, t
 **Permission mode is your call.** Personas run in the mode set in `cadre.conf` (default: `default`). Cross-session messages are delivered without approval only when the orchestrator and the persona run in the same permission-mode class; otherwise they wait for you in the persona's window. Choose `auto` or another mode deliberately, knowing the personas act on messages from the orchestrator.
 
 **Registered projects are trusted.** `cadre add project` and `cadre sync` mark each project's folder as trusted in Claude Code, so personas start there without the trust prompt. Trust also lets that repo's own `.claude/settings.json` rules and hooks take effect, so register only repos you trust, or pass `--no-trust`.
+
+## Uninstall
+
+`cadre uninstall` shows its plan, asks, then stops every cadre session and removes what the installer wired in: the `cadre` command and skill links (only when they point to this framework), the orchestrator hook in `~/.claude/settings.json` (backup: `settings.json.bak-cadre-uninstall`), `~/.config/cadre/` and the build cache. It keeps your cadre folder, your projects, the framework clone, backups and Claude Code trust entries, and prints their paths; delete those by hand if you want them gone. `--dry-run` shows the plan only, `--yes` skips the question.
 
 ## Contributing
 

@@ -77,7 +77,7 @@ Both also mark the project's folder as trusted in Claude Code (`projects[<path>]
 
 `install.sh --orchestrator-default` adds a SessionStart hook to `~/.claude/settings.json` that tells every new session to act as the orchestrator. It stays silent in persona sessions (the launcher sets `CADRE_PERSONA`) and in sessions started with `CADRE_OFF=1 claude`. Without the hook, ask any session to use the cadre skill.
 
-To remove it, delete the SessionStart entry whose command ends in `orchestrator-hook.sh`.
+To remove it, delete the SessionStart entry whose command ends in `orchestrator-hook.sh` (`cadre uninstall` does this for you).
 
 ## Updating
 
@@ -90,6 +90,19 @@ To remove it, delete the SessionStart entry whose command ends in `orchestrator-
 - Persona sessions cannot run it (`--check` still works there).
 
 `cadre update --check` only reports whether an update exists: exit 0 when up to date, 3 when an update is available, 1 on an error.
+
+## Uninstalling
+
+`cadre uninstall --dry-run` prints the plan; `cadre uninstall` prints it, asks `Uninstall cadre? [y/N]`, then:
+
+1. stops every `cadre-*` tmux session (the one it runs in, last);
+2. removes this framework's orchestrator hook (`bash <framework>/bin/orchestrator-hook.sh`) from `~/.claude/settings.json`, keeping every other hook and setting (another framework's orchestrator hook is reported and left), with a fresh backup at `settings.json.bak-cadre-uninstall`;
+3. removes `~/.local/bin/cadre` and `~/.claude/skills/cadre`, but only links that point to this framework (anything else is left and reported);
+4. removes `~/.config/cadre/` and `~/.cache/cadre/` (never a folder that is your home or holds your cadre or the framework).
+
+If the `cadre` command or skill belongs to another framework clone, it refuses and names the clone to run it from; `--force` goes ahead and removes only what is not tied to that clone.
+
+It never deletes your cadre, your projects or the framework clone, and leaves trust entries in `~/.claude.json` (they are shared with your own Claude Code sessions). The closing message lists all of these with their paths. It exits 2 when a step was skipped with a warning, for example when `settings.json` is not plain JSON. Persona sessions cannot run it. Run it as `<framework>/bin/cadre uninstall` if the `cadre` link is already gone.
 
 ## Configuration
 

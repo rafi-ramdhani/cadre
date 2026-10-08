@@ -1,0 +1,3 @@
+.DS_Store
+# Project repos live here but are their own git repos; projects.yaml links them.
+/projects/

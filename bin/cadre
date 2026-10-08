@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# cadre: start, stop and list persona sessions. Each persona is a Claude Code
+# session in its own tmux window, so an orchestrator session can message it
+# by name.
+#
+#   cadre init <name> [parent dir]            generate a new cadre from the template
+#   cadre use <dir>                           make an existing cadre the active one
+#   cadre add project <name> <owner/repo> [team] [about]
+#   cadre add team <team> | cadre add persona <team>/<role>
+#   cadre up <team|team/role> [project|dir]   start a team or one persona
+#   cadre down <team|team/role> [project]     stop a team or one persona
+#   cadre attach <team> [project]             open a team's tmux session
+#   cadre ls                                  list teams, roles and what runs
+#   cadre projects                            list the project registry
+#   cadre path <project>                      print a project's local folder
+#   cadre sync                                clone missing registry projects
+#   cadre version                             print the version
+#
+# A team started for a project gets its own sessions: `cadre up dev my-app`
+# names them dev-my-app-<role> in tmux session cadre-dev-my-app. Without a
+# project they are <team>-<role> in tmux session cadre-<team>.
+
+set -euo pipefail
+
+CADRE_VERSION=0.1.0
+
+die() { echo "cadre: $*" >&2; exit 1; }
+expand() { case $1 in "~"*) echo "$HOME${1#\~}" ;; *) echo "$1" ;; esac; }
+
+# CADRE_TMUX_SOCKET runs every session on a separate tmux server (tests use it).
+tmux() { command tmux ${CADRE_TMUX_SOCKET:+-L "$CADRE_TMUX_SOCKET"} "$@"; }
+
+resolve() {
+  local p=$1 t
+  while [ -L "$p" ]; do
+    t=$(readlink "$p")
+    case $t in /*) p=$t ;; *) p=$(dirname "$p")/$t ;; esac
+  done
+  echo "$p"
+}
+CADRE_ROOT=$(cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")/.." && pwd)
+
+CONFIG="$HOME/.config/cadre/home"
+BUILD="${XDG_CACHE_HOME:-$HOME/.cache}/cadre/build"
+
+# The active cadre: $CADRE_HOME, else the one recorded by init or use.
+load_home() {
+  if [ -z "${CADRE_HOME:-}" ] && [ -f "$CONFIG" ]; then
+    CADRE_HOME=$(expand "$(head -1 "$CONFIG")")
+  fi
+  [ -n "${CADRE_HOME:-}" ] && [ -d "$CADRE_HOME" ] ||
+    die "no active cadre; run cadre init <name> or cadre use <dir>"
+  # cadre.conf may set PERMISSION_MODE.
+  PERMISSION_MODE=default
+  # shellcheck source=/dev/null
+  if [ -f "$CADRE_HOME/cadre.conf" ]; then . "$CADRE_HOME/cadre.conf"; fi
+  MODE=${CADRE_PERMISSION_MODE:-$PERMISSION_MODE}
+  PERSONAS="$CADRE_HOME/personas"
+  REGISTRY="$CADRE_HOME/projects.yaml"
+}
+
+set_home() { mkdir -p "$(dirname "$CONFIG")"; echo "$1" > "$CONFIG"; }
+
+# A project's folder: its `path` (relative paths are inside the cadre),
+# else projects/<name>.
+project_dir() {
+  local p; p=$(reg "$1" path)
+  [ -n "$p" ] || p="projects/$1"
+  case $p in /*) echo "$p" ;; "~"*) expand "$p" ;; *) echo "$CADRE_HOME/$p" ;; esac
+}
+
+# Registry lookups. projects.yaml is a flat list of entries, each a name
+# line followed by indented "key: value" lines.
+reg() {
+  python3 - "$REGISTRY" "$@" <<'PY'
+import os, sys
+path, args = sys.argv[1], sys.argv[2:]
+entries, cur = {}, None
+if os.path.exists(path):
+    for line in open(path):
+        s = line.rstrip("\n")
+        if not s.strip() or s.lstrip().startswith("#"):
+            continue
+        if not s[0].isspace() and s.rstrip().endswith(":"):
+            cur = s.strip()[:-1]
+            entries[cur] = {}
+        elif cur and ":" in s:
+            k, v = s.strip().split(":", 1)
+            entries[cur][k.strip()] = v.strip()
+if args[0] == "names":
+    print("\n".join(entries))
+elif args[0] == "table":
+    for n, e in entries.items():
+        print("\t".join([n, e.get("team", ""), e.get("about", "")]))
+elif args[0] == "has":
+    print("yes" if args[1] in entries else "")
+else:
+    print(entries.get(args[0], {}).get(args[1], ""))
+PY
+}
+
+roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
+key_of() { if [ -n "${2:-}" ]; then echo "$1-$2"; else echo "$1"; fi; }
+window_exists() { tmux list-windows -t "cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
+
+# A team's .workdir file wins; otherwise the team gets a folder in the setup.
+default_dir() {
+  local wd="$PERSONAS/$1/.workdir"
+  if [ -f "$wd" ]; then expand "$(head -1 "$wd")"; else echo "$CADRE_HOME/teams/$1"; fi
+}
+
+start_role() {
+  local key=$1 team=$2 role=$3 dir=$4 explicit=$5
+  local name="$key-$role" prompt="$BUILD/$key-$role.md"
+  [ -f "$PERSONAS/$team/$role.md" ] || die "no persona $team/$role"
+  if window_exists "$key" "$role"; then echo "  $name already running"; return; fi
+
+  # A <role>.workdir file pins one persona to its own folder, unless a
+  # project or dir was given.
+  local wd="$PERSONAS/$team/$role.workdir"
+  if [ -z "$explicit" ] && [ -f "$wd" ]; then dir=$(expand "$(head -1 "$wd")"); fi
+
+  mkdir -p "$BUILD" "$dir"
+  {
+    cat "$CADRE_ROOT/protocol.md"
+    if [ -f "$CADRE_HOME/protocol.md" ]; then echo; cat "$CADRE_HOME/protocol.md"; fi
+    echo
+    cat "$PERSONAS/$team/$role.md"
+  } > "$prompt"
+
+  local cmd="CADRE_PERSONA=$name claude --name $name --permission-mode $MODE --append-system-prompt-file '$prompt'"
+  if tmux has-session -t "cadre-$key" 2>/dev/null; then
+    tmux new-window -d -t "cadre-$key" -n "$role" -c "$dir" "$cmd"
+  else
+    tmux new-session -d -s "cadre-$key" -n "$role" -c "$dir" "$cmd"
+  fi
+  echo "  $name started in $dir"
+}
+
+# Turns a project name or a folder into "project dir".
+locate() {
+  local arg=$1 path
+  if [ -n "$(reg has "$arg")" ]; then
+    path=$(project_dir "$arg")
+    [ -d "$path" ] || die "project '$arg' is not at $path (run cadre sync)"
+    echo "$arg $path"
+  elif [ -d "$arg" ]; then
+    path=$(cd "$arg" && pwd)
+    echo "$(basename "$path" | tr -c 'a-zA-Z0-9\n' '-') $path"
+  else
+    die "'$arg' is neither a registry project nor a folder"
+  fi
+}
+
+split_target() {
+  TEAM=${1%%/*} ROLE=""
+  [ "$TEAM" != "$1" ] && ROLE=${1#*/}
+  [ -d "$PERSONAS/$TEAM" ] || die "no team '$TEAM' (see cadre ls)"
+}
+
+cmd_up() {
+  [ -n "${1:-}" ] || die "usage: cadre up <team|team/role> [project|dir]"
+  split_target "$1"
+  local proj="" dir="" explicit=""
+  if [ -n "${2:-}" ]; then read -r proj dir <<<"$(locate "$2")"; explicit=$dir; fi
+  [ -n "$dir" ] || dir=$(default_dir "$TEAM")
+  local key; key=$(key_of "$TEAM" "$proj")
+  if [ -n "$ROLE" ]; then
+    start_role "$key" "$TEAM" "$ROLE" "$dir" "$explicit"
+  else
+    for r in $(roles_of "$TEAM"); do start_role "$key" "$TEAM" "$r" "$dir" "$explicit"; done
+  fi
+}
+
+cmd_down() {
+  [ -n "${1:-}" ] || die "usage: cadre down <team|team/role> [project]"
+  split_target "$1"
+  local key; key=$(key_of "$TEAM" "${2:-}")
+  if [ -z "$ROLE" ]; then
+    tmux kill-session -t "cadre-$key" 2>/dev/null && echo "  cadre-$key stopped" || echo "  cadre-$key not running"
+  else
+    tmux kill-window -t "cadre-$key:$ROLE" 2>/dev/null && echo "  $key-$ROLE stopped" || echo "  $key-$ROLE not running"
+  fi
+}
+
+cmd_attach() {
+  [ -n "${1:-}" ] || die "usage: cadre attach <team> [project]"
+  local key; key=$(key_of "$1" "${2:-}")
+  tmux has-session -t "cadre-$key" 2>/dev/null || die "cadre-$key is not running"
+  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "cadre-$key"; else exec tmux attach -t "cadre-$key"; fi
+}
+
+cmd_ls() {
+  local sessions; sessions=$(tmux ls -F '#S' 2>/dev/null | grep '^cadre-' || true)
+  for t in $(find "$PERSONAS" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort); do
+    echo "$t"
+    local keys; keys=$(grep -E "^cadre-$t(-|$)" <<<"$sessions" | sed 's/^cadre-//' || true)
+    for r in $(roles_of "$t"); do
+      local shown=""
+      for k in $keys; do
+        if window_exists "$k" "$r"; then echo "  [running] $k-$r"; shown=1; fi
+      done
+      [ -n "$shown" ] || echo "  [ ]       $t-$r"
+    done
+  done
+}
+
+cmd_projects() {
+  reg table | while IFS=$'\t' read -r name team about; do
+    local mark="  "; [ -d "$(project_dir "$name")" ] || mark="? "
+    printf '%s%-14s %-8s %s\n' "$mark" "$name" "$team" "$about"
+  done
+}
+
+cmd_sync() {
+  for name in $(reg names); do
+    local path repo; path=$(project_dir "$name"); repo=$(reg "$name" repo)
+    if [ -d "$path" ]; then echo "  $name: present"; continue; fi
+    [ -n "$repo" ] || { echo "  $name: missing, and no repo to clone"; continue; }
+    clone "$repo" "$path"
+    echo "  $name: cloned to $path"
+  done
+}
+
+# Clone owner/repo (through gh when signed in), a URL, or a local path.
+clone() {
+  mkdir -p "$(dirname "$2")"
+  case $1 in
+    */*/*|/*|.*|*:*) git clone -q "$1" "$2" ;;
+    *) if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then gh repo clone "$1" "$2" -- -q
+       else git clone -q "https://github.com/$1.git" "$2"; fi ;;
+  esac
+}
+
+cmd_init() {
+  local name=${1:-} parent=${2:-$PWD}
+  [ -n "$name" ] || die "usage: cadre init <name> [parent dir]"
+  [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "name may use letters, digits, - and _"
+  parent=$(cd "$parent" && pwd)
+  local dest="$parent/$name"
+  [ -e "$dest" ] && die "$dest already exists"
+  cp -R "$CADRE_ROOT/template" "$dest"
+  mkdir -p "$dest/projects"
+  find "$dest" -type f -name '*.md' -exec perl -pi -e "s/\{\{name\}\}/$name/g" {} +
+  git -C "$dest" init -q -b main
+  git -C "$dest" add -A
+  git -C "$dest" commit -qm "Start $name from the cadre template"
+  set_home "$dest"
+  echo "created $dest and made it the active cadre"
+}
+
+cmd_use() {
+  [ -n "${1:-}" ] && [ -d "$1/personas" ] || die "usage: cadre use <cadre dir> (a folder with personas/)"
+  set_home "$(cd "$1" && pwd)"
+  echo "active cadre: $(cat "$CONFIG")"
+}
+
+# Records a change to the cadre in its own git history, when it has one.
+commit_change() {
+  local msg=$1; shift
+  git -C "$CADRE_HOME" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  git -C "$CADRE_HOME" add -- "$@" && git -C "$CADRE_HOME" commit -qm "$msg" -- "$@" || true
+}
+
+cmd_add() {
+  case "${1:-}" in
+    project)
+      local name=${2:-} repo=${3:-} team=${4:-dev} about=${5:-}
+      [ -n "$name" ] && [ -n "$repo" ] || die "usage: cadre add project <name> <owner/repo> [team] [about]"
+      [ -z "$(reg has "$name")" ] || die "project '$name' is already in projects.yaml"
+      printf '\n%s:\n  repo: %s\n  team: %s\n  about: %s\n' "$name" "$repo" "$team" "$about" >> "$REGISTRY"
+      commit_change "Add project $name" "$REGISTRY"
+      local path; path=$(project_dir "$name")
+      if [ -d "$path" ]; then echo "  $name added; already at $path"; else clone "$repo" "$path"; echo "  $name added and cloned to $path"; fi ;;
+    team)
+      [ -n "${2:-}" ] || die "usage: cadre add team <team>"
+      mkdir -p "$PERSONAS/$2"; echo "  team $2 added; add personas with cadre add persona $2/<role>" ;;
+    persona)
+      [[ ${2:-} == */* ]] || die "usage: cadre add persona <team>/<role>"
+      local f="$PERSONAS/$2.md"
+      [ -e "$f" ] && die "$f already exists"
+      mkdir -p "$(dirname "$f")"
+      printf '# Persona: %s (%s team)\n\nYou are the %s. Describe what you own, how you work, and what your reply to the orchestrator contains.\n' "${2#*/}" "${2%%/*}" "${2#*/}" > "$f"
+      commit_change "Add persona $2" "$f"
+      echo "  created $f; edit it to describe the role" ;;
+    *) die "usage: cadre add project|team|persona ..." ;;
+  esac
+}
+
+case "${1:-}" in
+  init)     shift; cmd_init "$@"; exit ;;
+  use)      shift; cmd_use "$@"; exit ;;
+  ""|-h|--help|help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
+  version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
+esac
+load_home
+
+case "$1" in
+  add)      shift; cmd_add "$@" ;;
+  up)       shift; cmd_up "$@" ;;
+  down)     shift; cmd_down "$@" ;;
+  attach)   shift; cmd_attach "$@" ;;
+  ls)       cmd_ls ;;
+  projects) cmd_projects ;;
+  path)     [ -n "${2:-}" ] || die "usage: cadre path <project>"; read -r _ p <<<"$(locate "$2")"; echo "$p" ;;
+  sync)     cmd_sync ;;
+  *)        die "unknown command '$1' (see cadre help)" ;;
+esac

@@ -14,3 +14,4 @@ R	Bash(x &>log)	accept		a redirection
 R	Edit(~/.ss[z-a]/config)	refuse	cannot read	a reversed class range: Python crashed on it; Go refuses it
 R	Edit(src/[z-a]/x)	refuse	cannot read	the same, in a relative path
 R	Bash(a#; bash *)	refuse	chains or backgrounds	still refused; bash refused it as a computed program name because its shlex hid the ;
+R	Bash(bash/ *)	refuse	lets bash run anything	Go reads the program bash/ as bash (path.Base drops the trailing /); Python kept "bash/" and only warned. Stricter

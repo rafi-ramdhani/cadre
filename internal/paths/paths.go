@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-// maxLinks bounds symlink resolution, so a loop ends.
+// maxLinks bounds symlink resolution, so a loop ends. For a loop, the
+// path Real returns differs from Python's (each stops at a different link
+// of the loop); neither resolves it, and no check relies on that path.
 const maxLinks = 255
 
 // Real returns the physical form of p: every symlink along the way is

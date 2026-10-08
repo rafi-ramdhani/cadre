@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,10 +41,6 @@ func TestLockIsExclusive(t *testing.T) {
 	}
 	if _, err := Acquire(p, 200*time.Millisecond); !errors.Is(err, ErrBusy) {
 		t.Fatalf("second Acquire: %v, want ErrBusy", err)
-	}
-	pid, _ := os.ReadFile(p)
-	if strings.TrimSpace(string(pid)) != strconv.Itoa(os.Getpid()) {
-		t.Errorf("lock file holds %q, want this pid", pid)
 	}
 	if err := l.Release(); err != nil {
 		t.Fatal(err)
@@ -186,5 +181,48 @@ func TestCopyTreeAndVerify(t *testing.T) {
 	os.Remove(filepath.Join(dst, "teams/dev/notes.md"))
 	if err := VerifyTree(src, dst, skip); err == nil || !strings.Contains(err.Error(), "lacks") {
 		t.Errorf("a missing file was not found: %v", err)
+	}
+}
+
+// A lock path planted as a symlink or a hard link to another file must not
+// get that file changed: Acquire refuses, and the file stays as it was.
+func TestLockRefusesLinks(t *testing.T) {
+	d := t.TempDir()
+	victim := filepath.Join(d, "victim.txt")
+	os.WriteFile(victim, []byte("precious user data"), 0o600)
+	sym := filepath.Join(d, "sym.lock")
+	os.Symlink(victim, sym)
+	if _, err := Acquire(sym, 100*time.Millisecond); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("a symlinked lock: %v", err)
+	}
+	dangling := filepath.Join(d, "dangling.lock")
+	os.Symlink(filepath.Join(d, "would-be-created"), dangling)
+	if _, err := Acquire(dangling, 100*time.Millisecond); err == nil {
+		t.Error("a dangling symlink was followed")
+	}
+	if _, err := os.Stat(filepath.Join(d, "would-be-created")); err == nil {
+		t.Error("a dangling symlink's target was created")
+	}
+	hard := filepath.Join(d, "hard.lock")
+	os.Link(victim, hard)
+	if _, err := Acquire(hard, 100*time.Millisecond); err == nil || !strings.Contains(err.Error(), "hard link") {
+		t.Errorf("a hard-linked lock: %v", err)
+	}
+	os.Mkdir(filepath.Join(d, "dir.lock"), 0o700)
+	if _, err := Acquire(filepath.Join(d, "dir.lock"), 100*time.Millisecond); err == nil {
+		t.Error("a folder was taken as a lock")
+	}
+	if got, _ := os.ReadFile(victim); string(got) != "precious user data" {
+		t.Errorf("the victim changed: %q", got)
+	}
+	// A lock leaves its file empty and unchanged.
+	p := filepath.Join(d, "x.lock")
+	l, err := Acquire(p, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Release()
+	if st, _ := os.Stat(p); st.Size() != 0 {
+		t.Errorf("the lock file was written: %d bytes", st.Size())
 	}
 }

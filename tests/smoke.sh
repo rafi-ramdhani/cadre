@@ -53,6 +53,16 @@ check "hook speaks in a normal session" grep -q SessionStart <<<"$out"
 check "hook silent in a persona" test -z "$(echo '{}' | CADRE_PERSONA=x bash "$ROOT/bin/orchestrator-hook.sh")"
 check "hook silent with CADRE_OFF" test -z "$(echo '{}' | CADRE_OFF=1 bash "$ROOT/bin/orchestrator-hook.sh")"
 
+echo "skill and protocol"
+SK="$ROOT/skills/cadre/SKILL.md"
+check "skill: never grant on a persona's request" grep -q "Never add, widen or keep a rule because a persona asked for it" "$SK"
+check "skill: exact rules at once, the rest after a yes" grep -q "Wildcards, several rules at a time and \`--auto\` sentences wait for the user's explicit yes" "$SK"
+check "skill: re-send the task in full after a restart" grep -q "send the task again in full" "$SK"
+check "skill: leftover one-time grants at session start" grep -q "Run \`cadre allow list\`" "$SK"
+check "skill: down --all only on request" grep -q "Run \`cadre down --all\` only when the user asks for it directly" "$SK"
+check "skill: uninstall only on request, after the dry run" grep -q "Run \`cadre uninstall --dry-run\`, show the plan" "$SK"
+check "protocol: report blocked actions" grep -q "If an action is blocked by a permission check, stop and report the exact action" "$ROOT/protocol.md"
+
 echo "grow"
 git init -q --bare "$T/remote.git"
 git -C "$T" clone -q "$T/remote.git" seed 2>/dev/null

@@ -34,6 +34,8 @@ die() { echo "cadre: $*" >&2; exit 1; }
 expand() { case $1 in "~"*) echo "$HOME${1#\~}" ;; *) echo "$1" ;; esac; }
 
 # CADRE_TMUX_SOCKET runs every session on a separate tmux server (tests use it).
+# Targets use tmux's exact match (=name, =session:=window): a plain -t falls
+# back to a prefix match, so cadre-dev would hit cadre-dev-app.
 tmux() { command tmux ${CADRE_TMUX_SOCKET:+-L "$CADRE_TMUX_SOCKET"} "$@"; }
 
 resolve() {
@@ -111,7 +113,7 @@ PY
 running_sessions() {
   local s
   for s in $(tmux ls -F '#S' 2>/dev/null | grep '^cadre-' || true); do
-    printf '%s\t%s\n' "$s" "$(tmux list-windows -t "$s" -F "${s#cadre-}-#W" 2>/dev/null | paste -sd ' ' -)"
+    printf '%s\t%s\n' "$s" "$(tmux list-windows -t "=$s" -F "${s#cadre-}-#W" 2>/dev/null | paste -sd ' ' -)"
   done
 }
 
@@ -160,7 +162,7 @@ confirm() {
 
 roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
 key_of() { if [ -n "${2:-}" ]; then echo "$1-$2"; else echo "$1"; fi; }
-window_exists() { tmux list-windows -t "cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
+window_exists() { tmux list-windows -t "=cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
 
 # A team's .workdir file wins; otherwise the team gets a folder in the setup.
 default_dir() {
@@ -188,8 +190,8 @@ start_role() {
   } > "$prompt"
 
   local cmd="CADRE_PERSONA=$name claude --name $name --permission-mode $MODE --append-system-prompt-file '$prompt'"
-  if tmux has-session -t "cadre-$key" 2>/dev/null; then
-    tmux new-window -d -t "cadre-$key" -n "$role" -c "$dir" "$cmd"
+  if tmux has-session -t "=cadre-$key" 2>/dev/null; then
+    tmux new-window -d -t "=cadre-$key:" -n "$role" -c "$dir" "$cmd"
   else
     tmux new-session -d -s "cadre-$key" -n "$role" -c "$dir" "$cmd"
   fi
@@ -229,6 +231,14 @@ cmd_up() {
   else
     for r in $(roles_of "$TEAM"); do start_role "$key" "$TEAM" "$r" "$dir" "$explicit"; done
   fi
+  # Recorded so cadre update can print the exact restart commands.
+  local target=""
+  if [ -n "$proj" ]; then
+    if [ -n "$(reg has "$2")" ]; then target=$2; else target=$dir; fi
+  fi
+  tmux set-option -q -t "=cadre-$key:" @cadre_team "$TEAM" 2>/dev/null || true
+  tmux set-option -q -t "=cadre-$key:" @cadre_project "$proj" 2>/dev/null || true
+  tmux set-option -q -t "=cadre-$key:" @cadre_target "$target" 2>/dev/null || true
 }
 
 cmd_down() {
@@ -236,9 +246,9 @@ cmd_down() {
   split_target "$1"
   local key; key=$(key_of "$TEAM" "${2:-}")
   if [ -z "$ROLE" ]; then
-    if tmux kill-session -t "cadre-$key" 2>/dev/null; then echo "  cadre-$key stopped"; else echo "  cadre-$key not running"; fi
+    if tmux kill-session -t "=cadre-$key" 2>/dev/null; then echo "  cadre-$key stopped"; else echo "  cadre-$key not running"; fi
   else
-    if tmux kill-window -t "cadre-$key:$ROLE" 2>/dev/null; then echo "  $key-$ROLE stopped"; else echo "  $key-$ROLE not running"; fi
+    if tmux kill-window -t "=cadre-$key:=$ROLE" 2>/dev/null; then echo "  $key-$ROLE stopped"; else echo "  $key-$ROLE not running"; fi
   fi
 }
 
@@ -268,8 +278,8 @@ cmd_down_all() {
 cmd_attach() {
   [ -n "${1:-}" ] || die "usage: cadre attach <team> [project]"
   local key; key=$(key_of "$1" "${2:-}")
-  tmux has-session -t "cadre-$key" 2>/dev/null || die "cadre-$key is not running"
-  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "cadre-$key"; else exec tmux attach -t "cadre-$key"; fi
+  tmux has-session -t "=cadre-$key" 2>/dev/null || die "cadre-$key is not running"
+  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "=cadre-$key"; else exec tmux attach -t "=cadre-$key"; fi
 }
 
 cmd_ls() {
@@ -312,16 +322,20 @@ cmd_sync() {
 # ~/.claude/settings.json) without ever damaging it:
 #   json_edit <op> <file> <backup> [args...]
 # It never creates the file, leaves it untouched when it is not the JSON it
-# expects, copies it to <backup> before writing, writes a temporary file with
-# the same mode and renames it over the original, and starts again (up to 3
-# times) when the file changed while it worked. Exit: 0 written, 3 nothing to
-# change, 4 no such file, 5 unreadable or unexpected content, 6 kept changing.
+# expects or belongs to another user, copies it to <backup> before the first
+# write (an existing backup, the oldest original, is kept), writes a
+# temporary file with the same mode and renames it over the original, and
+# starts again (up to 3 times) when the file changed while it worked.
+# Exit: 0 written, 3 nothing to change, 4 no such file, 5 unreadable,
+# unexpected content or another owner, 6 kept changing, 7 could not write.
+# CADRE_TEST_JSON_EDIT_HOOK, for tests only, names a program run with the
+# attempt number and the file just before the re-check.
 # Op trust, args "name<TAB>path[<TAB>path...]": sets
 # projects[path].hasTrustDialogAccepted for every path and prints
 # "name<TAB>trusted" or "name<TAB>already" per project.
 json_edit() {
   python3 - "$@" <<'PY'
-import hashlib, json, os, sys, tempfile
+import hashlib, json, os, subprocess, sys, tempfile
 
 op, path, backup, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 
@@ -374,8 +388,10 @@ def write(target, data, mode):
         raise
 
 
-for _ in range(3):
+def attempt(n):
     try:
+        if os.stat(path).st_uid != os.geteuid():
+            sys.exit(5)
         stamp, raw, mode = snapshot()
     except FileNotFoundError:
         sys.exit(4)
@@ -385,53 +401,101 @@ for _ in range(3):
         data = json.loads(raw)
         before = json.dumps(data, sort_keys=True)
         lines = OPS[op](data)
-    except (ValueError, Shape):
+        after = json.dumps(data, sort_keys=True)
+        new = (json.dumps(data, indent=2) + "\n").encode()
+    except (ValueError, TypeError, RecursionError, Shape):
         sys.exit(5)
-    if json.dumps(data, sort_keys=True) == before:
+    if after == before:
         print("\n".join(lines))
         sys.exit(3)
-    os.replace(write(backup, raw, mode), backup)
-    tmp = write(path, (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode(), mode)
+    tmp = None
     try:
-        same = snapshot()[0] == stamp
+        if not os.path.lexists(backup):
+            os.replace(write(backup, raw, mode), backup)
+        tmp = write(path, new, mode)
+        hook = os.environ.get("CADRE_TEST_JSON_EDIT_HOOK")
+        if hook:
+            subprocess.call([hook, str(n), path])
+        try:
+            same = snapshot()[0] == stamp
+        except OSError:
+            same = False
+        if same:
+            os.replace(tmp, path)
+            tmp = None
+            print("\n".join(lines))
+            sys.exit(0)
     except OSError:
-        same = False
-    if same:
-        os.replace(tmp, path)
-        print("\n".join(lines))
-        sys.exit(0)
-    os.unlink(tmp)
-sys.exit(6)
+        sys.exit(7)
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+try:
+    for n in range(1, 4):
+        attempt(n)
+    sys.exit(6)
+except SystemExit:
+    raise
+except BaseException:
+    sys.exit(5)
 PY
 }
 
 # Claude Code's global config, where workspace trust is stored per folder.
 claude_config() { echo "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"; }
 
+# Why folder $1 (a physical path) must not be trusted, or nothing when it
+# may be: only the top folder of a project repo is, never /, the home
+# folder, the cadre or a folder containing it, or a team folder.
+trust_refusal() {
+  local d=$1 home cadre
+  home=$(cd "$HOME" && pwd -P); cadre=$(cd "$CADRE_HOME" && pwd -P)
+  if [ "$d" = / ]; then echo "it is the root folder"; return; fi
+  if [ "$d" = "$home" ]; then echo "it is your home folder"; return; fi
+  case "$cadre/" in "$d/"*) echo "it is the cadre folder or contains it"; return ;; esac
+  case "$d/" in "$cadre/teams/"*) echo "it is a team folder"; return ;; esac
+  [ "$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" = "$d" ] || echo "it is not the top folder of a git repo"
+}
+
 # Marks registry projects' folders as trusted in Claude Code, in one write
 # with one backup. Each folder is keyed by its physical path and, when it
 # differs, by the path as cadre spells it. Sets TRUST_RESULT to
-# "name<TAB>trusted|already|skipped" lines and TRUST_NOTE to a note for the
-# user when the config was left alone.
+# "name<TAB>trusted|already|refused|skipped[<TAB>reason]" lines and
+# TRUST_NOTE to a note for the user when the config was left alone.
 trust_projects() {
-  local cfg args=() name dir phys code=0 out=""
+  local cfg args=() names=() name dir phys why code=0 out=""
   cfg=$(claude_config)
   TRUST_RESULT="" TRUST_NOTE=""
+  if [ -n "${CADRE_PERSONA:-}" ]; then
+    TRUST_NOTE="persona sessions cannot trust folders in Claude Code; run cadre trust $* from the orchestrator"
+    for name in "$@"; do TRUST_RESULT+="$name"$'\t'"skipped"$'\n'; done
+    return
+  fi
   for name in "$@"; do
     dir=$(cd "$(project_dir "$name")" && pwd); phys=$(cd "$dir" && pwd -P)
+    why=$(trust_refusal "$phys")
+    if [ -n "$why" ]; then TRUST_RESULT+="$name"$'\t'"refused"$'\t'"$why"$'\n'; continue; fi
+    names+=("$name")
     if [ "$dir" = "$phys" ]; then args+=("$name"$'\t'"$phys"); else args+=("$name"$'\t'"$phys"$'\t'"$dir"); fi
   done
+  [ ${#names[@]} -gt 0 ] || return 0
   out=$(json_edit trust "$cfg" "$cfg.bak-cadre" "${args[@]}") || code=$?
   case $code in
-    0|3) TRUST_RESULT=$out; return ;;
+    0|3) TRUST_RESULT+="$out"$'\n'; return ;;
     4) TRUST_NOTE="Claude Code has not created its config yet; it will ask to trust the folder on first launch" ;;
     6) TRUST_NOTE="warning: $cfg kept changing (a running Claude Code session?), so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
-    *) TRUST_NOTE="warning: $cfg could not be read as Claude Code's config, so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
+    7) TRUST_NOTE="warning: could not write next to $cfg (folder not writable, or disk full?), so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
+    *) TRUST_NOTE="warning: $cfg is not a file cadre can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user), so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
   esac
-  for name in "$@"; do TRUST_RESULT+="$name"$'\t'"skipped"$'\n'; done
+  for name in "${names[@]}"; do TRUST_RESULT+="$name"$'\t'"skipped"$'\n'; done
 }
 
-trust_of() { awk -F'\t' -v n="$1" '$1 == n { print $2 }' <<<"$TRUST_RESULT"; }
+trust_of() { awk -F'\t' -v n="$1" -v f="${2:-2}" '$1 == n { print $f }' <<<"$TRUST_RESULT"; }
 
 # Trusts the given projects and prints one line per project.
 trust_report() {
@@ -441,6 +505,7 @@ trust_report() {
     case $(trust_of "$name") in
       trusted) echo "  $name: trusted in Claude Code" ;;
       already) echo "  $name: already trusted in Claude Code" ;;
+      refused) echo "  $name: not trusted, $(trust_of "$name" 3)" ;;
       *) echo "  $name: not trusted (see below)" ;;
     esac
   done
@@ -449,6 +514,7 @@ trust_report() {
 
 cmd_trust() {
   local names=() name
+  [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot trust folders in Claude Code; ask the user in the orchestrator"
   case "${1:-}" in
     --all)
       [ -z "${2:-}" ] || die "usage: cadre trust <project> | --all"
@@ -503,28 +569,71 @@ cmd_use() {
 
 version_in() { sed -n 's/^CADRE_VERSION=//p' "$1" | head -1; }
 
-# Prints the CHANGELOG sections newer than version $2, or nothing when the
-# file has no sections it can read.
+# Prints the CHANGELOG's Unreleased section when it has entries, then the
+# sections newer than version $2; nothing when it has no sections it can read.
 changes_since() {
   python3 - "$1" "$2" <<'PY'
 import re, sys
 path, old = sys.argv[1], sys.argv[2]
 def ver(s):
-    return tuple(int(x) for x in s.split("."))
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", s)
+    return tuple(int(x) for x in m.groups()) if m else None
 try:
     lines = open(path).read().splitlines()
-    old = ver(old)
-except (OSError, ValueError):
+except OSError:
     sys.exit(0)
-out, keep = [], False
+old = ver(old)
+sections, cur = [], None
 for line in lines:
-    m = re.match(r"## (\d+\.\d+\.\d+)\b", line)
     if line.startswith("## "):
-        keep = bool(m) and ver(m.group(1)) > old
+        cur = [line]
+        sections.append(cur)
+    elif cur is not None:
+        cur.append(line)
+out = []
+for sec in sections:
+    v = ver(sec[0][3:])
+    if sec[0].strip() == "## Unreleased":
+        keep = any(l.strip() for l in sec[1:])
+    else:
+        keep = v is not None and old is not None and v > old
     if keep:
-        out.append(line)
-print("\n".join(out).strip())
+        out.append("\n".join(sec).strip())
+print("\n\n".join(out))
 PY
+}
+
+# Whether the installed cadre command and skill links are missing or point
+# into framework folder $1, so relinking cannot take them from another clone.
+links_point_here() {
+  local here l t
+  here=$(cd "$1" && pwd -P)
+  for l in "$HOME/.local/bin/cadre" "$HOME/.claude/skills/cadre"; do
+    if [ ! -e "$l" ] && [ ! -L "$l" ]; then continue; fi
+    [ -L "$l" ] || return 1
+    t=$(resolve "$l")
+    t=$(cd "$(dirname "$t")" 2>/dev/null && pwd -P) || return 1
+    case "$t/" in "$here/"*) ;; *) return 1 ;; esac
+  done
+}
+
+# Prints the commands that restart each persona in the running sessions.
+# Sessions started before cadre recorded team and project get a template.
+restart_commands() {
+  local s team proj target role generic=""
+  while IFS=$'\t' read -r s _; do
+    team=$(tmux show-options -qv -t "=$s:" @cadre_team 2>/dev/null || true)
+    if [ -z "$team" ]; then generic=1; continue; fi
+    proj=$(tmux show-options -qv -t "=$s:" @cadre_project 2>/dev/null || true)
+    target=$(tmux show-options -qv -t "=$s:" @cadre_target 2>/dev/null || true)
+    for role in $(tmux list-windows -t "=$s" -F '#W' 2>/dev/null); do
+      echo "  cadre down $team/$role${proj:+ $proj} && cadre up $team/$role${target:+ $(printf '%q' "$target")}"
+    done
+  done <<<"$1"
+  if [ -n "$generic" ]; then
+    echo "  cadre down <team> [project] && cadre up <team> [project]"
+    echo "  (session cadre-<team>-<project> is team <team>, project <project>)"
+  fi
 }
 
 # Updates the framework this command runs from. The whole update runs inside
@@ -537,6 +646,7 @@ cmd_update() {
     "") ;;
     *) die "usage: cadre update [--check]" ;;
   esac
+  [ -n "$check" ] || [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot update cadre"
   local fw=$CADRE_ROOT top branch def ahead old new notes
   top=$(git -C "$fw" rev-parse --show-toplevel 2>/dev/null || true)
   [ "$top" = "$(cd "$fw" && pwd -P)" ] || die "$fw is not a git checkout; update it by hand"
@@ -547,7 +657,7 @@ cmd_update() {
   branch=$(git -C "$fw" symbolic-ref -q --short HEAD || true)
   [ -n "$branch" ] || die "$fw has a detached HEAD; switch to $def first (git -C $fw switch $def)"
   [ "$branch" = "$def" ] || die "$fw is on branch $branch, not $def; switch to $def first (git -C $fw switch $def)"
-  git -C "$fw" fetch -q origin || die "could not fetch from origin in $fw (offline, or no access?)"
+  GIT_TERMINAL_PROMPT=0 git -C "$fw" fetch -q origin || die "could not fetch from origin in $fw (offline, or no access?)"
   git -C "$fw" rev-parse -q --verify "origin/$def" >/dev/null || die "origin has no branch $def"
 
   old=$(version_in "$fw/bin/cadre")
@@ -556,7 +666,8 @@ cmd_update() {
   fi
   ahead=$(git -C "$fw" rev-list --count "origin/$def..HEAD")
   [ "$ahead" = 0 ] || die "$fw has $ahead local commit(s) that origin/$def lacks; cadre update only fast-forwards, so move them to a branch first"
-  new=$(git -C "$fw" show "origin/$def:bin/cadre" | sed -n 's/^CADRE_VERSION=//p' | head -1)
+  new=$(git -C "$fw" show "origin/$def:bin/cadre" 2>/dev/null | sed -n 's/^CADRE_VERSION=//p' | head -1 || true)
+  [ -n "$new" ] || die "origin/$def has no bin/cadre with a version (unknown); not updating $fw"
   if [ -n "$check" ]; then echo "update available: $old -> $new"; exit 3; fi
 
   git -C "$fw" merge -q --ff-only "origin/$def" || die "the fast-forward to origin/$def failed in $fw"
@@ -564,15 +675,19 @@ cmd_update() {
   echo "updated cadre $old -> $new"
   notes=$(changes_since "$fw/CHANGELOG.md" "$old" || true)
   if [ -n "$notes" ]; then echo; echo "$notes"; echo
-  else echo "see $fw/CHANGELOG.md for what changed"; fi
-  bash "$fw/install.sh" --link-only
+  elif [ -f "$fw/CHANGELOG.md" ]; then echo "see $fw/CHANGELOG.md for what changed"; fi
+  if links_point_here "$fw"; then
+    bash "$fw/install.sh" --link-only || echo "warning: relinking failed; run $fw/install.sh --link-only" >&2
+  else
+    echo "the installed cadre command or skill points at another framework folder; links left as they are (run $fw/install.sh --link-only to switch to this one)"
+  fi
 
   local sessions; sessions=$(running_sessions)
   if [ -n "$sessions" ]; then
     echo "These sessions still run the old version until restarted:"
     show_sessions "$sessions"
-    echo "Restart each with: cadre down <team> [project] && cadre up <team> [project]"
-    echo "(session cadre-<team>-<project> is team <team>, project <project>)"
+    echo "Restart them with:"
+    restart_commands "$sessions"
   fi
 }
 
@@ -589,9 +704,16 @@ cmd_add() {
     project)
       shift
       local trust=1 a pos=()
-      for a in "$@"; do if [ "$a" = --no-trust ]; then trust=""; else pos+=("$a"); fi; done
+      for a in "$@"; do
+        case $a in
+          --no-trust) trust="" ;;
+          -*) die "unknown option $a (usage: cadre add project <name> <owner/repo> [team] [about] [--no-trust])" ;;
+          *) pos+=("$a") ;;
+        esac
+      done
       local name=${pos[0]:-} repo=${pos[1]:-} team=${pos[2]:-dev} about=${pos[3]:-}
       if [ -z "$name" ] || [ -z "$repo" ]; then die "usage: cadre add project <name> <owner/repo> [team] [about] [--no-trust]"; fi
+      if ! [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [[ $name == *..* ]]; then die "project name may use letters, digits, ., - and _ (no ..)"; fi
       [ -z "$(reg has "$name")" ] || die "project '$name' is already in projects.yaml"
       printf '\n%s:\n  repo: %s\n  team: %s\n  about: %s\n' "$name" "$repo" "$team" "$about" >> "$REGISTRY"
       commit_change "Add project $name" "$REGISTRY"
@@ -602,6 +724,7 @@ cmd_add() {
       case $(trust_of "$name") in
         trusted) echo "  $name added, $where and trusted in Claude Code (registered projects are trusted; use --no-trust to skip)" ;;
         already) echo "  $name added, $where; its folder was already trusted in Claude Code" ;;
+        refused) echo "  $name added, $where; not trusted in Claude Code, $(trust_of "$name" 3)" ;;
         *) echo "  $name added, $where"; echo "${TRUST_NOTE/the folder/$path}" ;;
       esac ;;
     team)

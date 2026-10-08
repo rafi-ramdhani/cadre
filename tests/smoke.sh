@@ -113,10 +113,12 @@ check "CLAUDE_CONFIG_DIR honoured" trusted "$T/ccd/.claude.json" "$(phys "$C/pro
 check "CLAUDE_CONFIG_DIR: home config untouched" cmp -s "$CFG" "$T/cfg.good"
 cadre add project t4 "$T/remote.git" --no-trust >/dev/null
 rm -rf "$C/projects/t4"
+check "first backup kept" bash -c "cadre trust t3 >/dev/null; cmp -s '$CFG.bak-cadre' '$T/cfg.before'"
+rm -f "$CFG.bak-cadre"
 cp "$CFG" "$T/cfg.before"
 out=$(cadre trust --all)
 check "--all: already trusted" grep -q "t1: already trusted" <<<"$out"
-check "--all: trusted" grep -q "t3: trusted" <<<"$out"
+check "--all: trusted" grep -q "app: trusted" <<<"$out"
 check "--all: missing locally" grep -q "t4: missing locally" <<<"$out"
 check "--all: one backup of the original" cmp -s "$CFG.bak-cadre" "$T/cfg.before"
 m=$(mtime "$CFG")
@@ -132,6 +134,74 @@ cp "$CFG" "$T/cfg.before"
 cadre sync --no-trust >/dev/null
 check "sync --no-trust clones" test -d "$C/projects/t4/.git"
 check "sync --no-trust leaves the config alone" cmp -s "$CFG" "$T/cfg.before"
+untrusted() { ! trusted "$@" 2>/dev/null; }
+check "name with .. refused" bash -c "! cadre add project '../..' '$T/remote.git'"
+check "name with a slash refused" bash -c "! cadre add project 'a/b' '$T/remote.git'"
+check "unknown option refused" bash -c "! cadre add project t9 '$T/remote.git' --no-trsut"
+check "refused names not registered" bash -c "! grep -q -e '^\.\.' -e '^t9:' -e '^a/b:' '$C/projects.yaml'"
+mkdir -p "$T/plain"; git init -q "$C/teams/x"
+printf '\nhome:\n  path: ~\nself:\n  path: .\nteamdir:\n  path: teams/x\nplain:\n  path: %s\n' "$T/plain" >> "$C/projects.yaml"
+out=$(cadre trust --all)
+check "home folder refused" grep -q "home: not trusted, it is your home folder" <<<"$out"
+check "cadre folder refused" grep -q "self: not trusted, it is the cadre folder" <<<"$out"
+check "team folder refused" grep -q "teamdir: not trusted, it is a team folder" <<<"$out"
+check "folder outside a repo refused" grep -q "plain: not trusted, it is not the top folder of a git repo" <<<"$out"
+check "home folder not written" untrusted "$CFG" "$(phys "$HOME")"
+check "cadre folder not written" untrusted "$CFG" "$(phys "$C")"
+git -C "$C" checkout -q projects.yaml; rm -rf "$C/teams/x" "$T/plain"
+cp "$CFG" "$T/cfg.good"
+cp "$CFG" "$T/cfg.before"
+check "persona cannot run cadre trust" bash -c "! CADRE_PERSONA=x cadre trust t1"
+out=$(CADRE_PERSONA=x cadre add project t5 "$T/remote.git")
+check "persona add: cloned" test -d "$C/projects/t5/.git"
+check "persona add: config untouched" cmp -s "$CFG" "$T/cfg.before"
+check "persona add: says why" grep -q "persona sessions cannot trust" <<<"$out"
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["projects"].pop(sys.argv[2], None); d["projects"].pop(sys.argv[3], None); json.dump(d, open(sys.argv[1], "w"))' "$T/cfg.good" "$C/projects/t3" "$(phys "$C/projects/t3")"
+printf '{"history": "pasted \\ud83d broken", "projects": {}}' > "$CFG"
+err=$(cadre trust t3 2>&1 >/dev/null)
+check "lone surrogate: trusted" trusted "$CFG" "$(phys "$C/projects/t3")"
+check "lone surrogate: kept as an escape" grep -q 'ud83d' "$CFG"
+check "lone surrogate: no traceback" test -z "$err"
+cp "$T/cfg.good" "$CFG"; printf '{bad' > "$CFG"; rm -f "$CFG.bak-cadre"
+cadre trust t3 >/dev/null
+check "invalid config: no backup" test ! -e "$CFG.bak-cadre"
+if [ "$(id -u)" != 0 ]; then
+  cp "$T/cfg.good" "$CFG"; chmod 000 "$CFG"
+  out=$(cadre trust t3 2>&1)
+  chmod 600 "$CFG"
+  check "unreadable config: warning" grep -q "not a file cadre can safely edit" <<<"$out"
+  check "unreadable config: unchanged" cmp -s "$CFG" "$T/cfg.good"
+  check "unreadable config: no backup" test ! -e "$CFG.bak-cadre"
+  mkdir -p "$T/ro"; cp "$T/cfg.good" "$T/ro/.claude.json"; chmod 555 "$T/ro"
+  out=$(CLAUDE_CONFIG_DIR="$T/ro" cadre trust t3 2>&1)
+  chmod 755 "$T/ro"
+  check "unwritable folder: warning" grep -q "could not write next to" <<<"$out"
+  check "unwritable folder: unchanged" cmp -s "$T/ro/.claude.json" "$T/cfg.good"
+fi
+rm "$CFG"; cp "$T/cfg.good" "$T/real.json"; ln -s "$T/real.json" "$CFG"
+cadre trust t3 >/dev/null
+check "symlinked config: link kept" test -L "$CFG"
+check "symlinked config: target written" trusted "$T/real.json" "$(phys "$C/projects/t3")"
+rm "$CFG"; cp "$T/cfg.good" "$CFG"; chmod 644 "$CFG"
+cadre trust t3 >/dev/null
+check "mode 0644 kept" test "$(mode "$CFG")" = 0o644
+# A program run between the write and the re-check plays a Claude Code
+# session that rewrites the file: once, then on every attempt.
+printf '%s\n' '#!/usr/bin/env python3' 'import json, sys' 'n, p = int(sys.argv[1]), sys.argv[2]' \
+  'if n == 1 or sys.argv[0].endswith("always"):' \
+  '    d = json.load(open(p)); d["touched"] = n; json.dump(d, open(p, "w"))' > "$T/change-once"
+cp "$T/change-once" "$T/change-always"; chmod +x "$T/change-once" "$T/change-always"
+cp "$T/cfg.good" "$CFG"
+CADRE_TEST_JSON_EDIT_HOOK="$T/change-once" cadre trust t3 >/dev/null
+check "changed once: retried and trusted" trusted "$CFG" "$(phys "$C/projects/t3")"
+check "changed once: the outside change kept" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["touched"] == 1 else 1)' "$CFG"
+cp "$T/cfg.good" "$CFG"
+out=$(CADRE_TEST_JSON_EDIT_HOOK="$T/change-always" cadre trust t3)
+check "always changing: gives up with a warning" grep -q "kept changing" <<<"$out"
+check "always changing: not written by cadre" untrusted "$CFG" "$(phys "$C/projects/t3")"
+check "always changing: the last outside change stands" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["touched"] == 3 else 1)' "$CFG"
+check "no temporary files left" test -z "$(find "$HOME" "$T/ro" -maxdepth 1 -name '.cadre-*')"
+cp "$T/cfg.good" "$CFG"; chmod 600 "$CFG"
 
 echo "sessions"
 cadre up dev/engineer app >/dev/null
@@ -143,7 +213,17 @@ check "team without project running" bash -c "cadre ls | grep -q '\[running\] op
 cadre down dev app >/dev/null
 cadre down ops >/dev/null
 check "sessions stopped" bash -c "! cadre ls | grep -q running"
+# tmux targets must match names exactly, not by prefix.
 tm() { command tmux -L "$CADRE_TMUX_SOCKET" "$@"; }
+cadre up dev/engineer app >/dev/null
+check "team session is not mistaken for a project session" bash -c "cadre up dev/engineer | grep -q 'dev-engineer started'"
+cadre down dev >/dev/null
+check "down <team> leaves the project session alone" tm has-session -t =cadre-dev-app
+tm new-window -d -t =cadre-dev-app: -n engineer-lead "sleep 300"
+cadre down dev/engineer app >/dev/null
+check "down <team>/<role> leaves a longer window name alone" bash -c "cadre down dev/engineer app | grep -q 'not running'"
+check "the longer window still runs" bash -c "command tmux -L '$CADRE_TMUX_SOCKET' list-windows -t =cadre-dev-app -F '#W' | grep -qx engineer-lead"
+cadre down dev app >/dev/null
 running() { tm has-session -t "$1" 2>/dev/null; }
 cadre_sessions() { tm ls -F '#S' 2>/dev/null | grep '^cadre-' || true; }
 cadre up dev/engineer app >/dev/null
@@ -173,7 +253,7 @@ mv "$T/home.saved" "$HOME/.config/cadre/home"
 
 echo "update"
 # The installed framework tracks main on a local bare remote; a seed clone
-# pushes a fake release to it.
+# pushes fake releases to it.
 F="$C/projects/cadre"
 git -C "$F" switch -q -C main
 git clone -q --bare "$F" "$T/fw.git"
@@ -182,28 +262,43 @@ git -C "$F" fetch -q origin
 git -C "$F" remote set-head origin main >/dev/null
 git -C "$F" branch -q -u origin/main
 git clone -q "$T/fw.git" "$T/fwseed"
+git clone -q "$T/fw.git" "$T/clone2"
 head_of() { git -C "$F" rev-parse HEAD; }
-snap() { (cd "$C" && find . -path ./projects/cadre -prune -o -type f -print | LC_ALL=C sort | xargs shasum); }
+# Hashes of every file in the cadre except the framework, registry projects included.
+snap() { python3 -c '
+import hashlib, os, sys
+root, out = sys.argv[1], []
+for d, dirs, files in os.walk(root):
+    if d == os.path.join(root, "projects"):
+        dirs[:] = [x for x in dirs if x != "cadre"]
+    for f in files:
+        p = os.path.join(d, f)
+        out.append(os.path.relpath(p, root) + " " + hashlib.sha256(open(p, "rb").read()).hexdigest())
+print("\n".join(sorted(out)))
+' "$C"; }
+# release <message> <python>: commits a change made by python (cwd: the seed) and pushes it.
+release() { (cd "$T/fwseed" && python3 -c "$2") && git -C "$T/fwseed" add -A && git -C "$T/fwseed" commit -qm "$1" && git -C "$T/fwseed" push -q origin HEAD:main 2>/dev/null; }
 v0=$(cadre version)
+h0=$(head_of)
 check "up to date" bash -c "cadre update | grep -qx '${v0} is up to date'"
 check "check without update exits 0" cadre update --check
+check "check when up to date changes nothing" test "$(head_of)" = "$h0" -a -z "$(git -C "$F" status --porcelain)"
+check "unknown option refused" bash -c "! cadre update --bogus"
+check "persona cannot update" bash -c "! CADRE_PERSONA=x cadre update"
+check "persona can check" env CADRE_PERSONA=x cadre update --check
+mkdir -p "$T/fwcopy" && cp -R "$F/bin" "$F/install.sh" "$T/fwcopy/"
+check "not a git checkout refused" bash -c "'$T/fwcopy/bin/cadre' update 2>&1 | grep -q 'not a git checkout'"
+cp -R "$T/fwcopy" "$C/teams/fwcopy"
+check "framework copy inside the cadre repo refused" bash -c "! '$C/teams/fwcopy/bin/cadre' update"
+rm -rf "$C/teams/fwcopy"
 
-python3 - "$T/fwseed" <<'PY'
-import sys
-root = sys.argv[1]
-p = root + "/bin/cadre"
-s = open(p).read().replace("CADRE_VERSION=", "CADRE_VERSION=9.9.9\nOLD_VERSION=", 1)
+release "Release 9.9.9" '
+s = open("bin/cadre").read().replace("CADRE_VERSION=", "CADRE_VERSION=9.9.9\nOLD_VERSION=", 1)
 filler = "".join("# filler line %d that moves every later byte of the script\n" % i for i in range(400))
-s = s.replace("set -euo pipefail\n", "set -euo pipefail\n" + filler, 1)
-open(p, "w").write(s)
-p = root + "/CHANGELOG.md"
-s = open(p).read().replace("## Unreleased\n", "## Unreleased\n\n## 9.9.9 - 2026-10-09\n\n- Test release.\n\n### Upgrading\n\n- Nothing to do by hand.\n", 1)
-open(p, "w").write(s)
-PY
-git -C "$T/fwseed" commit -qam "Release 9.9.9"
-git -C "$T/fwseed" push -q origin HEAD:main 2>/dev/null
+open("bin/cadre", "w").write(s.replace("set -euo pipefail\n", "set -euo pipefail\n" + filler, 1))
+s = open("CHANGELOG.md").read()
+open("CHANGELOG.md", "w").write(s.replace("## Unreleased\n", "## Unreleased\n\n## 9.9.9 - 2026-10-09\n\n- Test release.\n\n### Upgrading\n\n- Nothing to do by hand.\n", 1))'
 
-h0=$(head_of)
 code=0; out=$(cadre update --check) || code=$?
 check "check finds the update" test "$code" = 3
 check "check names both versions" grep -qx "update available: ${v0#cadre } -> 9.9.9" <<<"$out"
@@ -228,9 +323,29 @@ git -C "$F" remote set-url origin "$T/missing.git"
 refused "failing fetch reported" "could not fetch"
 git -C "$F" remote set-url origin "$T/fw.git"
 
+# A second clone on main updates itself but must not take over the links.
+cp "$HOME/.claude/settings.json" "$T/settings.before"
+out=$("$T/clone2/bin/cadre" update)
+check "other clone updated" test "$("$T/clone2/bin/cadre" version)" = "cadre 9.9.9"
+check "other clone leaves the command link" test "$(readlink "$HOME/.local/bin/cadre")" = "$F/bin/cadre"
+check "other clone leaves the skill link" test "$(readlink "$HOME/.claude/skills/cadre")" = "$F/skills/cadre"
+check "other clone leaves the hook" cmp -s "$HOME/.claude/settings.json" "$T/settings.before"
+check "other clone says why" grep -q "points at another framework folder" <<<"$out"
+
+# The update must never read bin/cadre again once the merge has run. git
+# writes the new file as a new inode, which alone would hide the hazard, so a
+# post-merge hook writes the new script into the old inode too.
+ln "$F/bin/cadre" "$T/old-inode"
+printf '#!/bin/sh\ncat bin/cadre > "%s"\n' "$T/old-inode" > "$F/.git/hooks/post-merge"
+chmod +x "$F/.git/hooks/post-merge"
+cp "$HOME/.claude/settings.json.bak-cadre" "$T/settings.bak.before"
 cadre up dev/engineer app >/dev/null
 before=$(snap)
-out=$(cadre update 2>"$T/update.err")
+mv "$HOME/.config/cadre/home" "$T/home.saved"
+code=0; out=$(cadre update 2>"$T/update.err") || code=$?
+mv "$T/home.saved" "$HOME/.config/cadre/home"
+rm "$F/.git/hooks/post-merge" "$T/old-inode"
+check "update exits 0" test "$code" = 0
 check "update applied" test "$(cadre version)" = "cadre 9.9.9"
 check "update prints the versions" grep -qx "updated cadre ${v0#cadre } -> 9.9.9" <<<"$out"
 check "update prints the changelog" grep -q "Test release" <<<"$out"
@@ -239,7 +354,10 @@ check "old script ran without errors" test ! -s "$T/update.err"
 check "command still linked here" test "$(readlink "$HOME/.local/bin/cadre")" = "$F/bin/cadre"
 check "skill still linked here" test "$(readlink "$HOME/.claude/skills/cadre")" = "$F/skills/cadre"
 check "hook kept" grep -q orchestrator-hook.sh "$HOME/.claude/settings.json"
+check "hook already right: settings not rewritten" cmp -s "$HOME/.claude/settings.json" "$T/settings.before"
+check "hook already right: backup kept" cmp -s "$HOME/.claude/settings.json.bak-cadre" "$T/settings.bak.before"
 check "running persona listed" grep -q "cadre-dev-app: dev-app-engineer" <<<"$out"
+check "restart command printed" grep -qx "  cadre down dev/engineer app && cadre up dev/engineer app" <<<"$out"
 check "running persona not stopped" bash -c "cadre ls | grep -q '\[running\] dev-app-engineer'"
 check "cadre and projects unchanged" test "$(snap)" = "$before"
 check "cadre repo still clean" test -z "$(git -C "$C" status --porcelain)"
@@ -247,6 +365,30 @@ cadre down dev app >/dev/null
 mv "$HOME/.config/cadre/home" "$T/home.saved"
 check "works without an active cadre" bash -c "cadre update | grep -q 'is up to date'"
 mv "$T/home.saved" "$HOME/.config/cadre/home"
+
+release "Unreleased change" '
+s = open("CHANGELOG.md").read()
+open("CHANGELOG.md", "w").write(s.replace("## Unreleased\n", "## Unreleased\n\n- An unreleased change.\n", 1))'
+printf '{ "a": 1, // bash orchestrator-hook.sh\n}\n' > "$HOME/.claude/settings.json"
+cp "$HOME/.claude/settings.json" "$T/settings.bad"
+code=0; out=$(cadre update 2>&1) || code=$?
+check "update between releases succeeds" test "$code" = 0
+check "update between releases shows Unreleased" grep -q "An unreleased change" <<<"$out"
+check "settings that are not plain JSON are left alone" cmp -s "$HOME/.claude/settings.json" "$T/settings.bad"
+check "and the update says so" grep -q "skipped the hook" <<<"$out"
+cp "$T/settings.before" "$HOME/.claude/settings.json"
+
+release "Drop the changelog" 'import os; os.remove("CHANGELOG.md")'
+out=$(cadre update)
+check "no changelog: no pointer to a missing file" bash -c "! grep -q 'CHANGELOG' <<<'$out'"
+
+release "Remove bin/cadre" 'import os; os.remove("bin/cadre")'
+code=0; out=$(cadre update --check 2>&1) || code=$?
+check "origin without bin/cadre: check exits 1" test "$code" = 1
+check "origin without bin/cadre: explained" grep -q "no bin/cadre" <<<"$out"
+git -C "$T/fwseed" reset -q --hard HEAD~1
+git -C "$T/fwseed" push -q -f origin HEAD:main 2>/dev/null
+check "back to up to date" bash -c "cadre update | grep -q 'is up to date'"
 
 echo "restore on a new machine"
 rm -rf "$HOME/.local" "$HOME/.config"

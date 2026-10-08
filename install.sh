@@ -75,17 +75,32 @@ link() {
 }
 
 add_hook() {
-  local root=$1 settings="$HOME/.claude/settings.json"
+  local root=$1 settings="$HOME/.claude/settings.json" cmd tmp
+  cmd="bash $root/bin/orchestrator-hook.sh"
   command -v jq >/dev/null || { say "  skipped the hook: jq is not installed"; return; }
   [ -f "$settings" ] || echo '{}' > "$settings"
+  if ! jq -e . "$settings" >/dev/null 2>&1; then
+    say "  skipped the hook: $settings is not plain JSON; left it unchanged"; return
+  fi
+  if jq -e --arg cmd "$cmd" '[.hooks.SessionStart[]?.hooks[]?.command // "" | select(test("orchestrator-hook\\.sh"))] == [$cmd]' "$settings" >/dev/null 2>&1; then
+    say "  the orchestrator hook is already in $settings"; return
+  fi
   cp "$settings" "$settings.bak-cadre"
-  jq --arg cmd "bash $root/bin/orchestrator-hook.sh" '
+  # A copy keeps the file's mode; the original is replaced only when jq succeeds.
+  tmp="$settings.tmp-cadre"
+  cp -p "$settings" "$tmp"
+  if jq --arg cmd "$cmd" '
     .hooks.SessionStart = (
       [ (.hooks.SessionStart // [])[]
         | select(all(.hooks[]; (.command // "") | test("orchestrator-hook\\.sh") | not)) ]
       + [ { "hooks": [ { "type": "command", "command": $cmd, "timeout": 10 } ] } ]
-    )' "$settings.bak-cadre" > "$settings"
-  say "  added the orchestrator hook to $settings (backup: $settings.bak-cadre)"
+    )' "$settings.bak-cadre" > "$tmp"; then
+    mv "$tmp" "$settings"
+    say "  added the orchestrator hook to $settings (backup: $settings.bak-cadre)"
+  else
+    rm -f "$tmp"
+    say "  skipped the hook: could not edit $settings; left it unchanged"
+  fi
 }
 
 hook_installed() { grep -q 'orchestrator-hook\.sh' "$HOME/.claude/settings.json" 2>/dev/null; }

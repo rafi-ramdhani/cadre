@@ -69,7 +69,7 @@ my-app:
 
 `cadre add project` appends an entry, clones the repo and commits the change. `cadre sync` clones every entry that is missing locally.
 
-Both also mark the project's folder as trusted in Claude Code (`projects[<path>].hasTrustDialogAccepted` in `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`), so a persona starts there without the trust prompt. The folder is recorded by its physical path and, when different, by the path as cadre spells it. The edit is careful: it never creates the file, leaves a file it cannot read as Claude Code's config untouched with a warning, keeps a backup at `.claude.json.bak-cadre`, keeps the file's mode, and changes nothing else. Pass `--no-trust` to skip it. Team folders and folders given to `cadre up` that are not registered projects keep the normal prompt.
+Both also mark the project's folder as trusted in Claude Code (`projects[<path>].hasTrustDialogAccepted` in `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`), so a persona starts there without the trust prompt. The folder is recorded by its physical path and, when different, by the path as cadre spells it. The edit is careful: it never creates the file, leaves a file it cannot read as Claude Code's config untouched with a warning, keeps a backup of the original at `.claude.json.bak-cadre` (the first one is never overwritten), keeps the file's mode, and changes nothing else. Only the top folder of a project's git repo is trusted: never `/`, your home folder, the cadre folder or a folder containing it, or a team folder. Persona sessions cannot trust folders; they can still add and clone projects, and are told to ask for `cadre trust` in the orchestrator. Project names may use letters, digits, `.`, `-` and `_`. Pass `--no-trust` to skip it. Team folders and folders given to `cadre up` that are not registered projects keep the normal prompt.
 
 `cadre trust <project>` trusts one registered project's folder, and `cadre trust --all` every registered project present on this machine (for projects added before 0.2.0 or with `--no-trust`). Both are safe to repeat.
 
@@ -83,10 +83,11 @@ To remove it, delete the SessionStart entry whose command ends in `orchestrator-
 
 `cadre update` updates the framework folder the `cadre` command runs from (normally `projects/cadre`):
 
-- It fast-forwards to the remote's default branch, prints the old and new version and the CHANGELOG sections in between (read any `### Upgrading` notes), and relinks the command, skill and hook.
+- It fast-forwards to the remote's default branch, prints the old and new version, the CHANGELOG's Unreleased entries and the sections in between (read any `### Upgrading` notes), and relinks the command, skill and hook. When the installed `cadre` command or skill points at another framework clone, the links are left alone and the output says how to switch.
 - It refuses, and changes nothing, when the framework has local changes to tracked files, is on another branch or a detached `HEAD`, or has commits the remote lacks. Move your work to a branch first.
 - It never touches your cadre or your projects.
-- Running persona sessions keep the old version until restarted; the output lists them with the commands to restart.
+- Running persona sessions keep the old version until restarted; the output lists them with the exact commands to restart each persona.
+- Persona sessions cannot run it (`--check` still works there).
 
 `cadre update --check` only reports whether an update exists: exit 0 when up to date, 3 when an update is available, 1 on an error.
 
@@ -103,7 +104,7 @@ Environment variables: `CADRE_HOME` (use another cadre for one command), `CADRE_
 ## Troubleshooting
 
 - **A persona never replies.** Attach (`cadre attach <team> [project]`) and look. A new folder shows Claude Code's trust prompt on first launch; accept it once.
-- **The trust prompt still shows for a registered project.** Run `cadre trust <project>`. A Claude Code session that was running during the change may have written its own copy of `~/.claude.json` over it; accept the prompt once, or run `cadre trust` again with no sessions running.
+- **The trust prompt still shows for a registered project.** Run `cadre trust <project>`. A Claude Code session that was running during the change may have written its own copy of `~/.claude.json` over it; accept the prompt once, or run `cadre trust` again with no sessions running. If you set `CLAUDE_CONFIG_DIR`, personas use the value the tmux server started with, not your shell's; run `cadre trust` with the same value (or restart the tmux server).
 - **Messages wait for approval.** The persona runs in a different permission-mode class from the orchestrator. Align `PERMISSION_MODE` with the mode you run the orchestrator in.
 - **`cadre: no active cadre`.** Run `cadre use <your cadre folder>`.
 - **Moved the framework.** Run `projects/cadre/install.sh --link-only` to relink.

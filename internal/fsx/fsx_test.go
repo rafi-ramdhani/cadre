@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestWriteFile(t *testing.T) {
@@ -207,6 +209,20 @@ func TestLockRefusesLinks(t *testing.T) {
 	os.Link(victim, hard)
 	if _, err := Acquire(hard, 100*time.Millisecond); err == nil || !strings.Contains(err.Error(), "hard link") {
 		t.Errorf("a hard-linked lock: %v", err)
+	}
+	fifo := filepath.Join(d, "fifo.lock")
+	if err := unix.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := Acquire(fifo, 100*time.Millisecond); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "not a plain file") {
+			t.Errorf("a FIFO lock: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Acquire hung on a FIFO")
 	}
 	os.Mkdir(filepath.Join(d, "dir.lock"), 0o700)
 	if _, err := Acquire(filepath.Join(d, "dir.lock"), 100*time.Millisecond); err == nil {

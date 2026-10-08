@@ -54,6 +54,9 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
       - name: Test
         run: go test -race ./...
+      - name: Windows build (the binary refuses to run there)
+        if: runner.os == 'Linux' && matrix.go == 'stable'
+        run: GOOS=windows go build -o /dev/null ./cmd/cadre
 
   release-snapshot:
     runs-on: ubuntu-latest

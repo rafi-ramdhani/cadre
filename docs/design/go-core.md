@@ -15,6 +15,12 @@ folded in; parts marked **(O)** wait for section O.
 
 ## Layout
 
+O.1 fixes the package names; as built in O-T2: `internal/paths`, `fsx`,
+`jsonx` (with json_edit's operations and the hook matcher), `settings`
+(validation, export, fingerprints and grants), `allow` (the checker, with the
+glob reader inside it), and `shellwords` (word splitting for the checker and
+the hook matcher). The sketch below is the earlier plan.
+
 ```
 cmd/cadre/main.go          flags, dispatch, exit codes; nothing else
 internal/
@@ -113,7 +119,7 @@ Dependencies, kept small and vendored:
 - The macOS `/System/Volumes/Data` firmlink prefix is stripped before
   comparing.
 
-### Atomic writes and locks (`fsx`)
+### Atomic writes and locks (`fsx`) (built in O-T2; see Known pitfalls for the lock)
 
 - `WriteAtomic(target, data, mode)`: a temp file in the target's own (real)
   folder, `fchmod`, write, `fsync`, `rename`. Shared by every writer.
@@ -308,17 +314,20 @@ Open in the last bash PR (#11) when it was frozen; the Go code must get them rig
 - **Restart commands for another cadre** (`update`, `allow`) must carry that
   cadre: `CADRE_HOME=<path> cadre stop ... && CADRE_HOME=<path> cadre up ...`,
   or a form that names the cadre, since the user runs them from anywhere.
-- **Claude session names can collide through hyphens.** Team `dev` with
-  project `x` and role `y-z`, and team `dev-x` with role `y-z`, both give
-  `<cadre>-dev-x-y-z`. Attribution uses tmux options, never name parsing, and
-  `up` refuses when the Claude name it would use is already taken by another
-  (cadre, team, project, role), not only when the tmux session name is.
-- **Stale-lock takeover race.** Renaming a stale lock aside can still take
-  over a lock another process has just re-created between its `stat` and the
-  `rename`. Go can do better: the lock folder holds an owner file (pid,
-  process start time and a random token). A stale lock is taken over only if
-  its owner is dead, judged by pid and start time rather than by age alone,
-  and the renamed-aside folder's token is checked before it is removed.
+- **Claude session names can collide through hyphens, in different tmux
+  sessions.** In one cadre, team `dev` with role `x-y` and team `dev-x` with
+  role `y` are both `c-dev-x-y`. Across cadres, cadre `a` with team `x` and
+  role `y-z` and cadre `a-x` with team `y` and role `z` are both `a-x-y-z`
+  (the reviewer's exp32). The tmux join check does not catch these, since the
+  sessions differ. Attribution uses tmux options, never name parsing, and `up`
+  refuses when the Claude name it would use is already taken by another
+  (cadre, team, project, role); both cases are tests.
+- **Stale-lock takeover race.** Renaming a stale mkdir lock aside can take
+  over a lock another process has just re-created. Built: `fsx.Acquire` uses
+  `flock` on a lock file, which the kernel releases when its holder exits, so
+  there is no stale lock to take over (a test kills a holder and acquires at
+  once). Only on a filesystem without `flock` (ENOTSUP or ENOLCK, some network
+  filesystems) does it fall back to the mkdir lock with age-based takeover.
 - **`#` is never a comment** in a `Bash(...)` specifier. The bash checker's
   shlex treats `#` as a comment even mid-word, so `Bash(echo x#; bash *)`
   passed the chaining check (fixed on main separately).

@@ -1,0 +1,282 @@
+package settings
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/rafi-ramdhani/cadre/internal/jsonx"
+)
+
+func newFile(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "persona-settings.json")
+	if err := Create(p); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestCreateMakesAValidFileWithNoGrants(t *testing.T) {
+	p := newFile(t)
+	if _, err := Load(p); err != nil {
+		t.Fatalf("a new file does not validate: %v", err)
+	}
+	g, err := OpenGrants(p)
+	if err != nil || len(g.List()) != 0 {
+		t.Errorf("a new file has grants: %v %v", g.List(), err)
+	}
+	if st, _ := os.Stat(p); st.Mode().Perm() != 0o644 {
+		t.Errorf("mode %v", st.Mode().Perm())
+	}
+	raw, _ := os.ReadFile(p)
+	if strings.Contains(string(raw), "Write(") {
+		t.Error("a new file holds a Write rule, which Claude Code ignores")
+	}
+}
+
+const valid = `"permissions": {"allow": [], "deny": ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)"]},
+"autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults", "` + FixedSoft + `"]}`
+
+func TestLoadRefusals(t *testing.T) {
+	for _, tc := range []struct{ body, want string }{
+		{`[]`, "it is not a JSON object"},
+		{`{`, "it is not valid JSON"},
+		{`{` + valid + `, "hooks": {}}`, "it has the key hooks; only permissions and autoMode are allowed"},
+		{`{` + valid + `, "env": {"X": "1"}}`, "it has the key env"},
+		{`{"permissions": [], "autoMode": {}}`, "permissions is not an object"},
+		{`{"permissions": {"allow": [], "defaultMode": "bypassPermissions"}}`, "it has permissions.defaultMode; only allow and deny are allowed"},
+		{`{"autoMode": {"environment": []}}`, "it has autoMode.environment; only allow and soft_deny are allowed"},
+		{`{"permissions": {"allow": [1]}}`, "permissions.allow is not a list of strings"},
+		{`{"autoMode": {"allow": ["x"]}}`, `autoMode.allow lacks "$defaults", which would replace the built-in rules`},
+		{`{"permissions": {"allow": [], "deny": []}, "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults"]}}`, "permissions.deny lacks the entries that protect the file"},
+		{`{"permissions": {"allow": [], "deny": ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)"]}, "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults"]}}`, "autoMode.soft_deny lacks the entry that protects the file"},
+		{`{"permissions": {"defaultMode": "bypassPermissions"}, ` + valid + `}`, "it has the key permissions twice"},
+		{`{"hooks": {}, "hooks": {}}`, "it has the key hooks twice"},
+	} {
+		p := filepath.Join(t.TempDir(), "s.json")
+		os.WriteFile(p, []byte(tc.body), 0o644)
+		_, err := Load(p)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want %q", tc.body, err, tc.want)
+		}
+	}
+	if _, err := Load(filepath.Join(t.TempDir(), "missing")); err == nil || err.Error() != "it cannot be read" {
+		t.Errorf("missing file: %v", err)
+	}
+}
+
+func TestExport(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "s.json")
+	os.WriteFile(p, []byte(`{"permissions": {"allow": ["Bash(npm test)"], "deny": ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)", "Write(//**/.claude/persona-settings.json)"]},
+"autoMode": {"allow": ["$defaults", "Running tests is expected"], "soft_deny": ["$defaults", "`+FixedSoft+`"]}}`), 0o644)
+	dir := filepath.Join(t.TempDir(), "build")
+	out, err := Export(p, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(out) != dir || !strings.HasPrefix(filepath.Base(out), "persona-settings.") {
+		t.Errorf("copy at %s", out)
+	}
+	if st, _ := os.Stat(out); st.Mode().Perm() != 0o400 {
+		t.Errorf("copy mode %v", st.Mode().Perm())
+	}
+	raw, _ := os.ReadFile(out)
+	root, _ := jsonx.Parse(raw)
+	deny, _ := texts(root.Get("permissions").Get("deny"))
+	for _, d := range FixedDeny {
+		if !contains(deny, d) {
+			t.Errorf("the copy lacks %s", d)
+		}
+	}
+	if contains(deny, legacy[0]) {
+		t.Error("the copy keeps the legacy Write rule")
+	}
+	if allow, _ := texts(root.Get("permissions").Get("allow")); !contains(allow, "Bash(npm test)") {
+		t.Error("the copy lost a grant")
+	}
+	// A tampered copy is rewritten at the next start.
+	os.Chmod(out, 0o600)
+	os.WriteFile(out, []byte(`{"permissions": {"defaultMode": "bypassPermissions"}}`), 0o600)
+	out2, err := Export(p, dir)
+	if err != nil || out2 != out {
+		t.Fatalf("second export: %s %v", out2, err)
+	}
+	if again, _ := os.ReadFile(out2); string(again) != string(raw) {
+		t.Error("a tampered copy was not rewritten")
+	}
+	// An unusable file gives no copy, and the reason.
+	os.WriteFile(p, []byte(`{"hooks": {}}`), 0o644)
+	if _, err := Export(p, dir); err == nil {
+		t.Error("an unusable file was exported")
+	}
+}
+
+func TestFingerprints(t *testing.T) {
+	p := newFile(t)
+	hashes := filepath.Join(t.TempDir(), "config", "persona-settings.sha256")
+	if s, _ := Verify(p, hashes); s != Unknown {
+		t.Errorf("before recording: %d", s)
+	}
+	if err := Record(p, hashes); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := Verify(p, hashes); s != Same {
+		t.Errorf("after recording: %d", s)
+	}
+	os.WriteFile(p, []byte("{}"), 0o644)
+	if s, _ := Verify(p, hashes); s != Differs {
+		t.Errorf("after a change: %d", s)
+	}
+	if st, _ := os.Stat(hashes); st.Mode().Perm() != 0o600 {
+		t.Errorf("hash file mode %v", st.Mode().Perm())
+	}
+	// Keyed by physical path: a symlinked spelling finds the same line.
+	link := filepath.Join(t.TempDir(), "link")
+	os.Symlink(filepath.Dir(p), link)
+	Record(p, hashes)
+	if s, _ := Verify(filepath.Join(link, filepath.Base(p)), hashes); s != Same {
+		t.Errorf("through a symlink: %d", s)
+	}
+}
+
+// Twenty concurrent records for two files keep both lines.
+func TestRecordIsSafeAcrossCadres(t *testing.T) {
+	a, b := newFile(t), newFile(t)
+	hashes := filepath.Join(t.TempDir(), "h")
+	done := make(chan error)
+	for i := 0; i < 20; i++ {
+		go func() { done <- Record(a, hashes) }()
+		go func() { done <- Record(b, hashes) }()
+	}
+	for i := 0; i < 40; i++ {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range []string{a, b} {
+		if s, _ := Verify(p, hashes); s != Same {
+			t.Errorf("%s lost its line", p)
+		}
+	}
+}
+
+func git(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=T", "GIT_AUTHOR_EMAIL=t@example.com",
+		"GIT_COMMITTER_NAME=T", "GIT_COMMITTER_EMAIL=t@example.com", "GIT_CONFIG_GLOBAL=/dev/null")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v %s", args, err, out)
+	}
+}
+
+func TestChangedOutside(t *testing.T) {
+	cadre := t.TempDir()
+	git(t, cadre, "init", "-q", "-b", "main")
+	p := filepath.Join(cadre, Rel)
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	Create(p)
+	git(t, cadre, "add", "-A")
+	git(t, cadre, "commit", "-qm", "Add the persona settings file")
+	hashes := filepath.Join(t.TempDir(), "h")
+
+	// Unknown hash, but the file is what cadre committed: accepted and recorded.
+	if ChangedOutside(cadre, p, hashes) {
+		t.Error("a file cadre committed counts as changed outside")
+	}
+	if s, _ := Verify(p, hashes); s != Same {
+		t.Error("it was not recorded")
+	}
+	// A hand edit, uncommitted.
+	g, _ := OpenGrants(p)
+	g.Add(Rule, "Bash(curl *)", false, time.Now())
+	if !ChangedOutside(cadre, p, hashes) {
+		t.Error("an uncommitted hand edit was accepted")
+	}
+	// Committed by hand with a message cadre does not write.
+	git(t, cadre, "commit", "-qam", "my own edit")
+	if !ChangedOutside(cadre, p, hashes) {
+		t.Error("a hand-made commit was accepted")
+	}
+	// Committed by cadre (pulled from another machine): accepted.
+	git(t, cadre, "commit", "-q", "--amend", "-m", "Allow for personas: Bash(curl *)")
+	if ChangedOutside(cadre, p, hashes) {
+		t.Error("a grant cadre committed was not accepted")
+	}
+}
+
+func TestGrants(t *testing.T) {
+	p := newFile(t)
+	g, _ := OpenGrants(p)
+	now := time.Unix(1_700_000_000, 0)
+	if err := g.Add(Rule, "Bash(npm test)", false, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Add(Auto, "Running tests is expected", false, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Add(Rule, "Bash(make deploy)", true, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Add(Rule, "Bash(npm test)", false, now); !errors.Is(err, ErrGranted) {
+		t.Errorf("duplicate add: %v", err)
+	}
+	g, _ = OpenGrants(p)
+	list := g.List()
+	if len(list) != 3 || list[0].Entry != "Bash(npm test)" || list[1].Entry != "Bash(make deploy)" || list[2].Kind != Auto {
+		t.Fatalf("list %+v", list)
+	}
+	if !list[1].Once || !list[1].Added.Equal(now) || list[0].Once {
+		t.Errorf("one-time marks %+v", list)
+	}
+	if _, err := Load(p); err != nil {
+		t.Errorf("the file no longer validates: %v", err)
+	}
+
+	if _, err := g.Remove("9"); err == nil || !strings.Contains(err.Error(), "there is no grant number 9") {
+		t.Errorf("bad number: %v", err)
+	}
+	if _, err := g.Remove("Bash(ls)"); err == nil || !strings.Contains(err.Error(), "Bash(ls) is not granted") {
+		t.Errorf("unknown grant: %v", err)
+	}
+	r, err := g.Remove("--once")
+	if err != nil || strings.Join(r.Removed, ",") != "Bash(make deploy)" {
+		t.Errorf("remove --once: %+v %v", r, err)
+	}
+	if _, err := g.Remove("--once"); !errors.Is(err, ErrNoOnce) {
+		t.Errorf("second remove --once: %v", err)
+	}
+	r, err = g.Remove("1")
+	if err != nil || r.Removed[0] != "Bash(npm test)" {
+		t.Errorf("remove 1: %+v %v", r, err)
+	}
+	g, _ = OpenGrants(p)
+	if len(g.List()) != 1 || g.List()[0].Entry != "Running tests is expected" {
+		t.Errorf("after removals: %+v", g.List())
+	}
+	if raw, _ := os.ReadFile(OncePath(p)); len(raw) != 0 {
+		t.Errorf("sidecar not emptied: %q", raw)
+	}
+
+	// A one-time record whose grant was removed by hand is stale and dropped.
+	g.Add(Rule, "Bash(make ship)", true, now)
+	g, _ = OpenGrants(p)
+	g.Remove("Bash(make ship)")
+	os.WriteFile(OncePath(p), []byte("1\tBash(gone)\n"), 0o644)
+	g, _ = OpenGrants(p)
+	if strings.Join(g.Stale, ",") != "Bash(gone)" || g.HasOnce() {
+		t.Errorf("stale %q, once %v", g.Stale, g.HasOnce())
+	}
+	r, err = g.Remove("--once")
+	if err != nil || strings.Join(r.Stale, ",") != "Bash(gone)" {
+		t.Errorf("dropping stale records: %+v %v", r, err)
+	}
+	if raw, _ := os.ReadFile(OncePath(p)); len(raw) != 0 {
+		t.Errorf("stale record kept: %q", raw)
+	}
+}

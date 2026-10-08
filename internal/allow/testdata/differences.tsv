@@ -1,0 +1,17 @@
+# Inputs where the Go checker deliberately differs from the bash 0.2.0 one, or that the bash
+# checker never saw. Columns: kind, input, outcome, a fragment of the message, why.
+R	Bash(echo #; bash *)	refuse	chains or backgrounds	# is never a comment (stricter than bash, which reads a comment here)
+R	Bash(echo x#; bash *)	refuse	chains or backgrounds	bash's shlex read # mid-word as a comment and missed the ; (PR #13 on main)
+R	Bash(npm test x#; bash *)	refuse	chains or backgrounds	the same
+R	Bash(echo x#&& bash *)	refuse	chains or backgrounds	the same
+R	Bash(echo x#| bash *)	refuse	chains or backgrounds	the same
+R	Bash(echo x#& bash *)	refuse	chains or backgrounds	the same
+R	Bash(git log --format=#; sh *)	refuse	chains or backgrounds	the same
+R	Bash(echo 'x#'; bash *)	refuse	chains or backgrounds	a quoted # then a real ;
+R	Bash(npm test ;>x bash *)	refuse	chains or backgrounds	shlex read ;> as one token and missed the ;
+R	Bash(npm test 2>&1)	accept		a redirection, not an operator (as in bash)
+R	Bash(x &>log)	accept		a redirection
+R	Edit(~/.ss[z-a]/config)	refuse	cannot read	a reversed class range: Python crashed on it; Go refuses it
+R	Edit(src/[z-a]/x)	refuse	cannot read	the same, in a relative path
+R	Bash(a#; bash *)	refuse	chains or backgrounds	still refused; bash refused it as a computed program name because its shlex hid the ;
+R	Bash(bash/ *)	refuse	lets bash run anything	Go reads the program bash/ as bash (path.Base drops the trailing /); Python kept "bash/" and only warned. Stricter

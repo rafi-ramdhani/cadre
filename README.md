@@ -121,9 +121,27 @@ cadre version    # cadre 0.2.0
 
 If the pull fails because you changed files in the framework folder, keep them on a branch first (`git switch -c my-changes && git commit -am "My local changes" && git switch main`), then pull. Then restart your running sessions (`cadre down <team> [project]` and `cadre up <team> [project]`, and a new orchestrator session), and optionally run `cadre trust --all` to trust the projects you registered before. The [CHANGELOG](CHANGELOG.md) has the full steps. From then on, `cadre update` does it.
 
+## What gets installed where
+
+Cadre installs no programs or packages. `install.sh` only checks that git, tmux, python3 and Claude Code are there, notes when jq (needed for the optional hook) is missing, and says how to get what is missing. Everything cadre creates is listed below.
+
+| What | Where | Created by | `cadre uninstall` |
+|---|---|---|---|
+| Your cadre: `playbook.md`, `projects.yaml`, `cadre.conf`, `personas/`, `teams/`, and its own git history | the folder you named, for example `~/Documents/my-cadre` | the installer or `cadre init` | Kept: it is yours |
+| Your projects, and the framework itself at `projects/cadre` | `<cadre>/projects/` (or a project's own `path`) | the installer, `cadre add project`, `cadre sync` | Kept |
+| Persona permissions: `persona-settings.json` and its list of one-time grants, `persona-settings.once` | `<cadre>/.claude/` | the first `cadre up` or `cadre allow` | Kept, as part of your cadre |
+| The `cadre` command (a link) | `~/.local/bin/cadre` | the installer | Removed, if it points to this framework |
+| The orchestrator skill (a link) | `~/.claude/skills/cadre` | the installer | Removed, if it points to this framework |
+| The orchestrator hook (optional) and a backup of the file before it was added | one SessionStart entry in `~/.claude/settings.json`; `~/.claude/settings.json.bak-cadre` | the installer, if you said yes | Hook removed (with a new backup, `settings.json.bak-cadre-uninstall`); backups kept |
+| The active-cadre pointer and the persona settings fingerprint | `~/.config/cadre/` (`home`, `persona-settings.sha256`) | the installer, `cadre use`, `cadre up`, `cadre allow` | Removed |
+| Generated persona prompts and the settings copy each persona starts with | `<cadre>/.claude/build/` (ignored by the cadre's git) | `cadre up`, rebuilt at every start | Kept, as part of your cadre (0.1.x kept them in `~/.cache/cadre/`, which uninstall removes) |
+| Workspace trust for registered projects, and a backup | entries in `~/.claude.json`; `~/.claude.json.bak-cadre` | `cadre add project`, `cadre sync`, `cadre trust` | Kept: the entries are shared with your other Claude Code sessions, and you may have trusted those folders yourself |
+
+`cadre uninstall --dry-run` shows what would be removed on your machine without changing anything. What it keeps is printed with its path, so you can delete it by hand; deleting the cadre folder also deletes its projects and the framework inside it. `~/.cache` is `$XDG_CACHE_HOME` when that is set, and `~/.claude.json` lives in `$CLAUDE_CONFIG_DIR` when that is set.
+
 ## Uninstall
 
-`cadre uninstall` shows its plan, asks, then stops every cadre session and removes what the installer wired in: the `cadre` command and skill links (only when they point to this framework), the orchestrator hook in `~/.claude/settings.json` (backup: `settings.json.bak-cadre-uninstall`), `~/.config/cadre/` and the build cache. It keeps your cadre folder, your projects, the framework clone, backups and Claude Code trust entries, and prints their paths; delete those by hand if you want them gone. `--dry-run` shows the plan only, `--yes` skips the question.
+`cadre uninstall` shows its plan, asks, then stops every cadre session and removes what the installer wired in: the `cadre` command and skill links (only when they point to this framework), the orchestrator hook in `~/.claude/settings.json` (backup: `settings.json.bak-cadre-uninstall`), `~/.config/cadre/` and the build cache 0.1.x kept in `~/.cache/cadre/`. It keeps your cadre folder, your projects, the framework clone, backups and Claude Code trust entries, and prints their paths; delete those by hand if you want them gone. `--dry-run` shows the plan only, `--yes` skips the question.
 
 ## Contributing
 

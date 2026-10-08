@@ -787,14 +787,16 @@ RUNNERS = set("""bash sh zsh dash ksh mksh fish csh tcsh pwsh powershell python 
     ruby perl php lua tclsh node deno bun bunx npx pnpx uvx pipx osascript awk gawk mawk
     eval exec sudo doas su env xargs command builtin nohup timeout nice time stdbuf script
     busybox watch iex invoke-expression start-process cmd tmux screen ssh arch setsid flock
-    chroot expect caffeinate open sqlite3 java vim vi nvim emacs nix-shell""".split())
+    chroot expect caffeinate open sqlite3 java vim vi nvim emacs nix-shell pypy pypy3 ipython
+    ts-node tsx zx rscript julia swift xcrun sandbox-exec gdb lldb strace ltrace dtrace parallel
+    systemd-run at batch pkexec""".split())
 # Programs that run whatever follows one of their subcommands.
 SUBRUNNERS = {"docker": {"run", "exec"}, "podman": {"run", "exec"}, "kubectl": {"exec", "run"},
               "direnv": {"exec"}, "devbox": {"run"}, "mise": {"exec", "x"}, "nix": {"run", "shell", "develop"},
               "uv": {"run"}, "poetry": {"run"}, "pdm": {"run"}, "pipenv": {"run"}, "hatch": {"run"},
               "conda": {"run"}, "npm": {"exec", "x"}, "pnpm": {"dlx", "exec"}, "yarn": {"dlx", "exec"},
               "bun": {"x"}, "cargo": {"run"}, "go": {"run"}, "bundle": {"exec"}, "rbenv": {"exec"},
-              "pyenv": {"exec"}}
+              "pyenv": {"exec"}, "dotnet": {"run", "exec"}}
 # Programs that run code from project files a persona can change.
 FROM_FILES = {"make": None, "gmake": None, "just": None, "rake": None, "gradle": None, "mvn": None,
               "npm": {"run", "test", "start"}, "pnpm": {"run", "test", "start"}, "yarn": {"run", "test", "start"},
@@ -824,6 +826,7 @@ AUTO_REFUSED = re.compile(
     r"|zshrc|bashrc|bash_profile|zprofile|zshenv|\.profile|gitconfig|gitmodules|npmrc|envrc|\.ssh|authorized_keys"
     r"|launchagents|crontab|tmux\.conf|vimrc|\.config/fish|autostart|systemd|\.local/bin|\.mcp\.json|\.claude\.json"
     r"|\b(user|owner|human)'?s?\b.{0,40}\b(wish|wants?|ok with|fine with)\b"
+    r"|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b"
     r"|\b(user|owner|human|you)\b.{0,40}\b(approv|consent|authori[sz]|agree)")
 
 
@@ -859,9 +862,19 @@ def program(spec):
     return words[0], words[1:]
 
 
+def operators(spec):
+    """The shell operators outside quotes in a command specifier."""
+    lex = shlex.shlex(spec.replace(":*", " *"), posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    try:
+        return [t for t in lex if t and set(t) <= set("&|;")]
+    except ValueError:
+        return re.findall(r"&&|\|\||[;|&]", spec)
+
+
 def check_command(rule, spec):
-    if re.search(r"&&|\|\||;|\|", spec):
-        refuse("refused: %s chains commands (&&, ||, ; or |); allow each command on its own" % rule)
+    if operators(spec):
+        refuse("refused: %s chains or backgrounds commands (&&, ||, ;, | or &); allow each command on its own" % rule)
     prog, rest = program(spec)
     if not prog:
         refuse("refused: %s names no program; give the exact command" % rule)
@@ -878,8 +891,9 @@ def check_command(rule, spec):
     if base == "cadre" and (not rest or "*" in rest[0] or norm(rest[0]) == "allow"):
         refuse("refused: %s would include cadre allow; name the cadre command, such as Bash(cadre up:*)" % rule)
     sub = next((norm(w) for w in rest if not w.startswith("-")), "")
-    if wild and sub in SUBRUNNERS.get(base, ()):
-        refuse("refused: %s lets %s %s run anything; allow the exact command instead" % (rule, base, sub))
+    runs = [norm(w) for w in rest if norm(w) in SUBRUNNERS.get(base, ())]
+    if wild and runs:
+        refuse("refused: %s lets %s %s run anything; allow the exact command instead" % (rule, base, runs[0]))
     if wild and base == "find" and any(w in ("-exec", "-execdir", "-ok", "-okdir") for w in rest):
         refuse("refused: %s lets find run any command; allow the exact command instead" % rule)
     if base == "git" and wild:
@@ -909,13 +923,24 @@ def path_regex(glob):
 def check_path(rule, tool, spec):
     """Refuses Edit rules that reach protected or code-running files and
     cadre's own state; warns on Read rules that reach secrets."""
+    if spec.startswith("/") and not spec.startswith("//"):
+        refuse("refused: %s starts with a single /, which Claude Code reads relative to the settings file; use //path for an absolute path" % rule)
     if spec.startswith("//"):
         full = "/" + spec[2:].lstrip("/")
+        if full.casefold().startswith("/system/volumes/data/"):
+            full = full[len("/System/Volumes/Data"):]
     elif spec == "~" or spec.startswith("~/"):
         full = HOME + spec[1:]
     else:
         full = None
     parts = [norm(x) for x in spec.replace("\\", "/").split("/")]
+    if ".." in parts:
+        refuse("refused: %s has a .. segment; name the path without it" % rule)
+    joined = "/" + "/".join(parts)
+    for suffix in (".local/bin", ".config/cadre", ".cache/cadre", ".config/fish", "library/launchagents",
+                   ".config/autostart", ".config/systemd/user"):
+        if "/" + suffix + "/" in joined + "/" and tool != "Read":
+            refuse("refused: %s reaches %s, which runs code outside a persona's session or holds cadre's own state; make that edit yourself" % (rule, suffix))
     if tool == "Read":
         if full and any(path_regex(full).match(t) for t in SECRETS):
             return "warning: %s lets personas read secrets (~/.ssh, ~/.aws, ~/.gnupg, ~/.config/gh); keep it as narrow as you can" % rule

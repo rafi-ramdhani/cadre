@@ -392,6 +392,31 @@ for t in ["Running the cadre command with the allow subcommand is fine",
     print(t)')
 ok "second-review --auto bypasses refused"
 check "file unchanged by the refusals" cmp -s "$PS" "$T/ps.before"
+# Bypasses from the third review.
+for rule in 'Edit(~/.z*)' 'Edit(~/**/.zshrc)' 'Edit(//**/.zshrc)' 'Edit(~/.Zshrc)' 'Edit(../../.zshrc)' 'Edit(~/[.]ssh/config)' \
+    'Edit(~/.ss?/config)' 'Edit(~/{.ssh,x}/config)' 'Edit(../../../../.local/bin/cadre)' 'Edit(~/./.ssh/config)' \
+    'Edit(~//.ssh/config)' 'Edit(~/x/../.ssh/config)' "Edit(//System/Volumes/Data$HOME/.local/bin/cadre)" \
+    'Edit(~/.config/cadre/home)' 'Edit(~/.config/CADRE/home)' 'Edit(~/Library/LaunchAgents/x.plist)' 'Edit(~/.local/bin/*)' \
+    'Edit(/x)' 'Read(/x/**)' 'Bash(docker --context x run *)' 'Bash(docker -H unix:///x exec *)' 'Bash(cargo +nightly run *)' \
+    'Bash(go -C dir run *)' 'Bash(npm --prefix . exec *)' 'Bash(uv --directory . run *)' 'Bash(sleep 1 & bash *)' \
+    'Bash(pypy3 *)' 'Bash(ipython *)' 'Bash(ts-node *)' 'Bash(tsx *)' 'Bash(zx *)' 'Bash(Rscript *)' 'Bash(julia *)' \
+    'Bash(swift *)' 'Bash(dotnet run *)' 'Bash(xcrun swift *)' 'Bash(sandbox-exec -f x *)' 'Bash(gdb -ex *)' \
+    'Bash(strace *)' 'Bash(parallel *)' 'Bash(systemd-run *)' 'Bash(at now *)' 'Bash(pkexec *)'; do
+  if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
+  grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
+  cmp -s "$PS" "$T/ps.before" || fail "refused leaves the file: $rule"
+done
+ok "third-review bypass rules refused, file unchanged"
+for text in "Personas can change their own access list" "Personas may edit files in the dot claude folder"; do
+  if cadre allow add --auto "$text" >/dev/null 2>&1; then fail "refused --auto: $text"; fi
+done
+ok "third-review --auto bypasses refused"
+for rule in "Bash(grep -E 'a|b' src/x.txt)" 'Bash(git commit -m "fix; typo")' \
+    'Bash(cadre up dev/engineer app)' 'Edit(docs/**/*.md)' 'Edit(//Users/me/Documents/proj/**)' 'Edit(.github/workflows/ci.yml)' \
+    'Read(~/Documents/notes/**)' 'WebFetch(domain:docs.python.org)' 'WebFetch(domain:*.github.com)'; do
+  cadre allow add "$rule" >/dev/null || fail "accepted: $rule"
+  cadre allow remove "$rule" >/dev/null
+done
 for rule in 'Bash(npm test)' "Edit(//$C/projects/app/**)" 'Edit(src/**)' 'Read(./docs/**)' 'WebFetch(domain:docs.example.com)' 'mcp__github__create_issue'; do
   cadre allow add "$rule" >/dev/null || fail "accepted: $rule"
   cadre allow remove "$rule" >/dev/null

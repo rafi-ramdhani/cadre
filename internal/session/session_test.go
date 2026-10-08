@@ -304,7 +304,7 @@ func TestStartFolderIsNotAFormat(t *testing.T) {
 func TestRecordedValuesComeBackAsTheyAre(t *testing.T) {
 	tm := private(t)
 	dir := t.TempDir()
-	for _, v := range []string{"/a\nb", "/a\rb", "/a\tb", "/a\x1fb", "/a\x7fb", "/a\xffb"} {
+	for _, v := range []string{"/a\nb", "/a\rb", "/a\tb", "/a\x1fb", "/a\x7fb", "/a\xffb", `/a\$HOME`, `/a\${x}`} {
 		err := tm.Start(StartSpec{Session: "cadre-bad", Window: "w", Dir: dir, Argv: []string{"sleep", "30"},
 			SessionOptions: []Option{{"@cadre_home", v}}})
 		if err == nil || tm.Has("cadre-bad") {
@@ -355,5 +355,28 @@ func TestTheSeparatorSurvivesTmuxOutput(t *testing.T) {
 	}
 	if recordable("x", "a"+sep+"b") == nil {
 		t.Error("a value holding the separator can be recorded")
+	}
+}
+
+// tmux 3.4 writes "$" before a letter, "_" or "{" as "\$" (utf8_strvis);
+// later versions write it as it is. Both read back as the value.
+func TestDollarsReadBackFromEitherTmux(t *testing.T) {
+	for _, v := range []string{`$HOME/x`, `a$_b`, `${x}`, `$1 $ $`, `a\b`, `\$1`, `x$`, `\`} {
+		if err := recordable("v", v); err != nil {
+			t.Fatalf("%q refused: %v", v, err)
+		}
+		var escaped strings.Builder
+		for i := 0; i < len(v); i++ {
+			if v[i] == '$' && i+1 < len(v) && dollarEscaped(v[i+1]) {
+				escaped.WriteByte('\\')
+			}
+			escaped.WriteByte(v[i])
+		}
+		if got := unescape(escaped.String()); got != v {
+			t.Errorf("from tmux 3.4: %q read back as %q", v, got)
+		}
+		if got := unescape(v); got != v {
+			t.Errorf("from a later tmux: %q read back as %q", v, got)
+		}
 	}
 }

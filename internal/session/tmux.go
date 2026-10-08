@@ -52,7 +52,7 @@ func (t Tmux) Option(session, name string) string {
 	if err != nil {
 		return ""
 	}
-	return out
+	return unescape(out)
 }
 
 // recordable refuses an option value that tmux could not give back as it
@@ -68,12 +68,40 @@ func recordable(name, value string) error {
 			return fmt.Errorf("cannot record %s in tmux: %q holds a tab, a line break or another control character", name, value)
 		}
 	}
+	for i := 0; i+2 < len(value); i++ {
+		if value[i] == '\\' && value[i+1] == '$' && dollarEscaped(value[i+2]) {
+			return fmt.Errorf("cannot record %s in tmux: %q holds a backslash before $, which tmux would not give back as it is", name, value)
+		}
+	}
 	return nil
 }
 
 // startDir passes a start folder to tmux's -c, which tmux expands as a
 // format: "##" is a literal "#", so a folder holding "#{" stays itself.
 func startDir(dir string) string { return strings.ReplaceAll(dir, "#", "##") }
+
+// dollarEscaped reports whether tmux 3.4 writes "$" followed by c as "\$"
+// in command output (utf8_strvis); later versions may not.
+func dollarEscaped(c byte) bool {
+	return c == '_' || c == '{' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// unescape undoes that: it drops a backslash right before such a "$".
+// recordable refuses values that hold one, so this is exact for a tmux that
+// escapes and for one that does not.
+func unescape(s string) string {
+	if !strings.Contains(s, `\$`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+2 < len(s) && s[i+1] == '$' && dollarEscaped(s[i+2]) {
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
 
 // SetOption sets a session's user option.
 func (t Tmux) SetOption(session, name, value string) error {
@@ -149,7 +177,7 @@ func (t Tmux) Sessions() []Info {
 		if len(f) != 6 || !strings.HasPrefix(f[0], "cadre-") {
 			continue
 		}
-		list = append(list, Info{Name: f[0], Home: f[1], Team: f[2], Project: f[3], Role: f[4], Target: f[5]})
+		list = append(list, Info{Name: f[0], Home: unescape(f[1]), Team: unescape(f[2]), Project: unescape(f[3]), Role: unescape(f[4]), Target: unescape(f[5])})
 	}
 	return list
 }
@@ -168,7 +196,7 @@ func (t Tmux) Personas() []Persona {
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, sep)
 		if len(f) == 3 && strings.HasPrefix(f[0], "cadre-") {
-			list = append(list, Persona{f[0], f[1], f[2]})
+			list = append(list, Persona{f[0], f[1], unescape(f[2])})
 		}
 	}
 	return list

@@ -48,8 +48,9 @@ load_home() {
   if [ -z "${CADRE_HOME:-}" ] && [ -f "$CONFIG" ]; then
     CADRE_HOME=$(expand "$(head -1 "$CONFIG")")
   fi
-  [ -n "${CADRE_HOME:-}" ] && [ -d "$CADRE_HOME" ] ||
+  if [ -z "${CADRE_HOME:-}" ] || [ ! -d "$CADRE_HOME" ]; then
     die "no active cadre; run cadre init <name> or cadre use <dir>"
+  fi
   # cadre.conf may set PERMISSION_MODE.
   PERMISSION_MODE=default
   # shellcheck source=/dev/null
@@ -177,9 +178,9 @@ cmd_down() {
   split_target "$1"
   local key; key=$(key_of "$TEAM" "${2:-}")
   if [ -z "$ROLE" ]; then
-    tmux kill-session -t "cadre-$key" 2>/dev/null && echo "  cadre-$key stopped" || echo "  cadre-$key not running"
+    if tmux kill-session -t "cadre-$key" 2>/dev/null; then echo "  cadre-$key stopped"; else echo "  cadre-$key not running"; fi
   else
-    tmux kill-window -t "cadre-$key:$ROLE" 2>/dev/null && echo "  $key-$ROLE stopped" || echo "  $key-$ROLE not running"
+    if tmux kill-window -t "cadre-$key:$ROLE" 2>/dev/null; then echo "  $key-$ROLE stopped"; else echo "  $key-$ROLE not running"; fi
   fi
 }
 
@@ -250,7 +251,7 @@ cmd_init() {
 }
 
 cmd_use() {
-  [ -n "${1:-}" ] && [ -d "$1/personas" ] || die "usage: cadre use <cadre dir> (a folder with personas/)"
+  if [ -z "${1:-}" ] || [ ! -d "$1/personas" ]; then die "usage: cadre use <cadre dir> (a folder with personas/)"; fi
   set_home "$(cd "$1" && pwd)"
   echo "active cadre: $(cat "$CONFIG")"
 }
@@ -259,14 +260,14 @@ cmd_use() {
 commit_change() {
   local msg=$1; shift
   git -C "$CADRE_HOME" rev-parse --git-dir >/dev/null 2>&1 || return 0
-  git -C "$CADRE_HOME" add -- "$@" && git -C "$CADRE_HOME" commit -qm "$msg" -- "$@" || true
+  if git -C "$CADRE_HOME" add -- "$@"; then git -C "$CADRE_HOME" commit -qm "$msg" -- "$@" || true; fi
 }
 
 cmd_add() {
   case "${1:-}" in
     project)
       local name=${2:-} repo=${3:-} team=${4:-dev} about=${5:-}
-      [ -n "$name" ] && [ -n "$repo" ] || die "usage: cadre add project <name> <owner/repo> [team] [about]"
+      if [ -z "$name" ] || [ -z "$repo" ]; then die "usage: cadre add project <name> <owner/repo> [team] [about]"; fi
       [ -z "$(reg has "$name")" ] || die "project '$name' is already in projects.yaml"
       printf '\n%s:\n  repo: %s\n  team: %s\n  about: %s\n' "$name" "$repo" "$team" "$about" >> "$REGISTRY"
       commit_change "Add project $name" "$REGISTRY"

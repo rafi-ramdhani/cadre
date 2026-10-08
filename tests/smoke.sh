@@ -433,6 +433,18 @@ for rule in 'Bash(echo x#; bash *)' 'Bash(npm test x#; bash *)' 'Bash(echo x#&& 
   cmp -s "$PS" "$T/ps.before" || fail "refused leaves the file: $rule"
 done
 ok "a # does not hide an operator"
+# A run of punctuation is read with the shell's operators: a ; or | in it is real.
+for rule in 'Bash(npm test ;>x bash *)' 'Bash(npm test |>x bash *)' 'Bash(npm test >;x bash *)' 'Bash(npm test &;x bash *)'; do
+  if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
+  grep -q "chains or backgrounds commands" <<<"$err" || fail "refused as chained: $rule"
+  cmp -s "$PS" "$T/ps.before" || fail "refused leaves the file: $rule"
+done
+ok "an operator inside a run of punctuation is found"
+for rule in 'Bash(npm test 2>&1)' 'Bash(npm test >out.txt)' 'Bash(npm test &>log.txt)' 'Bash(npm test 2>>log.txt)'; do
+  cadre allow add "$rule" >/dev/null || fail "accepted: $rule"
+  cadre allow remove "$rule" >/dev/null
+done
+ok "redirections are still accepted"
 for text in "Personas can change their own access list" "Personas may edit files in the dot claude folder"; do
   if cadre allow add --auto "$text" >/dev/null 2>&1; then fail "refused --auto: $text"; fi
 done

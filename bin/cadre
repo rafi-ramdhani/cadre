@@ -873,9 +873,27 @@ def operators(spec):
     lex.commenters = ""
     lex.whitespace_split = True
     try:
-        return [t for t in lex if t and set(t) <= set("&|;")]
+        return [t for t in lex if t and set(t) <= set("();<>|&") and separates(t)]
     except ValueError:
         return re.findall(r"&&|\|\||[;|&]", spec)
+
+
+# The shell's operators made of punctuation, longest first.
+SHELL_OPS = ["&>>", "<<<", "&>", ">&", "<&", ">|", ">>", "<<", "<>", ";;", "&&", "||", "|&",
+             ";", "&", "|", "<", ">", "(", ")"]
+
+
+def separates(run):
+    """Whether a run of punctuation, read with the shell's own operators,
+    holds one that separates commands. shlex returns a run such as ;> as
+    one token, so a check for a token made only of ; & | missed the ;; a
+    redirection such as 2>&1 or &> separates nothing."""
+    while run:
+        op = next(o for o in SHELL_OPS if run.startswith(o))
+        if op in (";", ";;", "&", "&&", "|", "||", "|&"):
+            return True
+        run = run[len(op):]
+    return False
 
 
 def check_command(rule, spec):

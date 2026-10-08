@@ -27,6 +27,7 @@ trap 'command tmux -L "$CADRE_TMUX_SOCKET" kill-server 2>/dev/null || true; rm -
 cat > "$T/bin/claude" <<EOF
 #!/bin/sh
 printf '%s\\n' "\$@" > "$T/args-\$CADRE_PERSONA"
+printf '%s\\n' "\$CADRE_HOME" > "$T/home-\$CADRE_PERSONA"
 exec sleep 300
 EOF
 chmod +x "$T/bin/claude"
@@ -323,8 +324,8 @@ mv "$T/cadres.saved" "$HOME/.config/cadre/cadres"; cp "$T/home.saved" "$HOME/.co
 
 echo "sessions"
 cadre up dev/engineer app >/dev/null
-check "project persona running" bash -c "cadre ls | grep -q '\[running\] dev-app-engineer'"
-check "persona works in the project" test "$(command tmux -L "$CADRE_TMUX_SOCKET" display -p -t cadre-dev-app:engineer '#{pane_current_path}')" = "$(cd "$C/projects/app" && pwd -P)"
+check "project persona running" bash -c "cadre ls | grep -q '\[running\] demo-dev-app-engineer'"
+check "persona works in the project" test "$(command tmux -L "$CADRE_TMUX_SOCKET" display -p -t =cadre-demo-dev-app:=engineer '#{pane_current_path}')" = "$(cd "$C/projects/app" && pwd -P)"
 check "prompt built" grep -q "Persona" "$C/.claude/build/dev-app-engineer.md"
 check "generated files stay out of the cadre's git" test -z "$(git -C "$C" status --porcelain)"
 # args_of <persona>: the arguments the stub claude got, once it has started.
@@ -334,7 +335,7 @@ PS="$C/.claude/persona-settings.json"
 check "persona settings created" test -f "$PS"
 check "persona settings committed" git -C "$C" ls-files --error-unmatch .claude/persona-settings.json
 BUILD_DIR="$C/.claude/build"
-copy=$(settings_arg dev-app-engineer)
+copy=$(settings_arg demo-dev-app-engineer)
 check "personas get a generated copy, not the file" bash -c "case '$copy' in '$BUILD_DIR'/persona-settings.*.json) exit 0 ;; *) exit 1 ;; esac"
 check "the copy is read-only" test "$(mode "$copy")" = 0o400
 check "the copy holds the validated settings" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])) == json.load(open(sys.argv[2])) else 1)' "$copy" "$PS"
@@ -355,8 +356,8 @@ corrupt() {
   py "$edit" "$PS"
   out=$(relaunch)
   grep -q "warning: personas start without $PS" <<<"$out" || fail "$name: no warning: $out"
-  [ -z "$(settings_arg dev-app-engineer)" ] || fail "$name: file still passed"
-  [ -n "$(args_of dev-app-engineer)" ] || fail "$name: persona did not start"
+  [ -z "$(settings_arg demo-dev-app-engineer)" ] || fail "$name: file still passed"
+  [ -n "$(args_of demo-dev-app-engineer)" ] || fail "$name: persona did not start"
   git -C "$C" checkout -q -- .claude/persona-settings.json
   ok "$name"
 }
@@ -368,7 +369,7 @@ corrupt "missing self-protection refused" 'import json,sys; d=json.load(open(sys
 py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"].append("Bash(true)"); json.dump(d, open(sys.argv[1], "w"))' "$PS"
 out=$(relaunch)
 check "hand edit warned" grep -q "was changed outside cadre allow" <<<"$out"
-check "hand edit still passed when valid" grep -q 'Bash(true)' "$(settings_arg dev-app-engineer)"
+check "hand edit still passed when valid" grep -q 'Bash(true)' "$(settings_arg demo-dev-app-engineer)"
 git -C "$C" checkout -q -- .claude/persona-settings.json
 out=$(relaunch)
 check "restored file: no warning" test -z "$(grep warning <<<"$out" || true)"
@@ -390,18 +391,18 @@ cp "$T/ps.start" "$PS"
 git -C "$C" commit -qm "Remove grant for personas: Bash(curl *)" -- .claude/persona-settings.json
 cadre down dev/engineer app >/dev/null
 # A tampered copy is replaced at the next start.
-copy=$(settings_arg dev-app-engineer)
+copy=$(settings_arg demo-dev-app-engineer)
 chmod u+w "$copy"
 py 'import json,sys; d=json.load(open(sys.argv[1])); d["hooks"]={"SessionStart": []}; d["permissions"]["allow"]=["Bash(*)"]; json.dump(d, open(sys.argv[1], "w"))' "$copy"
 chmod 400 "$copy"
 relaunch >/dev/null
-check "a tampered copy is rebuilt at the next start" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])) == json.load(open(sys.argv[2])) else 1)' "$(settings_arg dev-app-engineer)" "$PS"
+check "a tampered copy is rebuilt at the next start" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])) == json.load(open(sys.argv[2])) else 1)' "$(settings_arg demo-dev-app-engineer)" "$PS"
 cadre down dev/engineer app >/dev/null
 # Paths with a quote or a space reach claude intact.
 mkdir -p "$T/it's a dir"
 cadre init q "$T/it's a dir" >/dev/null
 CADRE_HOME="$T/it's a dir/q" cadre up research/writer >/dev/null
-check "a quote in a path: persona runs" test "$(settings_arg research-writer | grep -c "$T/it's a dir/q/.claude/build/persona-settings")" = 1
+check "a quote in a path: persona runs" test "$(settings_arg q-research-writer | grep -c "$T/it's a dir/q/.claude/build/persona-settings")" = 1
 CADRE_HOME="$T/it's a dir/q" cadre down research >/dev/null
 cadre use "$C" >/dev/null
 # A command that cannot run is reported, not shown as started.
@@ -409,7 +410,7 @@ mv "$T/bin/claude" "$T/claude.saved"; printf '#!/bin/sh\nexit 1\n' > "$T/bin/cla
 code=0; out=$(cadre up ops 2>&1) || code=$?
 mv "$T/claude.saved" "$T/bin/claude"
 check "a failed start exits non-zero" test "$code" != 0
-check "and says so" grep -q "ops-sre failed to start" <<<"$out"
+check "and says so" grep -q "demo-ops-sre failed to start" <<<"$out"
 command tmux -L "$CADRE_TMUX_SOCKET" new-session -d -s keepalive "sleep 300"
 command tmux -L "$CADRE_TMUX_SOCKET" set-option -g remain-on-exit on
 mv "$T/bin/claude" "$T/claude.saved"; printf '#!/bin/sh\nexit 1\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
@@ -418,7 +419,7 @@ mv "$T/claude.saved" "$T/bin/claude"
 command tmux -L "$CADRE_TMUX_SOCKET" set-option -g remain-on-exit off
 cadre down ops >/dev/null
 command tmux -L "$CADRE_TMUX_SOCKET" kill-session -t =keepalive
-check "a dead pane kept by remain-on-exit is a failed start" grep -q "ops-sre failed to start" <<<"$out"
+check "a dead pane kept by remain-on-exit is a failed start" grep -q "demo-ops-sre failed to start" <<<"$out"
 check "no identity: the note says it was left uncommitted" bash -c "GIT_CONFIG_GLOBAL=/dev/null cadre add persona ops/tmp | grep -q 'left uncommitted'"
 rm "$C/personas/ops/tmp.md"
 cadre up dev/engineer app >/dev/null
@@ -554,14 +555,14 @@ for rule in "Edit(//$C/cadre.con[f])" "Edit(//$C/[c]adre.conf)" "Edit(//$C/cadre
     'Edit(~/.ss[h]/config)' 'Edit(~/.local/bi[n]/cadre)' 'Edit(~/.local/b*/cadre)' 'Edit(~/.config/cadr[e]/home)' \
     'Edit(~/.tmux.con[f])' 'Edit(~/Library/LaunchAgent[s]/x.plist)' 'Edit(~/.cla[u]de/settings.json)' \
     'Edit(src/\.\./x)' 'Edit(src/.[.]/x)' 'Edit(~/.local\/bin/cadre)' 'Edit(~/.ssh\/config)' \
-    'Edit(~/.config\/cadre/home)' "Edit(//$(dirname "$C")/*\\/*.conf)" "Edit(//$C/{x,{cadre,y}}.conf)" \
+    'Edit(~/.config\/cadre/home)' 'Edit(~/.ssh\)' 'Edit(~/.local/bin\)' 'Edit(~/.local/bin\\\)' 'Read(~/.ssh\)' "Edit(//$(dirname "$C")/*\\/*.conf)" "Edit(//$C/{x,{cadre,y}}.conf)" \
     "Edit(//$(dirname "$C")/{demo/cadre.c*,x})" 'Edit([[:alpha:]]adre.conf)' "Edit(//$C/cadre.con[[:alpha:]])"; do
   if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
   grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
 done
 check "glob refusals leave the file unchanged" cmp -s "$PS" "$T/ps.before"
 ok "glob classes, escapes and braces cannot hide a refused path"
-for rule in 'Edit(src/app/[id]/**)' 'Edit(src/app/\[id\]/page.tsx)' 'Edit(config/*.yml)' 'Edit(src/*/index.ts)'; do
+for rule in 'Edit(docs/a\\)' 'Edit(src/app/[id]/**)' 'Edit(src/app/\[id\]/page.tsx)' 'Edit(config/*.yml)' 'Edit(src/*/index.ts)'; do
   cadre allow add "$rule" >/dev/null || fail "accepted: $rule"
   cadre allow remove "$rule" >/dev/null
 done
@@ -644,20 +645,20 @@ cadre allow remove 'Bash(true)' >/dev/null
 check "cadre repo clean after allow" test -z "$(git -C "$C" status --porcelain)"
 cadre up dev/engineer app >/dev/null
 cadre up ops >/dev/null
-check "team without project running" bash -c "cadre ls | grep -q '\[running\] ops-sre'"
+check "team without project running" bash -c "cadre ls | grep -q '\[running\] demo-ops-sre'"
 cadre down dev app >/dev/null
 cadre down ops >/dev/null
 check "sessions stopped" bash -c "! cadre ls | grep -q running"
 # tmux targets must match names exactly, not by prefix.
 tm() { command tmux -L "$CADRE_TMUX_SOCKET" "$@"; }
 cadre up dev/engineer app >/dev/null
-check "team session is not mistaken for a project session" bash -c "cadre up dev/engineer | grep -q 'dev-engineer started'"
+check "team session is not mistaken for a project session" bash -c "cadre up dev/engineer | grep -q 'demo-dev-engineer started'"
 cadre down dev >/dev/null
-check "down <team> leaves the project session alone" tm has-session -t =cadre-dev-app
-tm new-window -d -t =cadre-dev-app: -n engineer-lead "sleep 300"
+check "down <team> leaves the project session alone" tm has-session -t =cadre-demo-dev-app
+tm new-window -d -t =cadre-demo-dev-app: -n engineer-lead "sleep 300"
 cadre down dev/engineer app >/dev/null
 check "down <team>/<role> leaves a longer window name alone" bash -c "cadre down dev/engineer app | grep -q 'not running'"
-check "the longer window still runs" bash -c "command tmux -L '$CADRE_TMUX_SOCKET' list-windows -t =cadre-dev-app -F '#W' | grep -qx engineer-lead"
+check "the longer window still runs" bash -c "command tmux -L '$CADRE_TMUX_SOCKET' list-windows -t =cadre-demo-dev-app -F '#W' | grep -qx engineer-lead"
 cadre down dev app >/dev/null
 # Python helpers never load modules from the current folder.
 mkdir -p "$T/lookalike"
@@ -691,29 +692,76 @@ code=0; out=$(cadre down --all </dev/null 2>&1) || code=$?
 check "down --all without a terminal exits 1" test "$code" = 1
 check "down --all without a terminal says how to confirm" grep -q "run with --yes to confirm" <<<"$out"
 check "down --all without a terminal stops nothing" test "$(cadre_sessions | wc -l | tr -d ' ')" = 2
-check "down --all lists sessions and personas" grep -q "cadre-dev-app: dev-app-engineer" <<<"$out"
-check "down --all lists the other team" grep -q "cadre-ops: ops-sre" <<<"$out"
+check "down --all lists sessions and personas" grep -q "cadre-demo-dev-app: demo-dev-app-engineer" <<<"$out"
+check "down --all lists the other team" grep -q "cadre-demo-ops: demo-ops-sre" <<<"$out"
 check "down --all refused in a persona" bash -c "! CADRE_PERSONA=x cadre down --all --yes"
 check "down --all with a team is a usage error" bash -c "! cadre down --all ops"
 check "refusals stopped nothing" test "$(cadre_sessions | wc -l | tr -d ' ')" = 2
 out=$(cadre down --all --yes)
 check "down --all --yes stops every session" test -z "$(cadre_sessions)"
-check "down --all prints a line for one session" grep -qx "  cadre-dev-app stopped" <<<"$out"
-check "down --all prints a line for the other" grep -qx "  cadre-ops stopped" <<<"$out"
+check "down --all prints a line for one session" grep -qx "  cadre-demo-dev-app stopped" <<<"$out"
+check "down --all prints a line for the other" grep -qx "  cadre-demo-ops stopped" <<<"$out"
 check "down --all leaves other tmux sessions" running mywork
 tm kill-session -t =mywork
 code=0; out=$(cadre down --all </dev/null) || code=$?
 check "nothing running: exit 0" test "$code" = 0
-check "nothing running: said so" grep -qx "no cadre sessions running" <<<"$out"
+check "nothing running: said so" grep -qx "no sessions of cadre demo running" <<<"$out"
 cadre up dev/engineer app >/dev/null
 cadre up ops >/dev/null
 tm new-session -d -s cadre-self "cadre down --all --yes > '$T/down.out' 2>&1"
 for _ in $(seq 50); do running cadre-self || break; sleep 0.2; done
 check "down --all from inside a session stops all" test -z "$(cadre_sessions)"
-check "own session stopped after the summary" bash -c "grep -A1 'stopped every cadre session' '$T/down.out' | grep -q 'stopping cadre-self last'"
+check "own session stopped after the summary" bash -c "grep -A1 'stopped every session of cadre demo' '$T/down.out' | grep -q 'stopping cadre-self last'"
 mv "$HOME/.config/cadre/home" "$T/home.saved"
-check "down --all works without an active cadre" bash -c "cadre down --all --yes | grep -q 'no cadre sessions running'"
+check "down --all --all-cadres works without an active cadre" bash -c "cadre down --all --all-cadres --yes | grep -q 'no cadre sessions running'"
 mv "$T/home.saved" "$HOME/.config/cadre/home"
+
+echo "several cadres: sessions"
+inA() { (cd "$T/multi/a" && "$@"); }
+inB() { (cd "$T/multi/b" && "$@"); }
+inA cadre up dev/engineer >/dev/null
+out=$(inB cadre up dev/engineer)
+check "a second cadre's team starts its own sessions" grep -q "b-dev-engineer started" <<<"$out"
+check "tmux sessions carry the cadre: a" tm has-session -t =cadre-a-dev
+check "tmux sessions carry the cadre: b" tm has-session -t =cadre-b-dev
+check "each session records its cadre" test "$(tm show-options -qv -t =cadre-a-dev: @cadre_home)" = "$A"
+check "personas are named with the cadre" test "$(args_of b-dev-engineer | grep -A1 -x -- --name | tail -1)" = b-dev-engineer
+check "personas start with their cadre in CADRE_HOME" test "$(cat "$T/home-b-dev-engineer")" = "$B"
+check "ls shows only its own cadre's sessions" bash -c "cd '$T/multi/a' && cadre ls | grep -q '\[running\] a-dev-engineer' && ! cadre ls | grep -q 'b-dev'"
+check "a persona's CADRE_HOME wins over its folder" bash -c "cd '$T/multi/b' && CADRE_HOME='$A' cadre ls | grep -q '\[running\] a-dev-engineer'"
+check "down acts on its own cadre" bash -c "cd '$T/multi/a' && cadre down dev/engineer | grep -q 'a-dev-engineer stopped' && command tmux -L '$CADRE_TMUX_SOCKET' has-session -t =cadre-b-dev"
+inA cadre up dev/engineer >/dev/null
+out=$(inA cadre down --all --yes)
+check "down --all stops only this cadre" bash -c "! command tmux -L '$CADRE_TMUX_SOCKET' has-session -t =cadre-a-dev 2>/dev/null && command tmux -L '$CADRE_TMUX_SOCKET' has-session -t =cadre-b-dev"
+check "and says which cadre" grep -q "stopped every session of cadre a" <<<"$out"
+inA cadre up dev/engineer >/dev/null
+code=0; out=$(cadre down --all --all-cadres </dev/null 2>&1) || code=$?
+check "--all-cadres groups sessions by cadre" bash -c "grep -qx '  cadre a:' <<<'$out' && grep -qx '  cadre b:' <<<'$out' && grep -q '    cadre-b-dev: b-dev-engineer' <<<'$out'"
+tm new-session -d -s cadre-b-research "sleep 300"
+tm set-option -q -t =cadre-b-research: @cadre_home "$A"
+code=0; out=$(inB cadre up research/writer 2>&1) || code=$?
+check "up refuses a session name another cadre holds" test "$code" = 1
+check "and names both cadres" grep -qF "belongs to cadre a ($A), not cadre b ($B)" <<<"$out"
+tm kill-session -t =cadre-b-research
+tm new-session -d -s cadre-b-research "sleep 300"
+code=0; out=$(inB cadre up research/writer 2>&1) || code=$?
+check "up refuses a legacy session with its name" test "$code" = 1
+check "and says it is a legacy session" grep -q "is a legacy session" <<<"$out"
+tm kill-session -t =cadre-b-research
+# A legacy session: named without the cadre, no @cadre_home. It belongs to
+# the default cadre, demo.
+tm new-session -d -s cadre-dev -n engineer "sleep 300"
+check "the default cadre lists a legacy session" bash -c "cd '$C' && cadre ls | grep -q '\[running, legacy\] dev-engineer'"
+check "and says it keeps its old name" bash -c "cd '$C' && cadre ls | grep -q 'legacy sessions keep their old names until restarted'"
+check "another cadre does not list it" bash -c "cd '$T/multi/b' && ! cadre ls | grep -q 'legacy'"
+check "ls --all-cadres has a legacy block" bash -c "cadre ls --all-cadres | grep -A1 '^legacy sessions' | grep -q '\[running, legacy\] dev-engineer'"
+check "ls --all-cadres has a block per cadre" bash -c "cadre ls --all-cadres | grep -q '^cadre b ($B)' && cadre ls --all-cadres | grep -q '^  dev'"
+check "up in the default cadre finds the legacy persona" bash -c "cd '$C' && cadre up dev/engineer | grep -q 'already running (legacy session cadre-dev'"
+check "and starts no second one" bash -c "! command tmux -L '$CADRE_TMUX_SOCKET' has-session -t =cadre-demo-dev 2>/dev/null"
+code=0; out=$(cd "$C" && cadre down --all </dev/null 2>&1) || code=$?
+check "down --all in the default cadre includes it" grep -q "cadre-dev: dev-engineer" <<<"$out"
+check "down in the default cadre stops it" bash -c "cd '$C' && cadre down dev | grep -q 'cadre-dev stopped'"
+check "--all-cadres stops every cadre" bash -c "cadre down --all --all-cadres --yes >/dev/null && test -z \"\$(command tmux -L '$CADRE_TMUX_SOCKET' ls -F '#S' 2>/dev/null | grep '^cadre-')\""
 
 echo "update"
 # The installed framework tracks main on a local bare remote; a seed clone
@@ -820,9 +868,9 @@ check "skill still linked here" test "$(readlink "$HOME/.claude/skills/cadre")" 
 check "hook kept" grep -q orchestrator-hook.sh "$HOME/.claude/settings.json"
 check "hook already right: settings not rewritten" cmp -s "$HOME/.claude/settings.json" "$T/settings.before"
 check "hook already right: backup kept" cmp -s "$HOME/.claude/settings.json.bak-cadre" "$T/settings.bak.before"
-check "running persona listed" grep -q "cadre-dev-app: dev-app-engineer" <<<"$out"
+check "running persona listed" grep -q "cadre-demo-dev-app: demo-dev-app-engineer" <<<"$out"
 check "restart command printed" grep -qx "  cadre down dev/engineer app && cadre up dev/engineer app" <<<"$out"
-check "running persona not stopped" bash -c "cadre ls | grep -q '\[running\] dev-app-engineer'"
+check "running persona not stopped" bash -c "cadre ls | grep -q '\[running\] demo-dev-app-engineer'"
 check "cadre and projects unchanged" test "$(snap)" = "$before"
 check "cadre repo still clean" test -z "$(git -C "$C" status --porcelain)"
 cadre down dev app >/dev/null
@@ -1055,9 +1103,9 @@ wiring() {
 }
 cadre cadres >/dev/null   # first use seeds the known-cadres list from the default
 upgraded=$(wiring "$UF")
-rm -f "$T/args-research-writer"
+rm -f "$T/args-up-research-writer"
 cadre up research/writer >/dev/null
-cadre_args=$(args_of research-writer)
+cadre_args=$(args_of up-research-writer)
 check "a persona started after the upgrade gets the settings" grep -qx -- --settings <<<"$cadre_args"
 cadre down --all --yes >/dev/null
 export HOME="$T/home-fresh"

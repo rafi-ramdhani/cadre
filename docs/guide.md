@@ -140,6 +140,10 @@ A machine can have several cadres, each in its own folder. A `cadre` command act
 
 Only registered cadres count when cadre looks at the current folder: a folder that merely looks like a cadre (a cloned repo with `personas/` and `projects.yaml`) is never used, so its `cadre.conf` is never run, and cadre prints a note saying how to register it. Register it only if you trust it. Persona sessions cannot run `cadre init`, `cadre use` or `cadre cadres add|remove`, and their settings deny those commands.
 
+Session names carry the cadre's name: in cadre `work`, `cadre up dev my-app` starts `work-dev-my-app-<role>` in tmux session `cadre-work-dev-my-app`, so two cadres can each run a `dev` team. Each session records its cadre (the tmux option `@cadre_home`), and every persona starts with `CADRE_HOME` set to its cadre, so its `cadre` commands act on that cadre wherever it works. `cadre ls`, `cadre up`, `cadre down`, `cadre attach` and `cadre down --all` act on the resolved cadre only; `cadre ls --all-cadres` shows every cadre, and `cadre down --all --all-cadres` stops every cadre's sessions. `cadre up` refuses when the session name it needs is taken by another cadre (or by another team and project whose names join to the same name); rename a team or a cadre folder.
+
+Sessions started before 0.2.0 (legacy sessions) have names without a cadre. They belong to the default cadre: its `cadre ls` marks them `[running, legacy]`, and `cadre down`, `attach` and `up` there find them when the new name is not running. They keep their old names until restarted.
+
 ## Configuration
 
 `cadre.conf` is sourced by the launcher:

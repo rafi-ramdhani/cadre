@@ -7,10 +7,10 @@
 Cadre turns Claude Code into a small standing team. You talk to one session, the orchestrator. It hands work to persona sessions (a PM, an engineer, a reviewer, a researcher, a tutor, whatever you define), each a full Claude Code session in its own tmux window with its own role and working folder. It passes results between them and reports back to you. When the work is interactive, you attach to a persona's window and talk to it directly.
 
 ```
-you ── orchestrator ──┬── dev-my-app-pm         writes the spec
-                      ├── dev-my-app-engineer   builds it on a branch
-                      ├── dev-my-app-reviewer   reviews the branch
-                      └── research-researcher   gathers sources
+you ── orchestrator ──┬── work-dev-my-app-pm         writes the spec
+                      ├── work-dev-my-app-engineer   builds it on a branch
+                      ├── work-dev-my-app-reviewer   reviews the branch
+                      └── work-research-researcher   gathers sources
 ```
 
 Cadre is a starting point, not a fixed product. `install.sh` generates **your own cadre**, a folder you name, with starter personas and a playbook. From there it grows with you: new teams, new personas, new projects, your own routing rules.
@@ -97,7 +97,7 @@ The orchestrator runs these for you; they are there when you want to drive by ha
 ## How it works
 
 - **Personas** are Markdown files. At launch, the framework's shared protocol (how to receive work and reply), your cadre's house rules and the persona are joined into one prompt and passed to `claude --append-system-prompt-file`, so each persona keeps the full Claude Code toolset and your `CLAUDE.md`.
-- **Sessions** run in tmux: `cadre-<team>` or `cadre-<team>-<project>`, one window per role, each named `<team>[-<project>]-<role>` so the orchestrator can address it with `SendMessage`.
+- **Sessions** run in tmux: `cadre-<cadre>-<team>` or `cadre-<cadre>-<team>-<project>`, one window per role, each named `<cadre>-<team>[-<project>]-<role>` so the orchestrator can address it with `SendMessage`. The cadre's name keeps two cadres with the same team apart.
 - **The orchestrator** is any Claude Code session using the `cadre` skill. With the optional SessionStart hook, every new session starts as the orchestrator; persona sessions and sessions started with `CADRE_OFF=1 claude` are skipped.
 - **Project rules** belong in each project's own `CLAUDE.md`, so every persona working there follows them.
 

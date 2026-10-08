@@ -219,7 +219,12 @@ settings_arg() { args_of "$1" | grep -A1 -x -- --settings | tail -1; }
 PS="$C/.claude/persona-settings.json"
 check "persona settings created" test -f "$PS"
 check "persona settings committed" git -C "$C" ls-files --error-unmatch .claude/persona-settings.json
-check "persona settings passed to the persona" test "$(settings_arg dev-app-engineer)" = "$PS"
+BUILD_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cadre/build"
+copy=$(settings_arg dev-app-engineer)
+check "personas get a generated copy, not the file" bash -c "case '$copy' in '$BUILD_DIR'/persona-settings.*.json) exit 0 ;; *) exit 1 ;; esac"
+check "the copy is read-only" test "$(mode "$copy")" = 0o400
+check "the copy holds the validated settings" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])) == json.load(open(sys.argv[2])) else 1)' "$copy" "$PS"
+check "no Write rule (Claude Code ignores those)" bash -c "! grep -q 'Write(' '$PS'"
 # shellcheck disable=SC2016 # python reads "$defaults" literally
 check "persona settings start with no grants" py '
 import json, sys
@@ -243,14 +248,45 @@ corrupt() {
 corrupt "extra key refused" 'import json,sys; d=json.load(open(sys.argv[1])); d["hooks"]={}; json.dump(d, open(sys.argv[1], "w"))'
 corrupt "missing \$defaults refused" 'import json,sys; d=json.load(open(sys.argv[1])); d["autoMode"]["allow"]=[]; json.dump(d, open(sys.argv[1], "w"))'
 corrupt "invalid JSON refused" 'import sys; open(sys.argv[1], "w").write("{")'
+corrupt "duplicate key refused" 'import sys; t=open(sys.argv[1]).read(); open(sys.argv[1], "w").write(t.replace("{", "{\"permissions\": {\"defaultMode\": \"bypassPermissions\"},", 1))'
 corrupt "missing self-protection refused" 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["deny"]=[]; json.dump(d, open(sys.argv[1], "w"))'
 py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"].append("Bash(true)"); json.dump(d, open(sys.argv[1], "w"))' "$PS"
 out=$(relaunch)
 check "hand edit warned" grep -q "was changed outside cadre allow" <<<"$out"
-check "hand edit still passed when valid" test "$(settings_arg dev-app-engineer)" = "$PS"
+check "hand edit still passed when valid" grep -q 'Bash(true)' "$(settings_arg dev-app-engineer)"
 git -C "$C" checkout -q -- .claude/persona-settings.json
 out=$(relaunch)
 check "restored file: no warning" test -z "$(grep warning <<<"$out" || true)"
+cp "$PS" "$T/ps.start"
+# No recorded hash (a new machine): a file that differs from the last commit warns.
+rm "$HOME/.config/cadre/persona-settings.sha256"
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"].append("Bash(curl *)"); json.dump(d, open(sys.argv[1], "w"))' "$PS"
+check "unknown hash and an uncommitted edit warn" bash -c "cadre up dev/engineer app 2>&1 | grep -q 'changed outside cadre allow'"
+# A grant cadre allow committed elsewhere and pulled here is accepted quietly.
+git -C "$C" commit -qm "Allow for personas: Bash(curl *)" -- .claude/persona-settings.json
+out=$(relaunch)
+check "a pulled cadre allow commit is accepted" test -z "$(grep warning <<<"$out" || true)"
+out=$(relaunch)
+check "and stays accepted" test -z "$(grep warning <<<"$out" || true)"
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"].append("Bash(wget *)"); json.dump(d, open(sys.argv[1], "w"))' "$PS"
+git -C "$C" commit -qm "Tweak settings" -- .claude/persona-settings.json
+check "a hand-made commit still warns" bash -c "cadre up dev/engineer app 2>&1 | grep -q 'changed outside cadre allow'"
+cp "$T/ps.start" "$PS"
+git -C "$C" commit -qm "Remove grant for personas: Bash(curl *)" -- .claude/persona-settings.json
+cadre down dev/engineer app >/dev/null
+# Paths with a quote or a space reach claude intact.
+XDG_CACHE_HOME="$T/it's a cache" cadre up ops >/dev/null
+check "a quote in a path: persona runs" test "$(settings_arg ops-sre | grep -c "$T/it's a cache/cadre/build/persona-settings")" = 1
+cadre down ops >/dev/null
+# A command that cannot run is reported, not shown as started.
+mv "$T/bin/claude" "$T/claude.saved"; printf '#!/bin/sh\nexit 1\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
+code=0; out=$(cadre up ops 2>&1) || code=$?
+mv "$T/claude.saved" "$T/bin/claude"
+check "a failed start exits non-zero" test "$code" != 0
+check "and says so" grep -q "ops-sre failed to start" <<<"$out"
+check "no identity: the note says it was left uncommitted" bash -c "GIT_CONFIG_GLOBAL=/dev/null cadre add persona ops/tmp | grep -q 'left uncommitted'"
+rm "$C/personas/ops/tmp.md"
+cadre up dev/engineer app >/dev/null
 cadre up ops >/dev/null
 check "team without project running" bash -c "cadre ls | grep -q '\[running\] ops-sre'"
 cadre down dev app >/dev/null
@@ -461,6 +497,7 @@ p = sys.argv[1]; d = json.load(open(p))
 d["hooks"]["SessionStart"].insert(0, {"hooks": [{"type": "command", "command": "echo mine"},
     {"type": "command", "command": "bash /home/me/bin/my-orchestrator-hook.sh"}]})
 d["hooks"]["SessionStart"].append({"hooks": [{"type": "command", "command": "bash /elsewhere/cadre/bin/orchestrator-hook.sh"}]})
+d["hooks"]["SessionStart"].append({"hooks": [{"type": "command", "command": "bash /elsewhere/my\\ cadre/bin/orchestrator-hook.sh"}]})
 d["hooks"]["PreToolUse"] = [{"matcher": "Bash", "hooks": [{"type": "command", "command": "true"}]}]
 d["model"] = "x"
 json.dump(d, open(p, "w"), indent=2)' "$SET"
@@ -513,6 +550,7 @@ check "closing message shows how to reinstall" grep -q "$FW/install.sh --link-on
 check "closing message explains trust entries" grep -q "hasTrustDialogAccepted" <<<"$out"
 check "another framework's hooks reported" grep -q "orchestrator hooks of another framework, left in place:" <<<"$out"
 check "with their command" grep -qx "    bash /elsewhere/cadre/bin/orchestrator-hook.sh" <<<"$out"
+check "a quoted hook path is parsed" grep -qx '    bash /elsewhere/my\\ cadre/bin/orchestrator-hook.sh' <<<"$out"
 code=0; out=$("$FW/bin/cadre" uninstall --yes) || code=$?
 check "second uninstall has nothing to do" test "$code" = 0
 check "and says so" grep -q "not installed here; nothing to do" <<<"$out"
@@ -537,6 +575,8 @@ check "persona: nothing changed" test "$(state)" = "$s0"
 mkdir -p "$T/other/bin"; touch "$T/other/bin/cadre"
 ln -sfn "$T/other/bin/cadre" "$HOME/.local/bin/cadre"
 rm "$HOME/.claude/skills/cadre"; echo "mine" > "$HOME/.claude/skills/cadre"
+check "link to something that is not a framework: not refused" bash -c "'$FW/bin/cadre' uninstall --dry-run | grep -q 'not this framework; left in place'"
+touch "$T/other/bin/orchestrator-hook.sh"
 check "link to another framework: refused without --force" bash -c "! '$FW/bin/cadre' uninstall --yes"
 cp "$SET" "$T/set.cycle2"
 code=0; out=$("$FW/bin/cadre" uninstall --yes --force) || code=$?

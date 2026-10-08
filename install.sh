@@ -76,7 +76,7 @@ link() {
 
 add_hook() {
   local root=$1 settings="$HOME/.claude/settings.json" cmd tmp
-  cmd="bash $root/bin/orchestrator-hook.sh"
+  cmd="bash $(printf %q "$root/bin/orchestrator-hook.sh")"
   command -v jq >/dev/null || { say "  skipped the hook: jq is not installed"; return; }
   [ -f "$settings" ] || echo '{}' > "$settings"
   if ! jq -e . "$settings" >/dev/null 2>&1; then

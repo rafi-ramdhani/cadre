@@ -348,9 +348,12 @@ cmd_sync() {
 # Op trust, args "name<TAB>path[<TAB>path...]": sets
 # projects[path].hasTrustDialogAccepted for every path and prints
 # "name<TAB>trusted" or "name<TAB>already" per project.
-# Op unhook: removes every SessionStart hook whose command ends in
-# orchestrator-hook.sh, then any group, SessionStart or hooks it left empty,
-# and prints the removed commands.
+# Op unhook, arg the hook script of this framework: removes every
+# SessionStart hook whose command is "bash <that script>" (compared by real
+# path), then any group, SessionStart or hooks it left empty. It prints
+# "removed<TAB>command" for those and "kept<TAB>command" for other
+# orchestrator-hook.sh hooks (another framework's). Its backup is fresh on
+# every write, unlike the other ops, which keep the first one.
 # An op ending in :dry only reports: exit 0 when it would write, 3 when not.
 json_edit() {
   python3 - "$@" <<'PY'
@@ -384,9 +387,19 @@ def trust(data):
     return lines
 
 
+def hook_script(hook):
+    """The script a "bash <path>/orchestrator-hook.sh" hook runs, or None."""
+    if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
+        return None
+    words = hook["command"].split()
+    if len(words) == 2 and words[0] == "bash" and os.path.basename(words[1]) == "orchestrator-hook.sh":
+        return words[1]
+    return None
+
+
 def is_ours(hook):
-    return isinstance(hook, dict) and isinstance(hook.get("command"), str) \
-        and hook["command"].rstrip().endswith("orchestrator-hook.sh")
+    script = hook_script(hook)
+    return script is not None and os.path.realpath(script) == os.path.realpath(args[0])
 
 
 def unhook(data):
@@ -402,26 +415,28 @@ def unhook(data):
         return []
     if not isinstance(groups, list):
         raise Shape()
-    removed, kept = [], []
+    removed, kept, others = [], [], []
     for group in groups:
         if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
             raise Shape()
         mine = [h for h in group["hooks"] if is_ours(h)]
         removed += [h["command"] for h in mine]
+        others += [h["command"] for h in group["hooks"] if hook_script(h) and not is_ours(h)]
         if not mine:
             kept.append(group)
         elif len(mine) < len(group["hooks"]):
             group["hooks"] = [h for h in group["hooks"] if not is_ours(h)]
             kept.append(group)
+    report = ["removed\t" + c for c in removed] + ["kept\t" + c for c in others]
     if not removed:
-        return []
+        return report
     if kept:
         hooks["SessionStart"] = kept
     else:
         del hooks["SessionStart"]
     if not hooks:
         del data["hooks"]
-    return removed
+    return report
 
 
 OPS = {"trust": trust, "unhook": unhook}
@@ -475,7 +490,7 @@ def attempt(n):
         sys.exit(0)
     tmp = None
     try:
-        if not os.path.lexists(backup):
+        if op == "unhook" or not os.path.lexists(backup):
             os.replace(write(backup, raw, mode), backup)
         tmp = write(path, new, mode)
         hook = os.environ.get("CADRE_TEST_JSON_EDIT_HOOK")
@@ -773,6 +788,31 @@ link_plan() {
   else echo "$l points to $t, not this framework; left in place"; fi
 }
 
+# The framework folder that link $1 (to <framework>/bin/cadre or
+# <framework>/skills/cadre) belongs to,
+# when it resolves to an existing framework other than this one.
+other_framework() {
+  local l=$1 t
+  [ -L "$l" ] || return 0
+  t=$(resolve "$l"); [ -e "$t" ] || return 0
+  t=$(phys_of "$(dirname "$t")/..")
+  [ "$t" = "$(phys_of "$CADRE_ROOT")" ] || echo "$t"
+}
+
+# Why uninstall must not delete folder $1, or nothing when it may: never the
+# home folder, or a folder that is or holds the cadre or the framework.
+unsafe_to_remove() {
+  local d f
+  [ -e "$1" ] || return 0
+  d=$(phys_of "$1")
+  if [ "$d" = "$(phys_of "$HOME")" ]; then echo "it is your home folder"; return; fi
+  for f in "$UN_HOME" "$CADRE_ROOT"; do
+    if [ -n "$f" ] && [ -e "$f" ]; then
+      case "$(phys_of "$f")/" in "$d/"*) echo "it is or holds $f"; return ;; esac
+    fi
+  done
+}
+
 # What uninstall keeps: the cadre, its projects, the framework, backups and
 # trust entries.
 uninstall_keeps() {
@@ -804,6 +844,12 @@ plan_link() {
   esac
 }
 
+plan_folder() {
+  if [ -n "$2" ]; then echo "  $1: left in place, $2"
+  elif [ -d "$1" ]; then echo "  remove $1 ($3)"
+  else echo "  $1: nothing to do (not there)"; fi
+}
+
 uninstall_plan() {
   echo "cadre uninstall plan:"
   if [ -n "$UN_SESSIONS" ]; then
@@ -817,10 +863,12 @@ uninstall_plan() {
     echo "  remove the orchestrator hook from $UN_SETTINGS:"
     printf '%s\n' "$UN_HOOKS" | sed 's/^/    /'
   else echo "  orchestrator hook: nothing to do"; fi
-  if [ -d "$UN_CONFIG" ]; then echo "  remove $UN_CONFIG (the active-cadre pointer and cadre's records)"
-  else echo "  $UN_CONFIG: nothing to do (not there)"; fi
-  if [ -d "$UN_CACHE" ]; then echo "  remove $UN_CACHE (generated persona prompts)"
-  else echo "  $UN_CACHE: nothing to do (not there)"; fi
+  if [ -n "$UN_HOOKS_KEPT" ]; then
+    echo "  orchestrator hooks of another framework, left in place:"
+    printf '%s\n' "$UN_HOOKS_KEPT" | sed 's/^/    /'
+  fi
+  plan_folder "$UN_CONFIG" "$UN_CONFIG_WHY" "the active-cadre pointer and cadre's records"
+  plan_folder "$UN_CACHE" "$UN_CACHE_WHY" "generated persona prompts"
   echo "Kept:"
   uninstall_keeps
 }
@@ -839,7 +887,7 @@ uninstall_rm() {
 uninstall_rest() {
   local rc=0 code=0
   if [ -n "$UN_HOOKS" ]; then
-    json_edit unhook "$UN_SETTINGS" "$UN_SETTINGS.bak-cadre-uninstall" >/dev/null || code=$?
+    json_edit unhook "$UN_SETTINGS" "$UN_SETTINGS.bak-cadre-uninstall" "$CADRE_ROOT/bin/orchestrator-hook.sh" >/dev/null || code=$?
     case $code in
       0) echo "  removed the orchestrator hook from $UN_SETTINGS (backup: $UN_SETTINGS.bak-cadre-uninstall)" ;;
       3|4) echo "  the orchestrator hook was already gone" ;;
@@ -848,8 +896,8 @@ uninstall_rest() {
   fi
   if [ "$UN_BIN" = remove ]; then uninstall_rm "$UN_BIN_LINK" || rc=2; fi
   if [ "$UN_SKILL" = remove ]; then uninstall_rm "$UN_SKILL_LINK" || rc=2; fi
-  if [ -d "$UN_CONFIG" ]; then uninstall_rm "$UN_CONFIG" || rc=2; fi
-  if [ -d "$UN_CACHE" ]; then uninstall_rm "$UN_CACHE" || rc=2; fi
+  if [ -d "$UN_CONFIG" ] && [ -z "$UN_CONFIG_WHY" ]; then uninstall_rm "$UN_CONFIG" || rc=2; fi
+  if [ -d "$UN_CACHE" ] && [ -z "$UN_CACHE_WHY" ]; then uninstall_rm "$UN_CACHE" || rc=2; fi
   echo
   echo "cadre is uninstalled. Kept, to delete by hand if you no longer want them:"
   uninstall_keeps
@@ -862,9 +910,14 @@ uninstall_rest() {
 # Undoes what the installer wired into this machine; never deletes a file
 # the user owns. Runs before load_home, so a broken or missing cadre is fine.
 cmd_uninstall() {
-  local yes="" dry="" a code=0
+  local yes="" dry="" force="" a code=0 other out
   for a in "$@"; do
-    case $a in --yes|-y) yes=1 ;; --dry-run) dry=1 ;; *) die "usage: cadre uninstall [--yes | --dry-run]" ;; esac
+    case $a in
+      --yes|-y) yes=1 ;;
+      --dry-run) dry=1 ;;
+      --force) force=1 ;;
+      *) die "usage: cadre uninstall [--yes | --dry-run] [--force]" ;;
+    esac
   done
   [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot uninstall cadre"
 
@@ -873,20 +926,31 @@ cmd_uninstall() {
   UN_BIN_LINK="$HOME/.local/bin/cadre" UN_SKILL_LINK="$HOME/.claude/skills/cadre"
   if [ -n "${CADRE_HOME:-}" ]; then UN_HOME=$CADRE_HOME
   elif [ -f "$CONFIG" ]; then UN_HOME=$(expand "$(head -1 "$CONFIG")"); fi
+  for a in "$UN_BIN_LINK" "$UN_SKILL_LINK"; do
+    other=$(other_framework "$a")
+    if [ -n "$other" ] && [ -z "$force" ]; then
+      die "cadre is installed from $other; run $other/bin/cadre uninstall (or add --force to remove only what is not tied to that framework)"
+    fi
+  done
   UN_SESSIONS=$(running_sessions)
+  UN_CONFIG_WHY=$(unsafe_to_remove "$UN_CONFIG") UN_CACHE_WHY=$(unsafe_to_remove "$UN_CACHE")
   UN_BIN=$(link_plan "$UN_BIN_LINK" "$CADRE_ROOT/bin/cadre")
   UN_SKILL=$(link_plan "$UN_SKILL_LINK" "$CADRE_ROOT/skills/cadre")
-  UN_HOOKS="" UN_HOOK_WARN=""
-  UN_HOOKS=$(json_edit unhook:dry "$UN_SETTINGS" "$UN_SETTINGS.bak-cadre-uninstall") || code=$?
+  UN_HOOKS="" UN_HOOKS_KEPT="" UN_HOOK_WARN=""
+  out=$(json_edit unhook:dry "$UN_SETTINGS" "$UN_SETTINGS.bak-cadre-uninstall" "$CADRE_ROOT/bin/orchestrator-hook.sh") || code=$?
   case $code in
-    0) ;;
-    3|4) UN_HOOKS="" ;;
-    *) UN_HOOKS="" UN_HOOK_WARN="warning: $UN_SETTINGS is not a file cadre can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user); left untouched, so remove any orchestrator-hook.sh entry by hand" ;;
+    0|3)
+      UN_HOOKS=$(awk -F'\t' '$1 == "removed" { print $2 }' <<<"$out")
+      UN_HOOKS_KEPT=$(awk -F'\t' '$1 == "kept" { print $2 }' <<<"$out") ;;
+    4) ;;
+    *) UN_HOOK_WARN="warning: $UN_SETTINGS is not a file cadre can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user); left untouched, so remove any orchestrator-hook.sh entry by hand" ;;
   esac
 
   if [ -z "$UN_SESSIONS$UN_HOOKS" ] && [ "$UN_BIN" != remove ] && [ "$UN_SKILL" != remove ] \
-    && [ ! -d "$UN_CONFIG" ] && [ ! -d "$UN_CACHE" ]; then
+    && { [ ! -d "$UN_CONFIG" ] || [ -n "$UN_CONFIG_WHY" ]; } && { [ ! -d "$UN_CACHE" ] || [ -n "$UN_CACHE_WHY" ]; }; then
     for a in "$UN_BIN" "$UN_SKILL"; do [ "$a" = missing ] || echo "$a"; done
+    if [ -n "$UN_CONFIG_WHY" ]; then echo "$UN_CONFIG: left in place, $UN_CONFIG_WHY"; fi
+    if [ -n "$UN_CACHE_WHY" ]; then echo "$UN_CACHE: left in place, $UN_CACHE_WHY"; fi
     if [ -n "$UN_HOOK_WARN" ]; then echo "$UN_HOOK_WARN" >&2; fi
     echo "cadre is not installed here; nothing to do"
     if [ -n "$UN_HOOK_WARN" ]; then exit 2; fi
@@ -900,7 +964,7 @@ cmd_uninstall() {
   # shellcheck disable=SC2046 # session names have no spaces
   stop_all uninstall_rest $(cut -f1 <<<"$UN_SESSIONS") || code=$?
   if [ "$code" = 0 ] && [ -n "$UN_HOOK_WARN" ]; then code=2; fi
-  exit "$code"
+  return "$code"
 }
 
 # Records a change to the cadre in its own git history, when it has one.
@@ -959,7 +1023,7 @@ case "${1:-}" in
   use)      shift; cmd_use "$@"; exit ;;
   update)   shift; cmd_update "$@"; exit ;;
   down)     case " $* " in *" --all "*) shift; cmd_down_all "$@"; exit ;; esac ;;
-  uninstall) shift; cmd_uninstall "$@" ;;
+  uninstall) shift; cmd_uninstall "$@"; exit ;;
   ""|-h|--help|help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
   version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
 esac

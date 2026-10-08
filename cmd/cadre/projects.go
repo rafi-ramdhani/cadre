@@ -1,0 +1,306 @@
+//go:build !windows
+
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/rafi-ramdhani/cadre/internal/cadres"
+	"github.com/rafi-ramdhani/cadre/internal/paths"
+	"github.com/rafi-ramdhani/cadre/internal/project"
+	"github.com/rafi-ramdhani/cadre/internal/registry"
+)
+
+// projectsDir returns where new clones go. It is asked once and remembered
+// (N.2): on a terminal cadre asks; without one it refuses, so the
+// orchestrator asks the user in the chat instead.
+func (e *env) projectsDir() (string, bool) {
+	if d := cadres.ProjectsDir(); d != "" {
+		return d, true
+	}
+	suggest := cadres.Tilde(cadres.SuggestProjectsDir())
+	if !e.interactive() {
+		e.fail("the projects folder is not set; ask the user and run cadre project dir <folder> (suggested: %s)", suggest)
+		return "", false
+	}
+	answer := e.ask(fmt.Sprintf("Where do you keep your projects? [%s] ", suggest))
+	if answer == "" {
+		answer = suggest
+	}
+	dir, ok := e.setProjectsDir(answer)
+	return dir, ok
+}
+
+func (e *env) setProjectsDir(answer string) (string, bool) {
+	dir := answer
+	if dir == "~" || strings.HasPrefix(dir, "~/") {
+		dir = paths.Home() + dir[1:]
+	}
+	if !filepath.IsAbs(dir) {
+		dir, _ = filepath.Abs(dir)
+	}
+	if why := project.DestRefusal(paths.Real(dir)); why != "" {
+		e.fail("%s cannot hold projects: %s", dir, why)
+		return "", false
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		if !paths.Within(paths.Real(dir), paths.Home()) {
+			e.fail("%s does not exist; create it first, or choose a folder under your home folder", dir)
+			return "", false
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			e.fail("%s", err)
+			return "", false
+		}
+	}
+	if err := cadres.SetProjectsDir(dir); err != nil {
+		e.fail("%s", err)
+		return "", false
+	}
+	e.say("new clones go to %s (change it with cadre project dir <folder>)", cadres.Tilde(paths.Real(dir)))
+	return paths.Real(dir), true
+}
+
+func runProjectDir(e *env) int {
+	switch len(e.args) {
+	case 0:
+		if d := cadres.ProjectsDir(); d != "" {
+			e.say("%s", cadres.Tilde(d))
+		} else {
+			e.say("not set (suggested: %s); set it with cadre project dir <folder>", cadres.Tilde(cadres.SuggestProjectsDir()))
+		}
+		return 0
+	case 1:
+		if e.persona("change where projects are cloned") || !e.home() {
+			return 1
+		}
+		if _, ok := e.setProjectsDir(e.args[0]); !ok {
+			return 1
+		}
+		return 0
+	}
+	return e.fail("usage: cadre project dir [<folder>]")
+}
+
+const addUsage = "usage: cadre project add <name> <owner/repo> [team] [about] [--no-trust] | cadre project add <name> --path <dir> [--repo <repo>] [team] [about] [--no-trust]"
+
+func runProjectAdd(e *env) int {
+	var pos []string
+	var path, repo string
+	trust := true
+	for i := 0; i < len(e.args); i++ {
+		switch a := e.args[i]; {
+		case a == "--no-trust":
+			trust = false
+		case (a == "--path" || a == "--repo") && i+1 < len(e.args):
+			if a == "--path" {
+				path = e.args[i+1]
+			} else {
+				repo = e.args[i+1]
+			}
+			i++
+		case strings.HasPrefix(a, "-"):
+			return e.fail("unknown option %s (%s)", a, addUsage)
+		default:
+			pos = append(pos, a)
+		}
+	}
+	linking := path != ""
+	s := project.Spec{Team: "dev"}
+	switch {
+	case linking && len(pos) >= 1 && len(pos) <= 3:
+		s.Name, s.Repo = pos[0], repo
+		pos = pos[1:]
+	case !linking && repo == "" && len(pos) >= 2 && len(pos) <= 4:
+		s.Name, s.Repo = pos[0], pos[1]
+		pos = pos[2:]
+	default:
+		return e.fail("%s", addUsage)
+	}
+	if len(pos) > 0 {
+		s.Team = pos[0]
+	}
+	if len(pos) > 1 {
+		s.About = pos[1]
+	}
+	if linking && e.persona("link folders to the cadre") {
+		return 1
+	}
+	if err := project.CheckName(s.Name); err != nil {
+		return e.fail("%s", err)
+	}
+	r, ok := e.resolve()
+	if !ok {
+		return 1
+	}
+	var added project.Added
+	var err error
+	if linking {
+		added, err = project.Link(r.Cadre, s, path)
+	} else {
+		dir := ""
+		if !r.External {
+			if dir, ok = e.projectsDir(); !ok {
+				return 1
+			}
+		}
+		added, err = project.Add(r.Cadre, s, dir)
+	}
+	if err != nil {
+		return e.fail("%s", err)
+	}
+	for _, n := range added.Notes {
+		e.say("%s", n)
+	}
+	head := fmt.Sprintf("  %s added, %s", s.Name, added.Where)
+	switch {
+	case !trust:
+		e.say("%s", head)
+	case os.Getenv("CADRE_PERSONA") != "":
+		e.say("%s", head)
+		e.say("persona sessions cannot trust folders in Claude Code; run cadre project trust %s from the orchestrator", s.Name)
+	default:
+		results, note := project.Trust([]project.Folder{{Name: s.Name, Dir: added.Dir}})
+		res := results[0]
+		switch res.State {
+		case "trusted":
+			e.say("%s and trusted in Claude Code (registered projects are trusted; use --no-trust to skip)", head)
+		case "already":
+			e.say("%s; its folder was already trusted in Claude Code", head)
+		case "refused":
+			e.say("%s; not trusted in Claude Code, %s", head, res.Reason)
+		default:
+			e.say("%s", head)
+			e.say("%s", strings.Replace(note, "the folder", added.Dir, 1))
+		}
+	}
+	return 0
+}
+
+func runProjectSync(e *env) int {
+	trust := true
+	switch {
+	case len(e.args) == 1 && e.args[0] == "--no-trust":
+		trust = false
+	case len(e.args) != 0:
+		return e.fail("usage: cadre project sync [--no-trust]")
+	}
+	r, ok := e.resolve()
+	if !ok {
+		return 1
+	}
+	if !r.External && cadres.ProjectsDir() == "" && needsProjectsDir(r) {
+		if _, ok := e.projectsDir(); !ok {
+			return 1
+		}
+	}
+	results, err := project.Sync(r.Cadre)
+	if err != nil {
+		return e.fail("%s", err)
+	}
+	var cloned []project.Folder
+	code := 0
+	for _, res := range results {
+		switch res.State {
+		case "present":
+			e.say("  %s: present", res.Name)
+		case "cloned":
+			e.say("  %s: cloned to %s", res.Name, res.Dir)
+			cloned = append(cloned, project.Folder{Name: res.Name, Dir: res.Dir})
+		case "no repo":
+			e.say("  %s: missing, and no repo to clone", res.Name)
+		case "no folder":
+			e.say("  %s: no folder (set the projects folder with cadre project dir <folder>)", res.Name)
+		default:
+			e.say("  %s: not cloned: %s", res.Name, res.Err)
+			code = 1
+		}
+	}
+	if trust && len(cloned) > 0 {
+		e.trustReport(cloned)
+	}
+	return code
+}
+
+// needsProjectsDir reports whether some project has no path of its own.
+func needsProjectsDir(r *cadres.Resolved) bool {
+	reg, err := registry.Load(r.Registry())
+	if err != nil {
+		return false
+	}
+	for _, entry := range reg.Entries() {
+		if entry.Get("path") == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// trustReport trusts folders and prints a line each, then any note.
+func (e *env) trustReport(folders []project.Folder) {
+	if os.Getenv("CADRE_PERSONA") != "" {
+		var names []string
+		for _, f := range folders {
+			e.say("  %s: not trusted (see below)", f.Name)
+			names = append(names, f.Name)
+		}
+		e.say("persona sessions cannot trust folders in Claude Code; run cadre project trust %s from the orchestrator", strings.Join(names, " "))
+		return
+	}
+	results, note := project.Trust(folders)
+	for _, f := range folders {
+		for _, res := range results {
+			if res.Name == f.Name {
+				e.say("%s", res.Line())
+			}
+		}
+	}
+	if note != "" {
+		e.say("%s", note)
+	}
+}
+
+func runProjectTrust(e *env) int {
+	if e.persona("trust folders in Claude Code") {
+		return 1
+	}
+	if len(e.args) != 1 || (strings.HasPrefix(e.args[0], "-") && e.args[0] != "--all") {
+		return e.fail("usage: cadre project trust <name> | --all")
+	}
+	r, ok := e.resolve()
+	if !ok {
+		return 1
+	}
+	reg, err := registry.Load(r.Registry())
+	if err != nil {
+		return e.fail("%s", err)
+	}
+	var folders []project.Folder
+	if e.args[0] == "--all" {
+		for _, entry := range reg.Entries() {
+			d := cadres.ProjectDir(r.Cadre, entry)
+			if st, err := os.Stat(d); d == "" || err != nil || !st.IsDir() {
+				e.say("  %s: missing locally, skipped (run cadre project sync)", entry.Name)
+				continue
+			}
+			folders = append(folders, project.Folder{Name: entry.Name, Dir: d})
+		}
+	} else {
+		entry := reg.Get(e.args[0])
+		if entry == nil {
+			return e.fail("'%s' is not a registered project (only registry projects are trusted; see cadre ls)", e.args[0])
+		}
+		d := cadres.ProjectDir(r.Cadre, entry)
+		if st, err := os.Stat(d); d == "" || err != nil || !st.IsDir() {
+			return e.fail("project '%s' is not at %s (run cadre project sync)", e.args[0], d)
+		}
+		folders = []project.Folder{{Name: entry.Name, Dir: d}}
+	}
+	if len(folders) > 0 {
+		e.trustReport(folders)
+	}
+	return 0
+}

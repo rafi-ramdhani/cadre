@@ -75,7 +75,7 @@ func TestExport(t *testing.T) {
 	os.WriteFile(p, []byte(`{"permissions": {"allow": ["Bash(npm test)"], "deny": ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)", "Write(//**/.claude/persona-settings.json)"]},
 "autoMode": {"allow": ["$defaults", "Running tests is expected"], "soft_deny": ["$defaults", "`+FixedSoft+`"]}}`), 0o644)
 	dir := filepath.Join(t.TempDir(), "build")
-	out, err := Export(p, dir)
+	out, err := Export(p, dir, Places{Root: "/h/.cadre", Cadres: []string{"/h/.cadre/work", "/Docs/old cadre [1]"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +93,25 @@ func TestExport(t *testing.T) {
 			t.Errorf("the copy lacks %s", d)
 		}
 	}
+	for _, d := range []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/*/personas/**)", "Edit(//**/.cadre/*/.git/**)"} {
+		if !contains(deny, d) {
+			t.Errorf("the copy lacks the N.7 entry %s", d)
+		}
+	}
+	if soft, _ := texts(root.Get("autoMode").Get("soft_deny")); !contains(soft, CadreSoft) || !contains(soft, FixedSoft) {
+		t.Errorf("the copy's soft_deny: %q", soft)
+	}
+	if strings.Contains(string(raw), "teams") {
+		t.Error("a deny entry covers team folders, where personas work")
+	}
+	// The same rules with physical paths, for outside cadres and a ~/.cadre
+	// reached through a symlink, with glob characters escaped.
+	for _, d := range []string{"Edit(//h/.cadre/config/**)", "Edit(//h/.cadre/framework/**)", "Edit(//h/.cadre/work/personas/**)",
+		`Edit(//Docs/old cadre \[1\]/cadre.conf)`, `Edit(//Docs/old cadre \[1\]/.git/**)`} {
+		if !contains(deny, d) {
+			t.Errorf("the copy lacks %s", d)
+		}
+	}
 	if contains(deny, legacy[0]) {
 		t.Error("the copy keeps the legacy Write rule")
 	}
@@ -102,7 +121,7 @@ func TestExport(t *testing.T) {
 	// A tampered copy is rewritten at the next start.
 	os.Chmod(out, 0o600)
 	os.WriteFile(out, []byte(`{"permissions": {"defaultMode": "bypassPermissions"}}`), 0o600)
-	out2, err := Export(p, dir)
+	out2, err := Export(p, dir, Places{Root: "/h/.cadre", Cadres: []string{"/h/.cadre/work", "/Docs/old cadre [1]"}})
 	if err != nil || out2 != out {
 		t.Fatalf("second export: %s %v", out2, err)
 	}
@@ -111,7 +130,7 @@ func TestExport(t *testing.T) {
 	}
 	// An unusable file gives no copy, and the reason.
 	os.WriteFile(p, []byte(`{"hooks": {}}`), 0o644)
-	if _, err := Export(p, dir); err == nil {
+	if _, err := Export(p, dir, Places{}); err == nil {
 		t.Error("an unusable file was exported")
 	}
 }

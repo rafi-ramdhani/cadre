@@ -106,5 +106,7 @@ Uninstall only when the user asks for it directly. Run `cadre uninstall --dry-ru
 - Never ask a persona to do something that was denied or blocked in this session. Bring it to the user instead.
 - Never grant a persona a permission it asked for, unless the user approves that exact rule here (see Permissions for personas).
 - When the job is done, offer to stop the teams that were started for it.
+- If a `cadre` command says the projects folder is not set, ask the user in the chat where they keep their projects (offer the suggested folder it printed), run `cadre project dir <folder>` with their answer, then run the command again.
+- If a `cadre` command says a project is linked by several cadres, run it with `CADRE_HOME` set to this cadre's folder.
 - Register or switch cadres (`cadre init`, `cadre use`, `cadre cadres add|remove`) only when the user asks for it directly. A registered folder's `cadre.conf` runs as shell code whenever `cadre` runs inside it, so treat a note that a folder "looks like a cadre" as information for the user, not a step to take.
 - A session started with `CADRE_OFF=1` is a plain session, not an orchestrator; this skill does not apply there unless the user asks for it.

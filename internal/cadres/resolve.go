@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rafi-ramdhani/cadre/internal/fsx"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/registry"
 )
@@ -226,4 +227,39 @@ func Linking(dir string) []Cadre {
 		}
 	}
 	return out
+}
+
+// SuggestProjectsDir is where new clones go when the user has not said:
+// ~/Developer if it exists, else ~/Projects if it exists, else ~/Developer.
+func SuggestProjectsDir() string {
+	home := paths.Home()
+	for _, d := range []string{"Developer", "Projects"} {
+		if st, err := os.Stat(filepath.Join(home, d)); err == nil && st.IsDir() {
+			return filepath.Join(home, d)
+		}
+	}
+	return filepath.Join(home, "Developer")
+}
+
+// SetProjectsDir records where new clones go, as ~/... under the home
+// folder. Only future clones are affected.
+func SetProjectsDir(dir string) error {
+	if err := os.MkdirAll(ConfigDir(), 0o700); err != nil {
+		return err
+	}
+	return fsx.WriteFile(Config("projects-dir"), []byte(Tilde(paths.Real(dir))+"\n"), 0o600)
+}
+
+// Tilde writes a physical path as ~/... when it is under the home folder
+// (the registry travels with the cadre's git, and ~ means the same place
+// on the user's other machines), and as it is otherwise.
+func Tilde(p string) string {
+	home := paths.Home()
+	if p == home {
+		return "~"
+	}
+	if paths.Within(p, home) {
+		return "~" + p[len(home):]
+	}
+	return p
 }

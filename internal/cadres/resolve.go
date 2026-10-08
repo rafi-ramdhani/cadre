@@ -72,6 +72,15 @@ func Resolve(cwd string, ask Asker) (*Resolved, error) {
 		p := paths.Real(env)
 		c, ok := At(p)
 		if !ok {
+			// Another spelling of a listed cadre (letter case) is that cadre.
+			list, _ := List()
+			for _, l := range list {
+				if l.Present() && paths.Inside(p, l.Path) && paths.Inside(l.Path, p) {
+					c, ok = l, true
+				}
+			}
+		}
+		if !ok {
 			c = Cadre{Name: filepath.Base(p), Path: p, External: !Inside(p)}
 		}
 		return &Resolved{Cadre: c, From: "from CADRE_HOME", Default: def}, nil
@@ -82,7 +91,7 @@ func Resolve(cwd string, ask Asker) (*Resolved, error) {
 	}
 	var best *Cadre
 	for i, c := range list {
-		if c.Present() && paths.Within(cwd, c.Path) && (best == nil || len(c.Path) > len(best.Path)) {
+		if c.Present() && paths.Inside(cwd, c.Path) && (best == nil || len(c.Path) > len(best.Path)) {
 			best = &list[i]
 		}
 	}
@@ -140,7 +149,7 @@ func byProject(cwd string, list []Cadre, ask Asker) (*Resolved, error) {
 				continue
 			}
 			d = paths.Real(d)
-			if !paths.Within(cwd, d) {
+			if !paths.Inside(cwd, d) {
 				continue
 			}
 			switch {

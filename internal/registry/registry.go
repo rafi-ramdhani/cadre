@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/rafi-ramdhani/cadre/internal/fsx"
 )
@@ -36,6 +38,8 @@ type File struct {
 // line with a ":" is a key and value of the current entry, split at the
 // first ":" and trimmed.
 func Parse(data string) *File {
+	// Python read a lone CR as a line end too.
+	data = strings.ReplaceAll(strings.ReplaceAll(data, "\r\n", "\n"), "\r", "\n")
 	f := &File{lines: strings.Split(data, "\n")}
 	if n := len(f.lines); n > 0 && f.lines[n-1] == "" {
 		f.lines = f.lines[:n-1]
@@ -48,11 +52,11 @@ func (f *File) index() {
 	f.entries = nil
 	var cur *Entry
 	for i, line := range f.lines {
-		s := strings.TrimRight(line, " \t\r")
+		s := strings.TrimRightFunc(line, unicode.IsSpace)
 		if strings.TrimSpace(s) == "" || strings.HasPrefix(strings.TrimSpace(s), "#") {
 			continue
 		}
-		if !isSpace(s[0]) && strings.HasSuffix(s, ":") {
+		if first, _ := utf8.DecodeRuneInString(s); !unicode.IsSpace(first) && strings.HasSuffix(s, ":") {
 			name := strings.TrimSuffix(strings.TrimSpace(s), ":")
 			// A repeated name starts the entry again in its first place,
 			// as the bash version's dict did.
@@ -76,8 +80,6 @@ func (f *File) index() {
 		}
 	}
 }
-
-func isSpace(b byte) bool { return b == ' ' || b == '\t' }
 
 // Load reads the registry at path; a missing file is an empty registry.
 func Load(path string) (*File, error) {

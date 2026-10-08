@@ -129,6 +129,10 @@ func TestTeamPersonaAndProjects(t *testing.T) {
 	}
 	refused(t, "already exists", "persona", "add", "ops/sre")
 	refused(t, "usage", "persona", "add", "ops")
+	t.Setenv("CADRE_PERSONA", "x")
+	refused(t, "persona sessions cannot add teams", "team", "add", "evil")
+	refused(t, "persona sessions cannot add personas", "persona", "add", "ops/evil")
+	t.Setenv("CADRE_PERSONA", "")
 
 	os.MkdirAll(home+"/Developer/app", 0o755)
 	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte("app:\n  repo: me/app\n  team: dev\n  about: the app\n  path: ~/Developer/app\ngone:\n  repo: me/gone\n  team: dev\n  about: missing\n  path: ~/Developer/gone\n"), 0o644)
@@ -162,6 +166,9 @@ func TestOldConfigIsMovedOnce(t *testing.T) {
 	}
 	if _, err := os.Stat(home + "/.config/cadre"); err == nil {
 		t.Error("~/.config/cadre is still there")
+	}
+	if _, err := os.Stat(home + "/.config/cadre.moved-to-0.2.0/home"); err != nil {
+		t.Error("the old folder was not kept aside")
 	}
 	_, _, errOut = call("projects")
 	if strings.Contains(errOut, "moved") {

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // maxLinks bounds symlink resolution, so a loop ends. For a loop, the
@@ -71,3 +73,29 @@ func Home() string {
 func Within(path, dir string) bool {
 	return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, "/")+"/")
 }
+
+// Inside reports whether path is the folder dir or inside it. Folders are
+// compared by identity (os.SameFile) as well as by spelling, so another
+// spelling of the same folder matches: on macOS's case-insensitive disk,
+// ~/.CADRE/WORK is ~/.cadre/work.
+func Inside(path, dir string) bool {
+	if Within(path, dir) {
+		return true
+	}
+	target, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	for p := path; ; p = filepath.Dir(p) {
+		if st, err := os.Stat(p); err == nil && os.SameFile(st, target) {
+			return true
+		}
+		if p == "/" || p == "." {
+			return false
+		}
+	}
+}
+
+// Getwd is the current folder as the kernel has it, not $PWD, which keeps
+// whatever spelling the user typed.
+func Getwd() (string, error) { return unix.Getwd() }

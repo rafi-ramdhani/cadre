@@ -2,10 +2,12 @@ package cadres
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rafi-ramdhani/cadre/internal/fsx"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
@@ -20,8 +22,10 @@ func OldConfig() string { return filepath.Join(paths.Home(), ".config", "cadre")
 //     cadres list) is listed in external, so it keeps working where it is;
 //   - the settings fingerprints are kept, merged with any already there.
 //
-// Then ~/.config/cadre is removed. It does nothing when the old folder is
-// not there. It returns what it did, for a one-line note.
+// Then ~/.config/cadre is renamed to ~/.config/cadre.moved-to-0.2.0, not
+// deleted: files cadre does not know stay, and going back stays possible.
+// It does nothing when the old folder is not there. It returns what it did,
+// for a one-line note.
 func CopyOldConfig() (string, error) {
 	old := OldConfig()
 	if _, err := os.Stat(old); errors.Is(err, fs.ErrNotExist) {
@@ -86,10 +90,14 @@ func CopyOldConfig() (string, error) {
 			return "", err
 		}
 	}
-	if err := os.RemoveAll(old); err != nil {
+	aside := old + ".moved-to-0.2.0"
+	if _, err := os.Lstat(aside); err == nil {
+		aside = fmt.Sprintf("%s.moved-to-0.2.0-%d", old, time.Now().Unix())
+	}
+	if err := os.Rename(old, aside); err != nil {
 		return "", err
 	}
-	return "moved cadre's settings from " + old + " to " + ConfigDir(), nil
+	return "moved cadre's settings from " + old + " to " + ConfigDir() + " (the old folder is kept as " + aside + ")", nil
 }
 
 // mergeHashes joins two fingerprint files; lines in newer win by path.

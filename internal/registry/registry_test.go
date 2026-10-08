@@ -105,3 +105,11 @@ func TestSetAddsAFieldAfterTheLastOne(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// Python read Unicode spaces as whitespace and a lone CR as a line end.
+func TestParseExoticWhitespace(t *testing.T) {
+	f := Parse("a:\r  repo: x\r\n\u00a0team: t\n\u3000# c\nb:\u00a0\n")
+	if f.Get("a") == nil || f.Get("a").Get("repo") != "x" || f.Get("a").Get("team") != "t" || f.Get("b") == nil {
+		t.Errorf("entries %+v", f.Entries())
+	}
+}

@@ -16,6 +16,10 @@
 #   cadre path <project>                      print a project's local folder
 #   cadre sync [--no-trust]                   clone missing registry projects
 #   cadre trust <project> | --all             trust registry project folders in Claude Code
+#   cadre allow [list]                        list the grants every persona gets
+#   cadre allow add [--once] <rule>           grant a permission rule to personas
+#   cadre allow add [--once] --auto "<text>"  grant a plain-English auto-mode allowance
+#   cadre allow remove <rule|number|--once>   remove a grant, or every one-time grant
 #   cadre update [--check]                    update the framework (fast-forward only)
 #   cadre version                             print the version
 #   cadre uninstall [--yes | --dry-run]       remove the command, skill, hook and
@@ -657,6 +661,237 @@ check_persona_settings() {
   esac
 }
 
+# Reads and changes the grants in the persona settings file and its .once
+# sidecar ("<epoch><TAB><entry>" per one-time grant).
+#   allow_edit list <file> <once>
+#   allow_edit add <file> <once> rule|auto <entry> [once]
+#   allow_edit remove <file> <once> <entry | number | --once>
+# add and remove print the commit message first, then what changed. Exit: 0
+# changed, 3 nothing to change, 1 refused (with the reason).
+allow_edit() {
+  python3 - "$@" <<'PY'
+import json, os, re, sys, tempfile, time
+
+op, path, oncefile, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+BARE = {"Bash", "PowerShell", "Edit", "Write", "WebFetch"}
+SHELLS = {"bash", "sh", "zsh", "python", "python3", "node", "ruby", "perl",
+          "eval", "exec", "sudo", "env", "xargs"}
+BLANKET = ["anything", "any command", "all files", "everything", "any file", "all commands"]
+
+
+def refuse(msg):
+    print(msg)
+    sys.exit(1)
+
+
+def check_rule(rule):
+    """Refuses a rule that is too broad; returns a warning or None."""
+    m = re.fullmatch(r"([A-Za-z][A-Za-z0-9_*-]*)(?:\((.*)\))?", rule, re.S)
+    if rule.strip() == "*":
+        refuse("refused: * allows every tool; name one tool and a narrow use, such as Bash(npm test)")
+    if not m or "\n" in rule:
+        refuse("refused: '%s' is not a permission rule (Tool or Tool(specifier)); "
+               "for a plain-English allowance use: cadre allow add --auto \"<sentence>\"" % rule)
+    tool, spec = m.group(1), m.group(2)
+    if "*" in tool:
+        refuse("refused: %s puts a wildcard in the tool name; name one tool" % rule)
+    if tool.startswith("mcp__"):
+        parts = tool.split("__")
+        if len(parts) < 3 or not parts[2]:
+            refuse("refused: %s allows a whole MCP server; name one tool, such as %s__<tool>" % (rule, tool))
+    if spec is None:
+        if tool in BARE:
+            refuse("refused: a bare %s allows every use of it; add a narrow specifier, such as %s(<exact command or path>)" % (tool, tool))
+    else:
+        if re.fullmatch(r"[\s*:/~.]*", spec):
+            refuse("refused: %s has only a wildcard; give an exact command, prefix or path" % rule)
+        if tool == "Bash":
+            words = spec.replace(":*", " *").split()
+            first = os.path.basename(words[0])
+            if first in SHELLS and "*" in spec:
+                refuse("refused: %s lets a %s run anything; allow the exact command instead" % (rule, first))
+            if first == "cadre" and (len(words) < 2 or "*" in words[1]):
+                refuse("refused: %s would include cadre allow; name the cadre command, such as Bash(cadre up:*)" % rule)
+    if "persona-settings" in rule or re.search(r"\bcadre\s+allow\b", rule):
+        refuse("refused: %s targets the persona settings or cadre allow, which only the user changes" % rule)
+    if "*" in rule:
+        return "warning: %s contains * and may allow more than you mean" % rule
+    return None
+
+
+def check_auto(text):
+    if "\n" in text or not text.strip():
+        refuse("refused: an --auto entry is one non-empty line")
+    if len(text) > 300:
+        refuse("refused: an --auto entry is at most 300 characters (this one has %d)" % len(text))
+    if text.strip() == "$defaults":
+        refuse("refused: $defaults is already there")
+    if "persona-settings" in text or re.search(r"\bcadre\s+allow\b", text):
+        refuse("refused: this entry is about the persona settings or cadre allow, which only the user changes")
+    low = text.lower()
+    hits = [w for w in BLANKET if w in low]
+    if hits:
+        return "warning: the entry says \"%s\"; check that it does not allow more than you mean" % hits[0]
+    return None
+
+
+def atomic(target, text):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".cadre-")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.replace(tmp, target)
+
+
+data = json.load(open(path))
+perm_allow = data.setdefault("permissions", {}).setdefault("allow", [])
+auto_allow = data.setdefault("autoMode", {}).setdefault("allow", ["$defaults"])
+once = []
+if os.path.exists(oncefile):
+    for line in open(oncefile):
+        t, _, e = line.rstrip("\n").partition("\t")
+        if e:
+            once.append((t, e))
+once_entries = [e for _, e in once]
+entries = [("rule", e) for e in perm_allow] + [("auto", e) for e in auto_allow if e != "$defaults"]
+
+
+def save():
+    atomic(path, json.dumps(data, indent=2) + "\n")
+    atomic(oncefile, "".join("%s\t%s\n" % (t, e) for t, e in once))
+
+
+def ago(t):
+    s = int(time.time()) - int(t)
+    for unit, n in (("d", 86400), ("h", 3600), ("m", 60)):
+        if s >= n:
+            return "%d%s ago" % (s // n, unit)
+    return "just now"
+
+
+if op == "list":
+    print("Grants for personas (%s):" % path)
+    if not entries:
+        print("  none yet")
+    for i, (kind, e) in enumerate(entries, 1):
+        marks = []
+        if e in once_entries:
+            marks.append("once, added " + ago(dict((x, y) for y, x in once)[e]))
+        if kind == "rule" and "*" in e:
+            marks.append("wide: contains *")
+        print("  %d. %-4s  %s%s" % (i, kind, e, "   [" + "; ".join(marks) + "]" if marks else ""))
+    print("Built in, not listed: deny rules and a soft_deny entry that keep personas from changing these grants.")
+elif op == "add":
+    kind, entry, is_once = args[0], args[1], len(args) > 2
+    warn = check_auto(entry) if kind == "auto" else check_rule(entry)
+    if (kind, entry) in entries:
+        print("Allow for personas: %s" % entry)
+        print("  %s is already granted; nothing changed" % entry)
+        sys.exit(3)
+    (auto_allow if kind == "auto" else perm_allow).append(entry)
+    if is_once:
+        once.append((str(int(time.time())), entry))
+    save()
+    print("Allow for personas%s: %s" % (" once" if is_once else "", entry))
+    if warn:
+        print(warn)
+    print("  added %s%s: %s" % ("one-time " if is_once else "", "autoMode allow entry" if kind == "auto" else "rule", entry))
+elif op == "remove":
+    target = args[0]
+    if target == "--once":
+        gone = [e for e in once_entries]
+        if not gone:
+            print("Remove one-time grants for personas")
+            print("  there are no one-time grants; nothing changed")
+            sys.exit(3)
+        msg = "Remove one-time grants for personas"
+    else:
+        if target.isdigit():
+            n = int(target)
+            if not 1 <= n <= len(entries):
+                refuse("there is no grant number %d (see cadre allow list)" % n)
+            gone = [entries[n - 1][1]]
+        elif any(e == target for _, e in entries):
+            gone = [target]
+        else:
+            refuse("%s is not granted (see cadre allow list)" % target)
+        msg = "Remove grant for personas: %s" % gone[0]
+    for e in gone:
+        if e in perm_allow:
+            perm_allow.remove(e)
+        if e in auto_allow:
+            auto_allow.remove(e)
+    once = [(t, e) for t, e in once if e not in gone]
+    save()
+    print(msg)
+    for e in gone:
+        print("  removed: %s" % e)
+PY
+}
+
+# After a grant changes: which running personas may still use the old
+# grants (the design assumes Claude Code does not reload --settings files).
+allow_restart_note() {
+  local sessions; sessions=$(running_sessions)
+  if [ -z "$sessions" ]; then echo "Personas started from now on get this change."; return; fi
+  echo "Running personas may not see this change until restarted:"
+  show_sessions "$sessions"
+  echo "Restart one with:"
+  restart_commands "$sessions"
+}
+
+cmd_allow() {
+  local sub=${1:-list} code=0 out why
+  local once="${PSET%.json}.once"
+  if [ $# -gt 0 ]; then shift; fi
+  case $sub in
+    list)
+      [ $# -eq 0 ] || die "usage: cadre allow list"
+      if [ ! -e "$PSET" ]; then echo "Grants for personas: none yet ($PSET is created by the first cadre up or cadre allow add)"; return; fi
+      if ! why=$(persona_settings check "$PSET"); then echo "warning: personas start without $PSET because $why" >&2; fi
+      persona_settings verify "$PSET" "$PSET_HASHES" || code=$?
+      if [ "$code" = 1 ]; then echo "warning: $PSET was changed outside cadre allow (see git -C $CADRE_HOME log -p -- .claude/persona-settings.json)" >&2; fi
+      allow_edit list "$PSET" "$once" || die "could not read $PSET" ;;
+    add|remove)
+      [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot change permissions; report the blocked action to the orchestrator instead"
+      local args=() kind=rule a once_flag=""
+      for a in "$@"; do
+        case $a in
+          --once) once_flag=1 ;;
+          --auto) kind=auto ;;
+          --*) die "unknown option $a (see cadre help)" ;;
+          *) args+=("$a") ;;
+        esac
+      done
+      if [ "$sub" = add ]; then
+        [ ${#args[@]} -eq 1 ] || die "usage: cadre allow add [--once] <rule> | cadre allow add [--once] --auto \"<sentence>\""
+      else
+        [ "$kind" = rule ] || die "usage: cadre allow remove <rule | number> | cadre allow remove --once"
+        if [ -n "$once_flag" ]; then [ ${#args[@]} -eq 0 ] || die "usage: cadre allow remove --once"; args=(--once); fi
+        [ ${#args[@]} -eq 1 ] || die "usage: cadre allow remove <rule | number> | cadre allow remove --once"
+      fi
+      ensure_persona_settings
+      why=$(persona_settings check "$PSET") || die "$PSET cannot be changed because $why; restore it with git -C $CADRE_HOME checkout -- .claude/persona-settings.json"
+      persona_settings verify "$PSET" "$PSET_HASHES" || code=$?
+      if [ "$code" = 1 ]; then echo "warning: $PSET was changed outside cadre allow (see git -C $CADRE_HOME log -p -- .claude/persona-settings.json); this change keeps those edits" >&2; fi
+      code=0
+      if [ "$sub" = add ]; then
+        out=$(allow_edit add "$PSET" "$once" "$kind" "${args[0]}" ${once_flag:+once}) || code=$?
+      else
+        out=$(allow_edit remove "$PSET" "$once" "${args[0]}") || code=$?
+      fi
+      case $code in
+        0)
+          tail -n +2 <<<"$out"
+          persona_settings record "$PSET" "$PSET_HASHES"
+          commit_change "$(head -1 <<<"$out")" "$PSET" "$once"
+          allow_restart_note ;;
+        3) tail -n +2 <<<"$out" ;;
+        *) echo "cadre: $out" >&2; exit 1 ;;
+      esac ;;
+    *) die "usage: cadre allow [list | add [--once] [--auto] <entry> | remove <entry | number | --once>]" ;;
+  esac
+}
+
 # Claude Code's global config, where workspace trust is stored per folder.
 claude_config() { echo "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"; }
 
@@ -1155,7 +1390,7 @@ case "${1:-}" in
   update)   shift; cmd_update "$@"; exit ;;
   down)     case " $* " in *" --all "*) shift; cmd_down_all "$@"; exit ;; esac ;;
   uninstall) shift; cmd_uninstall "$@"; exit ;;
-  ""|-h|--help|help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
+  ""|-h|--help|help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
   version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
 esac
 load_home
@@ -1170,5 +1405,6 @@ case "$1" in
   path)     [ -n "${2:-}" ] || die "usage: cadre path <project>"; read -r _ p <<<"$(locate "$2")"; echo "$p" ;;
   sync)     shift; cmd_sync "$@" ;;
   trust)    shift; cmd_trust "$@" ;;
+  allow)    shift; cmd_allow "$@" ;;
   *)        die "unknown command '$1' (see cadre help)" ;;
 esac

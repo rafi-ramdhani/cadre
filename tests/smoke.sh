@@ -251,6 +251,72 @@ check "hand edit still passed when valid" test "$(settings_arg dev-app-engineer)
 git -C "$C" checkout -q -- .claude/persona-settings.json
 out=$(relaunch)
 check "restored file: no warning" test -z "$(grep warning <<<"$out" || true)"
+
+echo "allow"
+# has_grant <list> <entry>: whether the persona settings list holds entry.
+has_grant() { py 'import json,sys; d=json.load(open(sys.argv[1])); k,l=sys.argv[2].split("."); sys.exit(0 if sys.argv[3] in d[k][l] else 1)' "$PS" "$1" "$2"; }
+last_commit() { git -C "$C" log -1 --format=%s; }
+out=$(cadre allow add 'Bash(git push origin HEAD:main)')
+check "add a rule" has_grant permissions.allow 'Bash(git push origin HEAD:main)'
+check "add prints the change" grep -q "added rule: Bash(git push origin HEAD:main)" <<<"$out"
+check "add commits" test "$(last_commit)" = "Allow for personas: Bash(git push origin HEAD:main)"
+check "cadre repo clean after add" test -z "$(git -C "$C" status --porcelain)"
+check "add lists the running persona to restart" grep -qx "  cadre down dev/engineer app && cadre up dev/engineer app" <<<"$out"
+check "the changed file still validates" bash -c "! cadre up dev/engineer app 2>&1 | grep -q warning"
+out=$(cadre allow add --auto "Merging a reviewed feature branch into main is expected")
+# shellcheck disable=SC2016 # python reads "$defaults" literally
+check "add an autoMode entry after \$defaults" py 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d["autoMode"]["allow"] == ["$defaults", "Merging a reviewed feature branch into main is expected"] else 1)' "$PS"
+cp "$PS" "$T/ps.before"
+out=$(cadre allow add 'Bash(git push origin HEAD:main)')
+check "duplicate is a no-op" bash -c "grep -q 'already granted' <<<'$out' && cmp -s '$PS' '$T/ps.before'"
+for rule in '*' 'Bash' 'Edit' 'Write' 'WebFetch' 'PowerShell' 'Bash(*)' 'Read(**)' 'Bash(:*)' 'Bash(python:*)' \
+    'Bash(sudo *)' 'Bash(sh:*)' 'Bash(/usr/bin/env *)' 'mcp__srv' 'mcp__srv__*' 'Edit(//x/.claude/persona-settings.json)' \
+    'Bash(cadre allow add x)' 'Bash(cadre:*)'; do
+  if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
+  grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
+  cmp -s "$PS" "$T/ps.before" || fail "refused leaves the file: $rule"
+done
+ok "too-broad rules refused, file unchanged"
+check "a non-rule needs --auto" bash -c "cadre allow add 'run the tests' 2>&1 | grep -q -- --auto"
+check "a long --auto entry refused" bash -c "! cadre allow add --auto '$(printf 'x%.0s' $(seq 301))'"
+check "\$defaults refused" bash -c "! cadre allow add --auto '\$defaults'"
+out=$(cadre allow add 'Bash(npm run test:*)')
+check "a wildcard rule is accepted with a warning" grep -q "warning: Bash(npm run test:\*) contains \*" <<<"$out"
+out=$(cadre allow add --auto "Running anything in the scratch folder is fine")
+check "a blanket --auto entry is warned" grep -q 'warning: the entry says "anything"' <<<"$out"
+cadre allow add --once 'Bash(make deploy)' >/dev/null
+check "--once recorded in the sidecar" grep -q "	Bash(make deploy)$" "$C/.claude/persona-settings.once"
+out=$(cadre allow list)
+check "list numbers the grants" grep -qx "  1. rule  Bash(git push origin HEAD:main)" <<<"$out"
+check "list flags wildcards" grep -q "Bash(npm run test:\*)   \[wide: contains \*\]" <<<"$out"
+check "list marks one-time grants" grep -q "Bash(make deploy)   \[once, added just now\]" <<<"$out"
+check "list shows autoMode entries" grep -q "auto  Merging a reviewed" <<<"$out"
+check "list hides the built-in entries" bash -c "! grep -q 'cadre allow:' <<<'$out'"
+check "plain cadre allow lists" test "$(cadre allow)" = "$out"
+n=$(grep 'Bash(npm run test:\*)' <<<"$out" | sed 's/^ *\([0-9]*\)\..*/\1/')
+cadre allow remove "$n" >/dev/null
+check "remove by number" bash -c "! grep -q 'npm run test' '$PS'"
+check "remove commits" test "$(last_commit)" = "Remove grant for personas: Bash(npm run test:*)"
+cadre allow remove 'Bash(git push origin HEAD:main)' >/dev/null
+check "remove by text" bash -c "! grep -q 'git push origin' '$PS'"
+check "removing a missing grant fails" bash -c "! cadre allow remove 'Bash(git push origin HEAD:main)'"
+check "removing a missing number fails" bash -c "! cadre allow remove 99"
+cadre allow remove --once >/dev/null
+check "remove --once removes one-time grants" bash -c "! grep -q 'make deploy' '$PS' && ! grep -q . '$C/.claude/persona-settings.once'"
+check "remove --once keeps the others" has_grant autoMode.allow "Merging a reviewed feature branch into main is expected"
+cp "$PS" "$T/ps.before"
+check "persona cannot add" bash -c "CADRE_PERSONA=x cadre allow add 'Bash(true)' 2>&1 | grep -q 'persona sessions cannot change permissions'"
+check "persona cannot remove" bash -c "! CADRE_PERSONA=x cadre allow remove 1"
+check "persona changed nothing" cmp -s "$PS" "$T/ps.before"
+check "persona can list" env CADRE_PERSONA=x cadre allow list
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"].append("Bash(true)"); json.dump(d, open(sys.argv[1], "w"))' "$PS"
+check "list warns about a hand edit" bash -c "cadre allow list 2>&1 | grep -q 'changed outside cadre allow'"
+git -C "$C" checkout -q -- .claude/persona-settings.json
+cadre down dev/engineer app >/dev/null
+check "with nothing running, says who gets it" bash -c "cadre allow add 'Bash(true)' | grep -q 'Personas started from now on get this change'"
+cadre allow remove 'Bash(true)' >/dev/null
+check "cadre repo clean after allow" test -z "$(git -C "$C" status --porcelain)"
+cadre up dev/engineer app >/dev/null
 cadre up ops >/dev/null
 check "team without project running" bash -c "cadre ls | grep -q '\[running\] ops-sre'"
 cadre down dev app >/dev/null

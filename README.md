@@ -78,6 +78,7 @@ cadre down dev my-app           # stop it
 cadre down --all                # stop every cadre session (asks first; --yes skips)
 cadre add project <name> <repo> [team] [about]   # also trusts its folder (--no-trust skips)
 cadre trust <project> | --all   # trust registered projects added before 0.2.0
+cadre allow add '<rule>'        # grant a narrow permission to every persona (list, remove, --once, --auto)
 cadre add team <team>
 cadre add persona <team>/<role>
 cadre sync                      # clone registry projects missing on this machine, and trust them
@@ -104,6 +105,8 @@ See [docs/guide.md](docs/guide.md) for writing personas, shaping the playbook, t
 **Every persona is a full Claude Code session.** Five running personas use roughly five times the usage of one. The orchestrator starts only the personas a task needs and offers to stop them afterwards.
 
 **Permission mode is your call.** Personas run in the mode set in `cadre.conf` (default: `default`). Cross-session messages are delivered without approval only when the orchestrator and the persona run in the same permission-mode class; otherwise they wait for you in the persona's window. Choose `auto` or another mode deliberately, knowing the personas act on messages from the orchestrator.
+
+**Grants reach personas through `cadre allow`.** When you tell the orchestrator "allow the personas to push to main in my-app", consent stays in the orchestrator: a message from it never counts as your consent in a persona. `cadre allow add 'Bash(git push origin HEAD:main)'` records the rule in your cadre's persona settings file, which every persona starts with. It refuses blanket rules (`*`, a bare `Bash`, `Edit`, `Write`, `WebFetch` or `PowerShell`, a lone wildcard, a whole MCP server, a shell or interpreter followed by a wildcard) and anything that targets the settings or `cadre allow` itself, warns about other wildcards, and commits every change. Personas cannot run it. `--once` marks a grant for removal after the task, and `--auto` adds a plain-English allowance for auto mode.
 
 **Registered projects are trusted.** `cadre add project` and `cadre sync` mark each project's folder as trusted in Claude Code, so personas start there without the trust prompt. Trust also lets that repo's own `.claude/settings.json` rules and hooks take effect, so register only repos you trust, or pass `--no-trust`.
 

@@ -1694,6 +1694,10 @@ commit_change() {
   if git -C "$CADRE_HOME" add -- "$@"; then git -C "$CADRE_HOME" commit -qm "$msg" -- "$@" || true; fi
 }
 
+# Whether $1 can be a team's or a role's name: it is part of session names
+# and of paths, so it may use letters, digits, - and _ only (no / or ..).
+part_name() { [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; }
+
 cmd_add() {
   case "${1:-}" in
     project)
@@ -1724,9 +1728,14 @@ cmd_add() {
       esac ;;
     team)
       [ -n "${2:-}" ] || die "usage: cadre add team <team>"
+      part_name "$2" || die "a team's name may use letters, digits, - and _"
+      [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot add teams; ask the user in the orchestrator"
       mkdir -p "$PERSONAS/$2"; echo "  team $2 added; add personas with cadre add persona $2/<role>" ;;
     persona)
       [[ ${2:-} == */* ]] || die "usage: cadre add persona <team>/<role>"
+      if ! part_name "${2%%/*}" || ! part_name "${2#*/}"; then die "a team's and a role's name may use letters, digits, - and _"; fi
+      # A new persona's prompt is launched later with the cadre's grants.
+      [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot add personas; ask the user in the orchestrator"
       local f="$PERSONAS/$2.md"
       [ -e "$f" ] && die "$f already exists"
       mkdir -p "$(dirname "$f")"

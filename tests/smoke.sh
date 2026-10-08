@@ -83,6 +83,14 @@ check "path resolves" test "$(cadre path app)" = "$C/projects/app"
 cadre add team ops >/dev/null
 cadre add persona ops/sre >/dev/null
 check "persona created" test -f "$C/personas/ops/sre.md"
+for args in "team ../../../outside-team" "team .hidden" "team -x" "team a.b" "team 'a b'" \
+    "persona dev/../../../../pw" "persona ../x/role" "persona dev/a.b" "persona dev/-x"; do
+  if eval "cadre add $args" >/dev/null 2>&1; then fail "refused: cadre add $args"; fi
+done
+check "no folder made outside personas/" bash -c "test ! -e '$T/outside-team' && test ! -e '$C/../outside-team' && test ! -e '$T/pw.md' && test ! -e '$C/../../pw.md'"
+ok "team and role names that could leave personas/ refused"
+check "persona sessions cannot add teams" bash -c "! CADRE_PERSONA=x cadre add team evil 2>/dev/null && test ! -e '$C/personas/evil'"
+check "persona sessions cannot add personas" bash -c "! CADRE_PERSONA=x cadre add persona ops/evil 2>/dev/null && test ! -e '$C/personas/ops/evil.md'"
 check "duplicate project refused" bash -c "! cadre add project app '$T/remote.git'"
 
 echo "trust"

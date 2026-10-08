@@ -29,6 +29,8 @@ die() { echo "cadre: $*" >&2; exit 1; }
 expand() { case $1 in "~"*) echo "$HOME${1#\~}" ;; *) echo "$1" ;; esac; }
 
 # CADRE_TMUX_SOCKET runs every session on a separate tmux server (tests use it).
+# Targets use tmux's exact match (=name, =session:=window): a plain -t falls
+# back to a prefix match, so cadre-dev would hit cadre-dev-app.
 tmux() { command tmux ${CADRE_TMUX_SOCKET:+-L "$CADRE_TMUX_SOCKET"} "$@"; }
 
 resolve() {
@@ -106,13 +108,13 @@ PY
 running_sessions() {
   local s
   for s in $(tmux ls -F '#S' 2>/dev/null | grep '^cadre-' || true); do
-    printf '%s\t%s\n' "$s" "$(tmux list-windows -t "$s" -F "${s#cadre-}-#W" 2>/dev/null | paste -sd ' ' -)"
+    printf '%s\t%s\n' "$s" "$(tmux list-windows -t "=$s" -F "${s#cadre-}-#W" 2>/dev/null | paste -sd ' ' -)"
   done
 }
 
 roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
 key_of() { if [ -n "${2:-}" ]; then echo "$1-$2"; else echo "$1"; fi; }
-window_exists() { tmux list-windows -t "cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
+window_exists() { tmux list-windows -t "=cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
 
 # A team's .workdir file wins; otherwise the team gets a folder in the setup.
 default_dir() {
@@ -140,8 +142,8 @@ start_role() {
   } > "$prompt"
 
   local cmd="CADRE_PERSONA=$name claude --name $name --permission-mode $MODE --append-system-prompt-file '$prompt'"
-  if tmux has-session -t "cadre-$key" 2>/dev/null; then
-    tmux new-window -d -t "cadre-$key" -n "$role" -c "$dir" "$cmd"
+  if tmux has-session -t "=cadre-$key" 2>/dev/null; then
+    tmux new-window -d -t "=cadre-$key:" -n "$role" -c "$dir" "$cmd"
   else
     tmux new-session -d -s "cadre-$key" -n "$role" -c "$dir" "$cmd"
   fi
@@ -186,9 +188,9 @@ cmd_up() {
   if [ -n "$proj" ]; then
     if [ -n "$(reg has "$2")" ]; then target=$2; else target=$dir; fi
   fi
-  tmux set-option -q -t "cadre-$key" @cadre_team "$TEAM" 2>/dev/null || true
-  tmux set-option -q -t "cadre-$key" @cadre_project "$proj" 2>/dev/null || true
-  tmux set-option -q -t "cadre-$key" @cadre_target "$target" 2>/dev/null || true
+  tmux set-option -q -t "=cadre-$key:" @cadre_team "$TEAM" 2>/dev/null || true
+  tmux set-option -q -t "=cadre-$key:" @cadre_project "$proj" 2>/dev/null || true
+  tmux set-option -q -t "=cadre-$key:" @cadre_target "$target" 2>/dev/null || true
 }
 
 cmd_down() {
@@ -196,17 +198,17 @@ cmd_down() {
   split_target "$1"
   local key; key=$(key_of "$TEAM" "${2:-}")
   if [ -z "$ROLE" ]; then
-    if tmux kill-session -t "cadre-$key" 2>/dev/null; then echo "  cadre-$key stopped"; else echo "  cadre-$key not running"; fi
+    if tmux kill-session -t "=cadre-$key" 2>/dev/null; then echo "  cadre-$key stopped"; else echo "  cadre-$key not running"; fi
   else
-    if tmux kill-window -t "cadre-$key:$ROLE" 2>/dev/null; then echo "  $key-$ROLE stopped"; else echo "  $key-$ROLE not running"; fi
+    if tmux kill-window -t "=cadre-$key:=$ROLE" 2>/dev/null; then echo "  $key-$ROLE stopped"; else echo "  $key-$ROLE not running"; fi
   fi
 }
 
 cmd_attach() {
   [ -n "${1:-}" ] || die "usage: cadre attach <team> [project]"
   local key; key=$(key_of "$1" "${2:-}")
-  tmux has-session -t "cadre-$key" 2>/dev/null || die "cadre-$key is not running"
-  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "cadre-$key"; else exec tmux attach -t "cadre-$key"; fi
+  tmux has-session -t "=cadre-$key" 2>/dev/null || die "cadre-$key is not running"
+  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "=cadre-$key"; else exec tmux attach -t "=cadre-$key"; fi
 }
 
 cmd_ls() {
@@ -333,11 +335,11 @@ links_point_here() {
 restart_commands() {
   local s team proj target role generic=""
   while IFS=$'\t' read -r s _; do
-    team=$(tmux show-options -qv -t "$s" @cadre_team 2>/dev/null || true)
+    team=$(tmux show-options -qv -t "=$s:" @cadre_team 2>/dev/null || true)
     if [ -z "$team" ]; then generic=1; continue; fi
-    proj=$(tmux show-options -qv -t "$s" @cadre_project 2>/dev/null || true)
-    target=$(tmux show-options -qv -t "$s" @cadre_target 2>/dev/null || true)
-    for role in $(tmux list-windows -t "$s" -F '#W' 2>/dev/null); do
+    proj=$(tmux show-options -qv -t "=$s:" @cadre_project 2>/dev/null || true)
+    target=$(tmux show-options -qv -t "=$s:" @cadre_target 2>/dev/null || true)
+    for role in $(tmux list-windows -t "=$s" -F '#W' 2>/dev/null); do
       echo "  cadre down $team/$role${proj:+ $proj} && cadre up $team/$role${target:+ $(printf '%q' "$target")}"
     done
   done <<<"$1"

@@ -6,9 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"syscall"
 
 	"github.com/rafi-ramdhani/cadre/internal/paths"
@@ -50,11 +48,11 @@ const attempts = 3
 //     renamed over it only if the old file has not changed in the meantime
 //     (size, mtime and SHA-256); otherwise it tries again, then gives up;
 //   - keys, their order, and every value op does not touch are written back
-//     byte for byte, with the indentation the file had.
+//     byte for byte, with the indentation the file had, and a final newline
+//     only when it had one.
 //
-// CADRE_TEST_JSON_EDIT_HOOK, when set, is run (with the attempt number and
-// the path) between writing the new file and the check, so tests can change
-// the file at that moment.
+// raceHook, when set (by tests, see hook*.go), runs between writing the new
+// file and the check, so a test can change the file at that moment.
 func Edit(path string, opts Options, op Op) (int, []string) {
 	path = paths.Real(path)
 	for n := 1; n <= attempts; n++ {
@@ -117,13 +115,17 @@ func attempt(n int, path string, opts Options, op Op) (code int, lines []string,
 			}
 		}
 	}
-	tmp, err := tempNext(path, Format(root, Indent(raw)), mode)
+	out := bytes.TrimRight(Format(root, Indent(raw)), "\n")
+	if bytes.HasSuffix(raw, []byte("\n")) {
+		out = append(out, '\n')
+	}
+	tmp, err := tempNext(path, out, mode)
 	if err != nil {
 		return WriteFailed, nil, false
 	}
 	defer os.Remove(tmp) // gone after a rename; removed after a failure
-	if hook := os.Getenv("CADRE_TEST_JSON_EDIT_HOOK"); hook != "" {
-		exec.Command(hook, strconv.Itoa(n), path).Run()
+	if raceHook != nil {
+		raceHook(n, path)
 	}
 	now, _, _, err := snapshot(path)
 	if err != nil || now != before {

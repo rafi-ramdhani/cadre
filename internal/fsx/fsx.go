@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -70,13 +69,17 @@ const staleAfter = 60 * time.Second
 var forceDirLock = false
 
 // Acquire takes the lock at path (a file it creates if needed), waiting up
-// to wait for another holder. The holder's pid is written into the file
-// for messages. On a filesystem without flock (some network filesystems),
-// it falls back to a mkdir lock at path + ".d", taken over when older than
-// a minute.
+// to wait for another holder. On a filesystem without flock (some network
+// filesystems), it falls back to a mkdir lock at path + ".d", taken over
+// when older than a minute.
+//
+// The lock file is never followed through a symlink and never written:
+// the flock is the lock. A file that is a symlink, not a regular file, not
+// the user's own, or has another hard link is refused, so a link planted
+// where cadre keeps a lock cannot get another file changed.
 func Acquire(path string, wait time.Duration) (*Lock, error) {
 	if !forceDirLock {
-		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+		f, err := openLock(path)
 		if err != nil {
 			return nil, err
 		}
@@ -84,10 +87,6 @@ func Acquire(path string, wait time.Duration) (*Lock, error) {
 		for {
 			err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 			if err == nil {
-				// The pid is for people reading the file; the lock is the flock.
-				if f.Truncate(0) == nil {
-					f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0)
-				}
 				return &Lock{f: f}, nil
 			}
 			if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EINTR) {
@@ -105,6 +104,36 @@ func Acquire(path string, wait time.Duration) (*Lock, error) {
 		}
 	}
 	return acquireDir(path+".d", wait)
+}
+
+// openLock opens (or creates) a lock file without following a symlink and
+// checks it is a plain file of this user's with one link.
+func openLock(path string) (*os.File, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		if errors.Is(err, unix.ELOOP) {
+			return nil, fmt.Errorf("lock %s is a symlink; remove it", path)
+		}
+		return nil, fmt.Errorf("lock %s: %w", path, err)
+	}
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		unix.Close(fd)
+		return nil, fmt.Errorf("lock %s: %w", path, err)
+	}
+	switch {
+	case st.Mode&unix.S_IFMT != unix.S_IFREG:
+		err = fmt.Errorf("lock %s is not a plain file; remove it", path)
+	case int(st.Uid) != os.Geteuid():
+		err = fmt.Errorf("lock %s belongs to another user; remove it", path)
+	case st.Nlink != 1:
+		err = fmt.Errorf("lock %s has another hard link; remove it", path)
+	}
+	if err != nil {
+		unix.Close(fd)
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), path), nil
 }
 
 func unsupported(err error) bool {

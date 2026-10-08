@@ -2,6 +2,7 @@ package jsonx
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,24 +175,22 @@ func TestDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-// raceHook writes a script that rewrites the config while Edit is between
-// writing its new file and checking the old one: on the first attempt only,
-// or on every attempt.
-func raceHook(t *testing.T, always bool) string {
+// race makes Edit see another writer rewrite the config between writing
+// its new file and checking the old one: on the first attempt only, or on
+// every attempt.
+func race(t *testing.T, always bool) {
 	t.Helper()
-	cond := `[ "$1" = 1 ]`
-	if always {
-		cond = "true"
+	raceHook = func(n int, path string) {
+		if always || n == 1 {
+			os.WriteFile(path, []byte(fmt.Sprintf(`{"writer": %d}`, n)), 0o600)
+		}
 	}
-	script := filepath.Join(t.TempDir(), "race.sh")
-	body := "#!/bin/sh\nif " + cond + "; then printf '{\"writer\": %s}' \"$1\" > \"$2\"; fi\n"
-	os.WriteFile(script, []byte(body), 0o755)
-	return script
+	t.Cleanup(func() { raceHook = nil })
 }
 
 func TestEditRetriesWhenTheFileChanges(t *testing.T) {
 	p := writeConfig(t, "{}", 0o600)
-	t.Setenv("CADRE_TEST_JSON_EDIT_HOOK", raceHook(t, false))
+	race(t, false)
 	code, _ := Edit(p, Options{}, trustOp("/x"))
 	got, _ := os.ReadFile(p)
 	if code != Changed || !bytes.Contains(got, []byte(`"writer":1`)) || !bytes.Contains(got, []byte(`"/x"`)) {
@@ -201,7 +200,7 @@ func TestEditRetriesWhenTheFileChanges(t *testing.T) {
 
 func TestEditGivesUpWhenTheFileKeepsChanging(t *testing.T) {
 	p := writeConfig(t, "{}", 0o600)
-	t.Setenv("CADRE_TEST_JSON_EDIT_HOOK", raceHook(t, true))
+	race(t, true)
 	code, _ := Edit(p, Options{}, trustOp("/x"))
 	got, _ := os.ReadFile(p)
 	if code != KeptChanged || string(got) != `{"writer": 3}` {
@@ -332,4 +331,19 @@ func FuzzRoundTrip(f *testing.F) {
 			t.Fatalf("a round trip changed the document: %q -> %q", data, out)
 		}
 	})
+}
+
+// Claude Code writes ~/.claude.json with JSON.stringify, which ends without
+// a newline; an edit keeps that, and keeps a newline when there is one.
+func TestEditKeepsTheFinalNewlineState(t *testing.T) {
+	for _, body := range []string{"{\n  \"a\": 1\n}", "{\n  \"a\": 1\n}\n", `{"a":1}`} {
+		p := writeConfig(t, body, 0o600)
+		if code, _ := Edit(p, Options{}, trustOp("/x")); code != Changed {
+			t.Fatalf("%q: %d", body, code)
+		}
+		got, _ := os.ReadFile(p)
+		if strings.HasSuffix(string(got), "\n") != strings.HasSuffix(body, "\n") {
+			t.Errorf("%q became %q", body, got)
+		}
+	}
 }

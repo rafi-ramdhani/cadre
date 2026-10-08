@@ -33,3 +33,4 @@ R	Bash(echo "&&" x)	accept		the same, in double quotes
 R	Bash(echo '|' x)	accept		the same
 R	Bash(echo ';' ; bash *)	refuse	chains or backgrounds	a quoted ; next to a real one: still refused
 R	Bash(find . -name x -exec rm {} ';' *)	refuse	lets find run any command	a wildcard with -exec stays refused
+R	Bash(bash/ *)	refuse	lets bash run anything	Go reads the program bash/ as bash (path.Base drops the trailing /); Python kept "bash/" and only warned. Stricter

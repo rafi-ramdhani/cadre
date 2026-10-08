@@ -212,14 +212,15 @@ echo "sessions"
 cadre up dev/engineer app >/dev/null
 check "project persona running" bash -c "cadre ls | grep -q '\[running\] dev-app-engineer'"
 check "persona works in the project" test "$(command tmux -L "$CADRE_TMUX_SOCKET" display -p -t cadre-dev-app:engineer '#{pane_current_path}')" = "$(cd "$C/projects/app" && pwd -P)"
-check "prompt built" grep -q "Persona" "${XDG_CACHE_HOME:-$HOME/.cache}/cadre/build/dev-app-engineer.md"
+check "prompt built" grep -q "Persona" "$C/.claude/build/dev-app-engineer.md"
+check "generated files stay out of the cadre's git" test -z "$(git -C "$C" status --porcelain)"
 # args_of <persona>: the arguments the stub claude got, once it has started.
 args_of() { for _ in $(seq 50); do [ -s "$T/args-$1" ] && break; sleep 0.1; done; cat "$T/args-$1" 2>/dev/null || true; }
 settings_arg() { args_of "$1" | grep -A1 -x -- --settings | tail -1; }
 PS="$C/.claude/persona-settings.json"
 check "persona settings created" test -f "$PS"
 check "persona settings committed" git -C "$C" ls-files --error-unmatch .claude/persona-settings.json
-BUILD_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cadre/build"
+BUILD_DIR="$C/.claude/build"
 copy=$(settings_arg dev-app-engineer)
 check "personas get a generated copy, not the file" bash -c "case '$copy' in '$BUILD_DIR'/persona-settings.*.json) exit 0 ;; *) exit 1 ;; esac"
 check "the copy is read-only" test "$(mode "$copy")" = 0o400
@@ -274,16 +275,36 @@ check "a hand-made commit still warns" bash -c "cadre up dev/engineer app 2>&1 |
 cp "$T/ps.start" "$PS"
 git -C "$C" commit -qm "Remove grant for personas: Bash(curl *)" -- .claude/persona-settings.json
 cadre down dev/engineer app >/dev/null
+# A tampered copy is replaced at the next start.
+copy=$(settings_arg dev-app-engineer)
+chmod u+w "$copy"
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["hooks"]={"SessionStart": []}; d["permissions"]["allow"]=["Bash(*)"]; json.dump(d, open(sys.argv[1], "w"))' "$copy"
+chmod 400 "$copy"
+relaunch >/dev/null
+check "a tampered copy is rebuilt at the next start" py 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])) == json.load(open(sys.argv[2])) else 1)' "$(settings_arg dev-app-engineer)" "$PS"
+cadre down dev/engineer app >/dev/null
 # Paths with a quote or a space reach claude intact.
-XDG_CACHE_HOME="$T/it's a cache" cadre up ops >/dev/null
-check "a quote in a path: persona runs" test "$(settings_arg ops-sre | grep -c "$T/it's a cache/cadre/build/persona-settings")" = 1
-cadre down ops >/dev/null
+mkdir -p "$T/it's a dir"
+cadre init q "$T/it's a dir" >/dev/null
+CADRE_HOME="$T/it's a dir/q" cadre up research/writer >/dev/null
+check "a quote in a path: persona runs" test "$(settings_arg research-writer | grep -c "$T/it's a dir/q/.claude/build/persona-settings")" = 1
+CADRE_HOME="$T/it's a dir/q" cadre down research >/dev/null
+cadre use "$C" >/dev/null
 # A command that cannot run is reported, not shown as started.
 mv "$T/bin/claude" "$T/claude.saved"; printf '#!/bin/sh\nexit 1\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
 code=0; out=$(cadre up ops 2>&1) || code=$?
 mv "$T/claude.saved" "$T/bin/claude"
 check "a failed start exits non-zero" test "$code" != 0
 check "and says so" grep -q "ops-sre failed to start" <<<"$out"
+command tmux -L "$CADRE_TMUX_SOCKET" new-session -d -s keepalive "sleep 300"
+command tmux -L "$CADRE_TMUX_SOCKET" set-option -g remain-on-exit on
+mv "$T/bin/claude" "$T/claude.saved"; printf '#!/bin/sh\nexit 1\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
+code=0; out=$(cadre up ops 2>&1) || code=$?
+mv "$T/claude.saved" "$T/bin/claude"
+command tmux -L "$CADRE_TMUX_SOCKET" set-option -g remain-on-exit off
+cadre down ops >/dev/null
+command tmux -L "$CADRE_TMUX_SOCKET" kill-session -t =keepalive
+check "a dead pane kept by remain-on-exit is a failed start" grep -q "ops-sre failed to start" <<<"$out"
 check "no identity: the note says it was left uncommitted" bash -c "GIT_CONFIG_GLOBAL=/dev/null cadre add persona ops/tmp | grep -q 'left uncommitted'"
 rm "$C/personas/ops/tmp.md"
 cadre up dev/engineer app >/dev/null

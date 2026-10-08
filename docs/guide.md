@@ -98,7 +98,7 @@ To remove it, delete the SessionStart entry whose command ends in `orchestrator-
 1. stops every `cadre-*` tmux session (the one it runs in, last);
 2. removes this framework's orchestrator hook (`bash <framework>/bin/orchestrator-hook.sh`) from `~/.claude/settings.json`, keeping every other hook and setting (another framework's orchestrator hook is reported and left), with a fresh backup at `settings.json.bak-cadre-uninstall`;
 3. removes `~/.local/bin/cadre` and `~/.claude/skills/cadre`, but only links that point to this framework (anything else is left and reported);
-4. removes `~/.config/cadre/` and `~/.cache/cadre/` (never a folder that is your home or holds your cadre or the framework).
+4. removes `~/.config/cadre/` and `~/.cache/cadre/` (where 0.1.x kept generated prompts; never a folder that is your home or holds your cadre or the framework).
 
 If the `cadre` command or skill belongs to another framework clone, it refuses and names the clone to run it from; `--force` goes ahead and removes only what is not tied to that clone.
 
@@ -106,7 +106,7 @@ It never deletes your cadre, your projects or the framework clone, and leaves tr
 
 ## Persona settings
 
-Every persona starts with the grants in `<cadre>/.claude/persona-settings.json`. The first `cadre up` creates the file and commits it. Personas never get the file itself: each `cadre up` checks it and passes a read-only copy rebuilt from the allowed keys (in `~/.cache/cadre/build/`), so a running persona keeps the grants it started with until it is restarted. It holds the grants you make for personas and fixed entries that keep personas from changing it. Change it with `cadre allow`, not by hand: the launcher refuses a file with any other setting (such as `hooks` or `env`), without `"$defaults"` in an `autoMode` list, or without the fixed entries, and starts the personas without it and with a warning. A file changed outside `cadre allow` is still passed when it is valid, with a warning; a change that arrives as a commit `cadre allow` made (for example pulled from another machine) is accepted without one. To undo a hand edit, run `git -C <cadre> checkout -- .claude/persona-settings.json`.
+Every persona starts with the grants in `<cadre>/.claude/persona-settings.json`. The first `cadre up` creates the file and commits it. Personas never get the file itself: each `cadre up` checks it and passes a read-only copy rebuilt from the allowed keys at every start, in `<cadre>/.claude/build/` next to the generated persona prompts (a folder Claude Code protects, ignored by the cadre's git). A running persona keeps the grants it started with until it is restarted. It holds the grants you make for personas and fixed entries that keep personas from changing it. Change it with `cadre allow`, not by hand: the launcher refuses a file with any other setting (such as `hooks` or `env`), without `"$defaults"` in an `autoMode` list, or without the fixed entries, and starts the personas without it and with a warning. A file changed outside `cadre allow` is still passed when it is valid, with a warning; a change that arrives as a commit `cadre allow` made (for example pulled from another machine) is accepted without one. The check reads the commit message, so it is a tamper signal, not a proof. To undo a hand edit, run `git -C <cadre> checkout -- .claude/persona-settings.json`.
 
 ## Configuration
 

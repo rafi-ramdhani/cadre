@@ -53,7 +53,6 @@ CADRE_ROOT=$(cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")/.." && pwd)
 CONFIG="$HOME/.config/cadre/home"
 # Hashes of persona settings files as cadre last wrote them, one per line.
 PSET_HASHES="$HOME/.config/cadre/persona-settings.sha256"
-BUILD="${XDG_CACHE_HOME:-$HOME/.cache}/cadre/build"
 
 # The active cadre: $CADRE_HOME, else the one recorded by init or use.
 load_home() {
@@ -71,6 +70,9 @@ load_home() {
   PERSONAS="$CADRE_HOME/personas"
   REGISTRY="$CADRE_HOME/projects.yaml"
   PSET="$CADRE_HOME/.claude/persona-settings.json"
+  # Generated persona prompts and settings copies. They live under .claude/,
+  # which Claude Code protects: no allow rule pre-approves writes there.
+  BUILD="$CADRE_HOME/.claude/build"
 }
 
 set_home() { mkdir -p "$(dirname "$CONFIG")"; echo "$1" > "$CONFIG"; }
@@ -180,6 +182,17 @@ confirm() {
   case $reply in y|Y|yes|YES|Yes) return 0 ;; *) echo "nothing changed"; return 1 ;; esac
 }
 
+# Quotes $1 for any shell tmux may run (POSIX sh, bash, zsh, fish): single
+# quotes, with each ' written as '\''.
+sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# The folder for generated prompts and settings copies, ignored by the
+# cadre's git through its own .gitignore.
+ensure_build() {
+  mkdir -p "$BUILD"
+  if [ ! -f "$BUILD/.gitignore" ]; then printf '*\n' > "$BUILD/.gitignore"; fi
+}
+
 roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
 key_of() { if [ -n "${2:-}" ]; then echo "$1-$2"; else echo "$1"; fi; }
 window_exists() { tmux list-windows -t "=cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
@@ -201,27 +214,32 @@ start_role() {
   local wd="$PERSONAS/$team/$role.workdir"
   if [ -z "$explicit" ] && [ -f "$wd" ]; then dir=$(expand "$(head -1 "$wd")"); fi
 
-  mkdir -p "$BUILD" "$dir"
+  mkdir -p "$dir"
+  ensure_build
+  # Rebuilt and swapped in whole at every start, whatever is there now.
   {
     cat "$CADRE_ROOT/protocol.md"
     if [ -f "$CADRE_HOME/protocol.md" ]; then echo; cat "$CADRE_HOME/protocol.md"; fi
     echo
     cat "$PERSONAS/$team/$role.md"
-  } > "$prompt"
+  } > "$prompt.tmp.$$"
+  mv -f "$prompt.tmp.$$" "$prompt"
 
-  # Every value is shell-quoted: tmux hands the command to a shell, and a
-  # path may hold a quote or a space.
+  # Every value is single-quoted: tmux hands the command to the user's shell
+  # (bash, zsh, sh, fish), and a path may hold a quote or a space.
   local cmd
-  cmd=$(printf 'CADRE_PERSONA=%q claude --name %q --permission-mode %q --append-system-prompt-file %q' "$name" "$name" "$MODE" "$prompt")
-  if [ -n "${PSET_ARG:-}" ]; then cmd+=" --settings $(printf %q "$PSET_ARG")"; fi
+  cmd="CADRE_PERSONA=$(sq "$name") claude --name $(sq "$name") --permission-mode $(sq "$MODE") --append-system-prompt-file $(sq "$prompt")"
+  if [ -n "${PSET_ARG:-}" ]; then cmd+=" --settings $(sq "$PSET_ARG")"; fi
   if tmux has-session -t "=cadre-$key" 2>/dev/null; then
     tmux new-window -d -t "=cadre-$key:" -n "$role" -c "$dir" "$cmd"
   else
     tmux new-session -d -s "cadre-$key" -n "$role" -c "$dir" "$cmd"
   fi
-  # A command that cannot run closes its window at once.
-  sleep 0.3
-  if ! window_exists "$key" "$role"; then
+  # A command that cannot run ends at once: its window closes, or stays with
+  # a dead pane when the user's tmux sets remain-on-exit.
+  sleep 0.5
+  if ! window_exists "$key" "$role" \
+    || [ "$(tmux list-panes -t "=cadre-$key:=$role" -F '#{pane_dead}' 2>/dev/null | head -1)" = 1 ]; then
     echo "  $name failed to start: its command exited at once; run it by hand in $dir to see why:" >&2
     echo "    $cmd" >&2
     return 1
@@ -670,9 +688,9 @@ elif op == "export":
                 copy.setdefault(key, {})[sub] = items
     text = json.dumps(copy, indent=2) + "\n"
     out = os.path.join(sys.argv[3], "persona-settings.%s.json" % hashlib.sha256(text.encode()).hexdigest()[:16])
-    if not os.path.exists(out):
-        os.makedirs(sys.argv[3], exist_ok=True)
-        atomic(out, text, 0o400)
+    # Written whole at every start, never trusted because it exists.
+    os.makedirs(sys.argv[3], exist_ok=True)
+    atomic(out, text, 0o400)
     print(out)
 elif op == "record":
     hfile = sys.argv[3]
@@ -719,6 +737,7 @@ pset_from_cadre() {
 check_persona_settings() {
   local why code=0
   PSET_ARG=""
+  ensure_build
   if ! PSET_ARG=$(persona_settings export "$PSET" "$BUILD"); then
     why=$PSET_ARG PSET_ARG=""
     echo "warning: personas start without $PSET because $why; fix it or restore it with git -C $CADRE_HOME checkout -- .claude/persona-settings.json" >&2

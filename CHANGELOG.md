@@ -4,6 +4,8 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
+## 0.2.0 - 2026-10-08
+
 - `cadre update` updates the framework (fast-forward only, refuses on local changes, local commits or another branch), prints the CHANGELOG since your version and lists the persona sessions to restart. `cadre update --check` only reports.
 - `cadre add project` and `cadre sync` mark each registered project's folder as trusted in Claude Code, so personas start there without the trust prompt (`--no-trust` skips it, also on `install.sh --from`). `cadre trust <project> | --all` does the same for projects registered earlier. The config edit keeps a backup of the original, the file mode and every other key, and leaves a missing, unreadable or foreign-owned file alone. Only a project repo's top folder is trusted, and persona sessions cannot trust folders. Project names are now validated (letters, digits, `.`, `-`, `_`).
 - `cadre down --all` lists every running cadre session with its personas, asks y/N (`--yes` skips), and stops them all, the session it runs in last. Persona sessions cannot run it.
@@ -19,6 +21,33 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 - The orchestrator skill's capture-pane command matches the persona's window exactly.
 - tmux targets match session and window names exactly. Before, `cadre down dev` could stop `cadre-dev-app`, `cadre up dev/engineer` could think it was already running when `cadre-dev-app` was, and a role name could match a longer window name.
+
+### Upgrading
+
+0.1.x has no `cadre update`, so this one upgrade is by hand.
+
+1. **Update the framework once by hand.** Your cadre's path is the first line of `~/.config/cadre/home`:
+
+   ```bash
+   git -C "$(head -1 ~/.config/cadre/home)/projects/cadre" pull --ff-only
+   cadre version    # cadre 0.2.0
+   ```
+
+   If `cadre version` still shows 0.1.x, the command is linked to a framework somewhere else; `readlink ~/.local/bin/cadre` shows where, and the pull goes there. The command, the skill and the orchestrator hook all point into that folder, so nothing needs relinking. From now on, use `cadre update`.
+2. **If the pull fails because you changed files in the framework folder**, keep your changes on a branch, then pull:
+
+   ```bash
+   cd "$(head -1 ~/.config/cadre/home)/projects/cadre"
+   git status                                   # see what you changed
+   git switch -c my-changes                     # keep your work on its own branch
+   git commit -am "My local changes"
+   git switch main
+   git pull --ff-only
+   ```
+
+   For a quick throwaway edit, `git stash`, `git pull --ff-only`, `git stash pop` also works (the pop may conflict). If `main` itself has your own commits (the pull says it cannot fast-forward), first save them with `git branch my-changes`, then `git reset --hard origin/main` after a `git fetch`, then reapply what you need on a branch. `cadre update` refuses in all these cases instead of guessing.
+3. **Restart running sessions.** Persona sessions started by 0.1.x run without the persona settings and with the old protocol; the orchestrator holds the old skill text. Stop and start each running team (`cadre down <team> [project]`, then `cadre up <team> [project]`, or `cadre down --all` once you are on 0.2.0), and start a new orchestrator session. This loses those sessions' conversations, so finish or note any work in progress first.
+4. **Trust your existing projects (optional).** Projects registered before 0.2.0 are not trusted automatically. Run `cadre trust --all` once, or `cadre trust <project>` for chosen ones, or accept Claude Code's trust prompt the first time a persona starts in each.
 
 ## 0.1.1 - 2026-10-08
 

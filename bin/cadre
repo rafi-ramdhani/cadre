@@ -34,7 +34,7 @@
 
 set -euo pipefail
 
-CADRE_VERSION=0.1.1
+CADRE_VERSION=0.2.0
 
 die() { echo "cadre: $*" >&2; exit 1; }
 expand() { case $1 in "~"*) echo "$HOME${1#\~}" ;; *) echo "$1" ;; esac; }

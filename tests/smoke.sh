@@ -730,4 +730,74 @@ code=0; out=$(XDG_CACHE_HOME="$T/hc" CADRE_HOME="$T/hc/cadre" "$FW/bin/cadre" un
 check "a cache path that is the cadre is not removed" test -d "$T/hc/cadre/personas"
 check "and the reason is given" grep -q "left in place, it is or holds $T/hc/cadre" <<<"$out"
 
+echo "release"
+check "version" test "$("$ROOT/bin/cadre" version)" = "cadre 0.2.0"
+help=$("$ROOT/bin/cadre" help)
+for word in "cadre update" "cadre allow" "cadre trust" "cadre down --all" "cadre uninstall" "--no-trust"; do
+  grep -qF -- "$word" <<<"$help" || fail "help lists $word"
+done
+ok "help lists the new commands"
+for f in "$ROOT/CHANGELOG.md" "$ROOT/README.md"; do
+  # shellcheck disable=SC2016 # the literal command the notes must show
+  grep -qF 'git -C "$(head -1 ~/.config/cadre/home)/projects/cadre" pull --ff-only' "$f" || fail "upgrade command in $f"
+done
+ok "the upgrade command is in the CHANGELOG and README"
+check "the Upgrading notes cover recovery, restart and trust" bash -c "grep -q 'git switch -c my-changes' '$ROOT/CHANGELOG.md' && grep -q 'Restart running sessions' '$ROOT/CHANGELOG.md' && grep -q 'cadre trust --all' '$ROOT/CHANGELOG.md'"
+check "no em dashes" py '
+import os, sys
+for root in sys.argv[1:]:
+    paths = [root] if os.path.isfile(root) else [os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs]
+    for p in paths:
+        if "\u2014" in open(p, encoding="utf-8", errors="replace").read():
+            sys.exit("em dash in " + p)' "$ROOT/bin" "$ROOT/install.sh" "$ROOT/tests" "$ROOT/skills" "$ROOT/protocol.md" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$ROOT/SECURITY.md" "$ROOT/docs/guide.md" "$ROOT/CONTRIBUTING.md"
+
+echo "upgrade from 0.1.1"
+# A machine set up by 0.1.1 (main at v0.1.1, with the hook), in its own HOME.
+export HOME="$T/home-upg"
+export PATH="$T/bin:$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/.claude"
+git clone -q "$ROOT" "$T/old"
+git -C "$T/old" checkout -q -B main v0.1.1
+CADRE_REPO="$T/old" bash "$T/old/install.sh" up --dir "$T/upg" --yes --orchestrator-default >/dev/null
+UF="$T/upg/up/projects/cadre"
+check "0.1.1 installed" test "$(cadre version)" = "cadre 0.1.1"
+links() { readlink "$HOME/.local/bin/cadre"; readlink "$HOME/.claude/skills/cadre"; }
+links0=$(links); cp "$HOME/.claude/settings.json" "$T/upg-settings.json"
+# The framework's origin holds the release under test as main.
+git clone -q --bare "$ROOT" "$T/rel.git"
+git -C "$T/rel.git" update-ref refs/heads/main "$(git -C "$ROOT" rev-parse HEAD)"
+git -C "$T/rel.git" symbolic-ref HEAD refs/heads/main
+git -C "$UF" remote set-url origin "$T/rel.git"
+# A local edit first: the plain pull fails and the documented recovery works.
+echo "# my note" >> "$UF/README.md"
+check "the pull refuses over a local edit" bash -c "! git -C \"\$(head -1 ~/.config/cadre/home)/projects/cadre\" pull -q --ff-only 2>/dev/null"
+(cd "$(head -1 ~/.config/cadre/home)/projects/cadre" && git switch -q -c my-changes && git commit -qam "My local changes" && git switch -q main && git pull -q --ff-only) >/dev/null 2>&1
+check "the documented recovery upgrades" test "$(cadre version)" = "cadre 0.2.0"
+check "the local edit is kept on its branch" bash -c "git -C '$UF' show my-changes:README.md | grep -q '# my note'"
+# Back to 0.1.1 and the one command from the Upgrading notes, as written.
+git -C "$UF" reset -q --hard v0.1.1
+git -C "$(head -1 ~/.config/cadre/home)/projects/cadre" pull -q --ff-only
+check "the one command upgrades to 0.2.0" test "$(cadre version)" = "cadre 0.2.0"
+check "the links still resolve into the framework" test "$(links)" = "$links0"
+check "the hook entry is byte-for-byte the same" cmp -s "$HOME/.claude/settings.json" "$T/upg-settings.json"
+check "the hook runs the updated script" bash -c "echo '{}' | $(py 'import json,sys; print(json.load(open(sys.argv[1]))["hooks"]["SessionStart"][0]["hooks"][0]["command"])' "$HOME/.claude/settings.json") | grep -q SessionStart"
+check "cadre update takes over" bash -c "cadre update | grep -q 'cadre 0.2.0 is up to date'"
+# A fresh 0.2.0 install wires the same things, apart from the framework path.
+wiring() {
+  local fw=$1
+  { readlink "$HOME/.local/bin/cadre"; readlink "$HOME/.claude/skills/cadre"; cat "$HOME/.claude/settings.json"
+    (cd "$HOME" && find . -type l | sort); ls -A "$HOME/.config/cadre"; } | sed "s#$fw#<framework>#g"
+}
+upgraded=$(wiring "$UF")
+rm -f "$T/args-research-writer"
+cadre up research/writer >/dev/null
+cadre_args=$(args_of research-writer)
+check "a persona started after the upgrade gets the settings" grep -qx -- --settings <<<"$cadre_args"
+cadre down --all --yes >/dev/null
+export HOME="$T/home-fresh"
+export PATH="$T/bin:$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/.claude"
+CADRE_REPO="$ROOT" bash "$ROOT/install.sh" up --dir "$T/fresh" --yes --orchestrator-default >/dev/null
+check "a fresh install wires nothing more than an upgraded one" test "$(wiring "$T/fresh/up/projects/cadre")" = "$upgraded"
+
 echo "$pass checks passed"

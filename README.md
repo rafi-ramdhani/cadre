@@ -110,6 +110,17 @@ See [docs/guide.md](docs/guide.md) for writing personas, shaping the playbook, t
 
 **Registered projects are trusted.** `cadre add project` and `cadre sync` mark each project's folder as trusted in Claude Code, so personas start there without the trust prompt. Trust also lets that repo's own `.claude/settings.json` rules and hooks take effect, so register only repos you trust, or pass `--no-trust`.
 
+## Upgrading from 0.1.x
+
+0.1.x has no `cadre update`, so the first upgrade is one command by hand (your cadre's path is the first line of `~/.config/cadre/home`):
+
+```bash
+git -C "$(head -1 ~/.config/cadre/home)/projects/cadre" pull --ff-only
+cadre version    # cadre 0.2.0
+```
+
+If the pull fails because you changed files in the framework folder, keep them on a branch first (`git switch -c my-changes && git commit -am "My local changes" && git switch main`), then pull. Then restart your running sessions (`cadre down <team> [project]` and `cadre up <team> [project]`, and a new orchestrator session), and optionally run `cadre trust --all` to trust the projects you registered before. The [CHANGELOG](CHANGELOG.md) has the full steps. From then on, `cadre update` does it.
+
 ## Uninstall
 
 `cadre uninstall` shows its plan, asks, then stops every cadre session and removes what the installer wired in: the `cadre` command and skill links (only when they point to this framework), the orchestrator hook in `~/.claude/settings.json` (backup: `settings.json.bak-cadre-uninstall`), `~/.config/cadre/` and the build cache. It keeps your cadre folder, your projects, the framework clone, backups and Claude Code trust entries, and prints their paths; delete those by hand if you want them gone. `--dry-run` shows the plan only, `--yes` skips the question.

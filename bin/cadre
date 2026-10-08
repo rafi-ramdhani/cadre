@@ -57,7 +57,6 @@ CADRE_ROOT=$(cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")/.." && pwd)
 CONFIG="$HOME/.config/cadre/home"
 # Hashes of persona settings files as cadre last wrote them, one per line.
 PSET_HASHES="$HOME/.config/cadre/persona-settings.sha256"
-BUILD="${XDG_CACHE_HOME:-$HOME/.cache}/cadre/build"
 
 # The active cadre: $CADRE_HOME, else the one recorded by init or use.
 load_home() {
@@ -75,6 +74,9 @@ load_home() {
   PERSONAS="$CADRE_HOME/personas"
   REGISTRY="$CADRE_HOME/projects.yaml"
   PSET="$CADRE_HOME/.claude/persona-settings.json"
+  # Generated persona prompts and settings copies. They live under .claude/,
+  # which Claude Code protects: no allow rule pre-approves writes there.
+  BUILD="$CADRE_HOME/.claude/build"
 }
 
 set_home() { mkdir -p "$(dirname "$CONFIG")"; echo "$1" > "$CONFIG"; }
@@ -184,6 +186,17 @@ confirm() {
   case $reply in y|Y|yes|YES|Yes) return 0 ;; *) echo "nothing changed"; return 1 ;; esac
 }
 
+# Quotes $1 for any shell tmux may run (POSIX sh, bash, zsh, fish): single
+# quotes, with each ' written as '\''.
+sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# The folder for generated prompts and settings copies, ignored by the
+# cadre's git through its own .gitignore.
+ensure_build() {
+  mkdir -p "$BUILD"
+  if [ ! -f "$BUILD/.gitignore" ]; then printf '*\n' > "$BUILD/.gitignore"; fi
+}
+
 roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
 key_of() { if [ -n "${2:-}" ]; then echo "$1-$2"; else echo "$1"; fi; }
 window_exists() { tmux list-windows -t "=cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
@@ -205,27 +218,32 @@ start_role() {
   local wd="$PERSONAS/$team/$role.workdir"
   if [ -z "$explicit" ] && [ -f "$wd" ]; then dir=$(expand "$(head -1 "$wd")"); fi
 
-  mkdir -p "$BUILD" "$dir"
+  mkdir -p "$dir"
+  ensure_build
+  # Rebuilt and swapped in whole at every start, whatever is there now.
   {
     cat "$CADRE_ROOT/protocol.md"
     if [ -f "$CADRE_HOME/protocol.md" ]; then echo; cat "$CADRE_HOME/protocol.md"; fi
     echo
     cat "$PERSONAS/$team/$role.md"
-  } > "$prompt"
+  } > "$prompt.tmp.$$"
+  mv -f "$prompt.tmp.$$" "$prompt"
 
-  # Every value is shell-quoted: tmux hands the command to a shell, and a
-  # path may hold a quote or a space.
+  # Every value is single-quoted: tmux hands the command to the user's shell
+  # (bash, zsh, sh, fish), and a path may hold a quote or a space.
   local cmd
-  cmd=$(printf 'CADRE_PERSONA=%q claude --name %q --permission-mode %q --append-system-prompt-file %q' "$name" "$name" "$MODE" "$prompt")
-  if [ -n "${PSET_ARG:-}" ]; then cmd+=" --settings $(printf %q "$PSET_ARG")"; fi
+  cmd="CADRE_PERSONA=$(sq "$name") claude --name $(sq "$name") --permission-mode $(sq "$MODE") --append-system-prompt-file $(sq "$prompt")"
+  if [ -n "${PSET_ARG:-}" ]; then cmd+=" --settings $(sq "$PSET_ARG")"; fi
   if tmux has-session -t "=cadre-$key" 2>/dev/null; then
     tmux new-window -d -t "=cadre-$key:" -n "$role" -c "$dir" "$cmd"
   else
     tmux new-session -d -s "cadre-$key" -n "$role" -c "$dir" "$cmd"
   fi
-  # A command that cannot run closes its window at once.
-  sleep 0.3
-  if ! window_exists "$key" "$role"; then
+  # A command that cannot run ends at once: its window closes, or stays with
+  # a dead pane when the user's tmux sets remain-on-exit.
+  sleep 0.5
+  if ! window_exists "$key" "$role" \
+    || [ "$(tmux list-panes -t "=cadre-$key:=$role" -F '#{pane_dead}' 2>/dev/null | head -1)" = 1 ]; then
     echo "  $name failed to start: its command exited at once; run it by hand in $dir to see why:" >&2
     echo "    $cmd" >&2
     return 1
@@ -678,9 +696,9 @@ elif op == "export":
     deny += [d for d in FIXED_DENY if d not in deny]
     text = json.dumps(copy, indent=2) + "\n"
     out = os.path.join(sys.argv[3], "persona-settings.%s.json" % hashlib.sha256(text.encode()).hexdigest()[:16])
-    if not os.path.exists(out):
-        os.makedirs(sys.argv[3], exist_ok=True)
-        atomic(out, text, 0o400)
+    # Written whole at every start, never trusted because it exists.
+    os.makedirs(sys.argv[3], exist_ok=True)
+    atomic(out, text, 0o400)
     print(out)
 elif op == "record":
     hfile = sys.argv[3]
@@ -739,6 +757,7 @@ pset_changed_outside() {
 check_persona_settings() {
   local why
   PSET_ARG=""
+  ensure_build
   if ! PSET_ARG=$(persona_settings export "$PSET" "$BUILD"); then
     why=$PSET_ARG PSET_ARG=""
     echo "warning: personas start without $PSET because $why; fix it or restore it with git -C $CADRE_HOME checkout -- .claude/persona-settings.json" >&2
@@ -767,13 +786,44 @@ BARE = {"bash", "powershell", "edit", "write", "webfetch", "read", "notebookedit
 RUNNERS = set("""bash sh zsh dash ksh mksh fish csh tcsh pwsh powershell python python3
     ruby perl php lua tclsh node deno bun bunx npx pnpx uvx pipx osascript awk gawk mawk
     eval exec sudo doas su env xargs command builtin nohup timeout nice time stdbuf script
-    busybox watch iex invoke-expression start-process cmd""".split())
+    busybox watch iex invoke-expression start-process cmd tmux screen ssh arch setsid flock
+    chroot expect caffeinate open sqlite3 java vim vi nvim emacs nix-shell""".split())
+# Programs that run whatever follows one of their subcommands.
+SUBRUNNERS = {"docker": {"run", "exec"}, "podman": {"run", "exec"}, "kubectl": {"exec", "run"},
+              "direnv": {"exec"}, "devbox": {"run"}, "mise": {"exec", "x"}, "nix": {"run", "shell", "develop"},
+              "uv": {"run"}, "poetry": {"run"}, "pdm": {"run"}, "pipenv": {"run"}, "hatch": {"run"},
+              "conda": {"run"}, "npm": {"exec", "x"}, "pnpm": {"dlx", "exec"}, "yarn": {"dlx", "exec"},
+              "bun": {"x"}, "cargo": {"run"}, "go": {"run"}, "bundle": {"exec"}, "rbenv": {"exec"},
+              "pyenv": {"exec"}}
+# Programs that run code from project files a persona can change.
+FROM_FILES = {"make": None, "gmake": None, "just": None, "rake": None, "gradle": None, "mvn": None,
+              "npm": {"run", "test", "start"}, "pnpm": {"run", "test", "start"}, "yarn": {"run", "test", "start"},
+              "pip": {"install"}, "pip3": {"install"}}
+HOME = os.path.expanduser("~").rstrip("/")
+CADRE = os.path.dirname(os.path.dirname(os.path.realpath(path)))
+CACHE = (os.environ.get("XDG_CACHE_HOME") or HOME + "/.cache").rstrip("/")
+# Files Claude Code protects: allow rules never pre-approve writes to them.
+PROTECTED = [".bashrc", ".bash_profile", ".bash_login", ".bash_aliases", ".zshrc", ".zprofile",
+             ".zshenv", ".zlogin", ".profile", ".envrc", ".gitconfig", ".gitmodules", ".npmrc",
+             ".yarnrc", ".yarnrc.yml", ".mcp.json", ".claude.json"]
+# Files and folders that run code outside a persona's session, and cadre's own state.
+OUTSIDE = [HOME + "/.ssh/config", HOME + "/.ssh/authorized_keys", HOME + "/.ssh/rc",
+           HOME + "/.config/fish/config.fish", HOME + "/.tmux.conf", HOME + "/.vimrc",
+           HOME + "/Library/LaunchAgents/x.plist", HOME + "/.config/autostart/x.desktop",
+           HOME + "/.config/systemd/user/x.service", HOME + "/.local/bin/x",
+           HOME + "/.config/cadre/home", CACHE + "/cadre/build/x", CADRE + "/.claude/build/x",
+           "/var/spool/cron/x", "/usr/lib/cron/tabs/x", "/etc/crontab"]
+SECRETS = [HOME + "/.ssh/id_ed25519", HOME + "/.aws/credentials", HOME + "/.gnupg/x",
+           HOME + "/.config/gh/hosts.yml"]
 VERSIONED = re.compile(r"(python|ruby|perl|php|lua|node|pip)\d+(\.\d+)*")
 BLANKET = ["anything", "any command", "all files", "everything", "any file", "all commands"]
 # --auto text may not argue about permissions or claim the user's approval.
 AUTO_REFUSED = re.compile(
     r"\bpermissions?\b|\bsettings\b|settings\.json|soft_deny|\bden(y|ies|ied)\b|\.claude|\bgrant(s|ed)?\b"
-    r"|cadre\W*allow|pre-?approved|approved (by|in advance)"
+    r"|cadre\W*allow|\ballow subcommand|pre-?approved|approved (by|in advance)|\brules?\b|\bmay do\b|dot-?claude"
+    r"|zshrc|bashrc|bash_profile|zprofile|zshenv|\.profile|gitconfig|gitmodules|npmrc|envrc|\.ssh|authorized_keys"
+    r"|launchagents|crontab|tmux\.conf|vimrc|\.config/fish|autostart|systemd|\.local/bin|\.mcp\.json|\.claude\.json"
+    r"|\b(user|owner|human)'?s?\b.{0,40}\b(wish|wants?|ok with|fine with)\b"
     r"|\b(user|owner|human|you)\b.{0,40}\b(approv|consent|authori[sz]|agree)")
 
 
@@ -810,9 +860,13 @@ def program(spec):
 
 
 def check_command(rule, spec):
+    if re.search(r"&&|\|\||;|\|", spec):
+        refuse("refused: %s chains commands (&&, ||, ; or |); allow each command on its own" % rule)
     prog, rest = program(spec)
     if not prog:
         refuse("refused: %s names no program; give the exact command" % rule)
+    if re.search(r"[$`()<>&;|]", prog):
+        refuse("refused: %s computes its program name with shell syntax; name the program exactly" % rule)
     if "*" in prog or "?" in prog:
         refuse("refused: %s has a wildcard in the program name, which matches other programs; name the program exactly" % rule)
     base = norm(os.path.basename(prog))
@@ -823,8 +877,64 @@ def check_command(rule, spec):
         refuse("refused: %s lets %s run anything; allow the exact command instead" % (rule, base))
     if base == "cadre" and (not rest or "*" in rest[0] or norm(rest[0]) == "allow"):
         refuse("refused: %s would include cadre allow; name the cadre command, such as Bash(cadre up:*)" % rule)
+    sub = next((norm(w) for w in rest if not w.startswith("-")), "")
+    if wild and sub in SUBRUNNERS.get(base, ()):
+        refuse("refused: %s lets %s %s run anything; allow the exact command instead" % (rule, base, sub))
+    if wild and base == "find" and any(w in ("-exec", "-execdir", "-ok", "-okdir") for w in rest):
+        refuse("refused: %s lets find run any command; allow the exact command instead" % rule)
     if base == "git" and wild:
         return "warning: %s lets git run other programs (git -c, aliases); prefer exact git commands" % rule
+    if wild and ("/" in prog or (base in FROM_FILES and (FROM_FILES[base] is None or sub in FROM_FILES[base]))):
+        return "warning: %s runs code from files a persona can change (a Makefile, package.json, a script); prefer exact commands" % rule
+    return None
+
+
+def path_regex(glob):
+    """A gitignore-style glob as a regex; a match on a folder covers its contents."""
+    out, i = "", 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif glob.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif glob[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif glob[i] == "?":
+            out, i = out + "[^/]", i + 1
+        else:
+            out, i = out + re.escape(glob[i]), i + 1
+    return re.compile(out + "(?:/.*)?$", re.I)
+
+
+def check_path(rule, tool, spec):
+    """Refuses Edit rules that reach protected or code-running files and
+    cadre's own state; warns on Read rules that reach secrets."""
+    if spec.startswith("//"):
+        full = "/" + spec[2:].lstrip("/")
+    elif spec == "~" or spec.startswith("~/"):
+        full = HOME + spec[1:]
+    else:
+        full = None
+    parts = [norm(x) for x in spec.replace("\\", "/").split("/")]
+    if tool == "Read":
+        if full and any(path_regex(full).match(t) for t in SECRETS):
+            return "warning: %s lets personas read secrets (~/.ssh, ~/.aws, ~/.gnupg, ~/.config/gh); keep it as narrow as you can" % rule
+        return None
+    for name in PROTECTED:
+        if name in parts or (full and path_regex(full).match(HOME + "/" + name)):
+            refuse("refused: Claude Code never pre-approves writes to %s; make that edit yourself" % name)
+    if ".claude" in parts or (full and (path_regex(full).match(HOME + "/.claude/settings.json")
+                                        or path_regex(full).match(HOME + "/.config/git/config"))):
+        refuse("refused: Claude Code never pre-approves writes under .claude or .config/git; make that edit yourself")
+    if full:
+        fixed = re.split(r"[*?\[{]", full)[0].rstrip("/")
+        if fixed == "" or HOME == fixed or HOME.startswith(fixed + "/"):
+            refuse("refused: %s covers your whole home folder; name the folder or file" % rule)
+        for t in OUTSIDE:
+            if path_regex(full).match(t):
+                refuse("refused: %s lets a persona change %s, which runs code outside its session or holds cadre's own state; make that edit yourself" % (rule, t))
+    if any(x in (".ssh", ".tmux.conf", ".vimrc", "launchagents", "crontab") for x in parts):
+        refuse("refused: %s lets a persona change files that run code outside its session; make that edit yourself" % rule)
     return None
 
 
@@ -857,9 +967,16 @@ def check_rule(rule):
         refuse("refused: Claude Code does not use Write(path) rules; Edit(path) covers writing files")
     if re.fullmatch(r"[\s*:/~.]*", spec):
         refuse("refused: %s has only a wildcard; give an exact command, prefix or path" % rule)
-    if tool == "WebFetch" and spec.startswith("domain:") and re.fullmatch(r"[\s*.]*", spec[7:]):
-        refuse("refused: %s allows every domain; name the domain, such as WebFetch(domain:docs.example.com)" % rule)
-    warn = check_command(rule, spec) if tool in ("Bash", "PowerShell") else None
+    if tool == "WebFetch" and spec.startswith("domain:"):
+        host = spec[7:].strip()
+        if re.fullmatch(r"[\s*.]*", host) or re.fullmatch(r"\*\.[^.*]+", host):
+            refuse("refused: %s allows every domain or a whole top-level domain; name the domain, such as WebFetch(domain:docs.example.com)" % rule)
+    if tool in ("Bash", "PowerShell"):
+        warn = check_command(rule, spec)
+    elif tool in ("Edit", "NotebookEdit", "Read"):
+        warn = check_path(rule, tool, spec)
+    else:
+        warn = None
     if warn:
         return warn
     if "*" in rule:
@@ -872,6 +989,8 @@ def check_auto(text):
         refuse("refused: an --auto entry is one non-empty line")
     if len(text) > 300:
         refuse("refused: an --auto entry is at most 300 characters (this one has %d)" % len(text))
+    if any(ord(c) > 127 and unicodedata.category(c).startswith("L") for c in text):
+        refuse("refused: write --auto entries in plain ASCII letters")
     n = norm(text)
     if n.strip() == "$defaults":
         refuse("refused: $defaults is already there")

@@ -448,6 +448,10 @@ for rule in 'Bash(npm test)' "Edit(//$C/projects/app/**)" 'Edit(src/**)' 'Read(.
   cadre allow remove "$rule" >/dev/null
 done
 ok "narrow rules are still accepted"
+check "an escaped ; is an argument, not an operator" cadre allow add 'Bash(find . -name x -exec rm {} \;)'
+cadre allow remove 'Bash(find . -name x -exec rm {} \;)' >/dev/null
+check "find -exec with a wildcard is still refused" bash -c "! cadre allow add 'Bash(find . -name *.x -exec rm {} \;)'"
+check "an unescaped ; is still refused" bash -c "! cadre allow add 'Bash(npm test ; rm x)'"
 out=$(cadre allow add 'Bash(git *)')
 check "git with a wildcard gets its own warning" grep -q "lets git run other programs" <<<"$out"
 cadre allow remove 'Bash(git *)' >/dev/null

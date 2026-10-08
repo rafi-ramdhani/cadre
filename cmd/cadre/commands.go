@@ -49,6 +49,9 @@ var oldNames = []oldName{
 	{"add team", "cadre team add"},
 	{"add persona", "cadre persona add"},
 	{"version", "cadre --version"},
+	{"-v", "cadre --version"},
+	{"-h", "cadre help"},
+	{"--help", "cadre help"},
 }
 
 var renames = []renamed{
@@ -60,6 +63,7 @@ var renames = []renamed{
 	{"trust", "cadre project trust"},
 	{"remove project", "cadre project unlink (or cadre project move)"},
 	{"export project", "cadre project export"},
+	{"project remove", "cadre project unlink (or cadre project move)"},
 }
 
 func init() {
@@ -107,6 +111,9 @@ func init() {
 
 		{name: "ls --json", summary: "the status screen's data, for the orchestrator", group: "Data", run: notBuilt("cadre ls --json")},
 
+		// Hidden: the 0.1.x projects listing, kept as an old name (M.2).
+		{name: "projects", hidden: true, run: notBuilt("cadre projects")},
+
 		// Hidden: run by Claude Code as hooks and the status line (O.5).
 		{name: "hook orchestrator", hidden: true, run: notBuilt("cadre hook orchestrator")},
 		{name: "hook statusline", hidden: true, run: notBuilt("cadre hook statusline")},
@@ -124,9 +131,15 @@ func notBuilt(name string) func(e *env) int {
 // the arguments after it. Old names run their new command; renamed
 // unreleased names are refused with the new name.
 func lookup(args []string) (command, []string, error) {
-	// down --all --all-cadres was never released; its new name is stop --all.
+	// Unreleased forms of old names get no alias.
 	if len(args) > 0 && args[0] == "down" && contains(args, "--all-cadres") {
 		return command{}, nil, errors.New("down --all --all-cadres is now cadre stop --all")
+	}
+	if len(args) > 0 && args[0] == "ls" && contains(args, "--all-cadres") {
+		return command{}, nil, errors.New("ls --all-cadres is now cadre ls --all")
+	}
+	if matches("add project", args) > 0 && contains(args, "--path") {
+		return command{}, nil, errors.New("add project --path is now cadre project add <name> --path <dir>")
 	}
 	if alias, rest, ok := matchOld(args); ok {
 		args = append(strings.Fields(alias), rest...)
@@ -143,9 +156,23 @@ func lookup(args []string) (command, []string, error) {
 		}
 	}
 	if best < 0 || (bestLen == 0 && len(args) > 0) {
+		if len(args) > 1 && isGroupWord(args[0]) {
+			return command{}, nil, fmt.Errorf("unknown command '%s %s' (see cadre help advanced)", args[0], args[1])
+		}
 		return command{}, nil, fmt.Errorf("unknown command '%s' (see cadre help)", args[0])
 	}
 	return commands[best], args[bestLen:], nil
+}
+
+// isGroupWord reports whether word starts multi-word commands only, such as
+// "project" or "cadres".
+func isGroupWord(word string) bool {
+	for _, c := range commands {
+		if w := strings.Fields(c.name); len(w) > 1 && w[0] == word {
+			return true
+		}
+	}
+	return false
 }
 
 // matchOld maps an old name to the words of the command it now runs.
@@ -153,7 +180,7 @@ func matchOld(args []string) (string, []string, bool) {
 	words := map[string]string{
 		"down": "stop", "path": "project path", "sync": "project sync",
 		"add project": "project add", "add team": "team add", "add persona": "persona add",
-		"version": "--version",
+		"version": "--version", "-v": "--version", "-h": "help", "--help": "help",
 	}
 	for _, two := range []string{"add project", "add team", "add persona"} {
 		if n := matches(two, args); n > 0 {
@@ -213,6 +240,9 @@ func without(list []string, s string) []string {
 }
 
 func runVersion(e *env) int {
+	if len(e.args) > 0 {
+		return e.fail("usage: cadre --version")
+	}
 	e.say("cadre %s", version)
 	return 0
 }

@@ -302,6 +302,27 @@ second layer, as N.7 says.
 6. Resume, ctx and compact (M-T7, J).
 7. Docs (M-T6) and the release.
 
+## Known pitfalls carried from the bash reviews
+
+Open in the last bash PR (#11) when it was frozen; the Go code must get them right:
+- **Restart commands for another cadre** (`update`, `allow`) must carry that
+  cadre: `CADRE_HOME=<path> cadre stop ... && CADRE_HOME=<path> cadre up ...`,
+  or a form that names the cadre, since the user runs them from anywhere.
+- **Claude session names can collide through hyphens.** Team `dev` with
+  project `x` and role `y-z`, and team `dev-x` with role `y-z`, both give
+  `<cadre>-dev-x-y-z`. Attribution uses tmux options, never name parsing, and
+  `up` refuses when the Claude name it would use is already taken by another
+  (cadre, team, project, role), not only when the tmux session name is.
+- **Stale-lock takeover race.** Renaming a stale lock aside can still take
+  over a lock another process has just re-created between its `stat` and the
+  `rename`. Go can do better: the lock folder holds an owner file (pid,
+  process start time and a random token). A stale lock is taken over only if
+  its owner is dead, judged by pid and start time rather than by age alone,
+  and the renamed-aside folder's token is checked before it is removed.
+- **`#` is never a comment** in a `Bash(...)` specifier. The bash checker's
+  shlex treats `#` as a comment even mid-word, so `Bash(echo x#; bash *)`
+  passed the chaining check (fixed on main separately).
+
 ## Open points
 
 - N.7 lists `Write(...)` deny entries; this design leaves them out (see

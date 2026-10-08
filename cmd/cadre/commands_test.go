@@ -138,3 +138,63 @@ func TestEveryCommandHasARunner(t *testing.T) {
 		}
 	}
 }
+
+func TestEveryOldNameResolves(t *testing.T) {
+	for _, o := range oldNames {
+		if _, _, err := lookup(strings.Fields(o.name)); err != nil {
+			t.Errorf("old name cadre %s: %v", o.name, err)
+		}
+	}
+	for _, a := range []string{"-h", "--help"} {
+		if c, _, err := lookup([]string{a}); err != nil || c.name != "help" {
+			t.Errorf("%s runs %q (%v), want help", a, c.name, err)
+		}
+	}
+	if c, _, err := lookup([]string{"-v"}); err != nil || c.name != "--version" {
+		t.Errorf("-v runs %q (%v), want --version", c.name, err)
+	}
+	if c, _, err := lookup([]string{"projects"}); err != nil || c.name != "projects" {
+		t.Errorf("projects runs %q (%v)", c.name, err)
+	}
+}
+
+func TestEveryRenamedNameIsRefused(t *testing.T) {
+	for _, r := range renames {
+		if _, _, err := lookup(strings.Fields(r.name)); err == nil || !strings.Contains(err.Error(), r.use) {
+			t.Errorf("cadre %s: %v, want a refusal naming %q", r.name, err, r.use)
+		}
+	}
+}
+
+func TestUnreleasedFormsOfOldNamesAreRefused(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"add", "project", "x", "--path", "/d"}, "cadre project add <name> --path <dir>"},
+		{[]string{"ls", "--all-cadres"}, "cadre ls --all"},
+		{[]string{"down", "--all-cadres"}, "cadre stop --all"},
+		{[]string{"project", "remove", "x"}, "cadre project unlink"},
+	} {
+		if _, _, err := lookup(tc.args); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%v: %v, want a refusal naming %q", tc.args, err, tc.want)
+		}
+	}
+}
+
+func TestUnknownSubcommandIsNamed(t *testing.T) {
+	_, _, err := lookup([]string{"cadres", "foo"})
+	if err == nil || !strings.Contains(err.Error(), "unknown command 'cadres foo'") {
+		t.Errorf("cadres foo: %v", err)
+	}
+	_, _, err = lookup([]string{"project", "bogus", "x"})
+	if err == nil || !strings.Contains(err.Error(), "unknown command 'project bogus'") {
+		t.Errorf("project bogus: %v", err)
+	}
+}
+
+func TestVersionTakesNoArguments(t *testing.T) {
+	if code, _, _ := call("--version", "x"); code != 1 {
+		t.Errorf("--version x exited %d", code)
+	}
+}

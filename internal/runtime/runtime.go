@@ -240,6 +240,17 @@ func For(cadre, team, role, conf string) string {
 	return Default()
 }
 
+// CanOrchestrate refuses a runtime that cannot be the orchestrator (P.3):
+// it needs a place for the orchestrator's instructions, a way to start a
+// session as the orchestrator, and messaging to reach the personas.
+func CanOrchestrate(r Runtime) error {
+	caps := r.Caps()
+	if !caps.Instructions || !caps.OrchestratorHook || caps.Messaging == NoMessaging {
+		return fmt.Errorf("runtime %s cannot be the orchestrator (it needs instructions, an orchestrator start and messaging)", r.Name())
+	}
+	return nil
+}
+
 // Usable refuses a runtime that cannot run a persona safely or reach the
 // orchestrator: one without the fixed denies, or without messaging (P.5).
 func Usable(r Runtime, mode string) error {

@@ -89,6 +89,15 @@ func (t Tmux) PaneDead(session, window string) bool {
 	return err == nil && strings.HasPrefix(out, "1")
 }
 
+// PanePID is the pid of the command running in a window.
+func (t Tmux) PanePID(session, window string) (int, error) {
+	out, err := t.run("display", "-p", "-t", "="+session+":="+window, "#{pane_pid}")
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(out))
+}
+
 // Info is what cadre records on a session.
 type Info struct {
 	Name    string // the tmux session
@@ -148,6 +157,7 @@ type StartSpec struct {
 	Env                  []string // KEY=value
 	Argv                 []string // at least the program and one argument
 	SessionOptions       []Option // set on a new session, in the same tmux command
+	SessionHooks         []Option // set-hook on a new session: hook name and its tmux command
 	WindowOptions        []Option
 }
 
@@ -207,6 +217,10 @@ func (t Tmux) Start(s StartSpec) error {
 	if isNew {
 		for _, o := range s.SessionOptions {
 			set("-q", "="+s.Session+":", o)
+		}
+		for _, h := range s.SessionHooks {
+			args = append(args, ";")
+			add("set-hook", "-t", "="+s.Session+":", h.Name, h.Value)
 		}
 	}
 	for _, o := range s.WindowOptions {

@@ -188,7 +188,7 @@ func (e *env) showSessions(t session.Tmux, list []session.Info, known map[string
 
 func runStop(e *env) int {
 	var pos []string
-	all, yes := false, false
+	all, yes, withOrch := false, false, false
 	for _, a := range e.args {
 		switch a {
 		case "--all":
@@ -196,8 +196,7 @@ func runStop(e *env) int {
 		case "--yes", "-y":
 			yes = true
 		case "--with-orchestrator":
-			// The orchestrator in tmux comes with cadre --tmux (O-T5); until
-			// then there is none to stop.
+			withOrch = true
 		default:
 			if strings.HasPrefix(a, "-") {
 				return e.fail("usage: cadre stop [team[/role]] [project] [--all] [--yes]")
@@ -239,6 +238,9 @@ func runStop(e *env) int {
 	if all {
 		known = knownCadres()
 		list = session.All(t, known)
+		if withOrch {
+			list = append(list, orchestrators(t, "")...)
+		}
 		if len(list) == 0 {
 			e.say("no cadre sessions running")
 			return 0
@@ -250,6 +252,9 @@ func runStop(e *env) int {
 			return 1
 		}
 		list = scope(r).Running()
+		if withOrch {
+			list = append(list, orchestrators(t, r.Path)...)
+		}
 		if len(list) == 0 {
 			e.say("no sessions of cadre %s running", r.Name)
 			return 0
@@ -279,6 +284,19 @@ func runStop(e *env) int {
 	return 0
 }
 
+// orchestrators lists the orchestrator sessions in tmux, of the cadre at
+// home, or of every cadre for "". They come after the personas in a stop
+// list, so they stop last (K.4).
+func orchestrators(t session.Tmux, home string) []session.Info {
+	var out []session.Info
+	for _, i := range t.Sessions() {
+		if i.Role == "orchestrator" && (home == "" || i.Home == home) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
 // knownCadres maps each known cadre's path to its name.
 func knownCadres() map[string]string {
 	known := map[string]string{}
@@ -290,12 +308,15 @@ func knownCadres() map[string]string {
 }
 
 func runAttach(e *env) int {
-	if len(e.args) < 1 || len(e.args) > 2 {
-		return e.fail("usage: cadre attach <team> [project]")
+	if len(e.args) > 2 {
+		return e.fail("usage: cadre attach [team] [project]")
 	}
 	r, ok := e.resolve()
 	if !ok {
 		return 1
+	}
+	if len(e.args) == 0 {
+		return e.attachOrchestrator(r)
 	}
 	project := ""
 	if len(e.args) == 2 {
@@ -306,6 +327,9 @@ func runAttach(e *env) int {
 	live := s.Live(key)
 	if live == "" {
 		return e.fail("%s is not running", session.SessionName(r.Name, key))
+	}
+	if !e.interactive() {
+		return e.fail("cadre attach needs a terminal")
 	}
 	if err := s.T.Attach(live); err != nil {
 		return e.fail("%s", err)

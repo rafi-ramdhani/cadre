@@ -279,6 +279,37 @@ mkdir -p "$T/nopy"
 for tool in tmux git; do ln -s "$(command -v "$tool")" "$T/nopy/$tool"; done
 check "no python needed: cadre runs with only tmux and git on PATH" bash -c "! PATH='$T/nopy' command -v python3 && PATH='$T/nopy' '$T/bin/cadre' ls >/dev/null"
 
+echo "the orchestrator (M.3, K)"
+cat > "$T/bin/claude" <<EOF
+#!/bin/sh
+if [ -n "\$CADRE_ORCHESTRATOR" ]; then
+  { printf '%s\\n' "\$@"; env; pwd; } > "$T/orch-ran"
+  # In the terminal it ends at once; in tmux it stays, like a session.
+  if [ -n "\$TMUX" ]; then exec sleep 300; fi
+  exit 0
+fi
+printf '%s\\n' "\$@" > "$T/args-\$CADRE_PERSONA"
+printf '%s\\n' "\$CADRE_HOME" > "$T/home-\$CADRE_PERSONA"
+exec sleep 300
+EOF
+cd "$T"
+out=$(cadre </dev/null)
+check "plain cadre opens the default, and says so" grep -q "Opening your default cadre demo (~/.cadre/demo)" <<<"$out"
+check "the orchestrator runs in the cadre's folder" test "$(tail -1 "$T/orch-ran")" = "$C"
+check "named, pinned and marked" bash -c "grep -qx 'demo-orchestrator' '$T/orch-ran' && grep -qx 'CADRE_HOME=$C' '$T/orch-ran' && grep -qx 'CADRE_ORCHESTRATOR=1' '$T/orch-ran'"
+check "with no persona settings and no persona name" bash -c "! grep -qx -- '--settings' '$T/orch-ran' && ! grep -q '^CADRE_PERSONA=' '$T/orch-ran'"
+# shellcheck disable=SC2016 # the backticks are the prompt's own Markdown
+check "its prompt names the cadre" grep -q 'You are the orchestrator of cadre `demo`' "$C/.claude/build/orchestrator.md"
+check "the lock is gone after it" test ! -e "$C/.claude/build/orchestrator.lock"
+check "persona sessions cannot start it" bash -c "! CADRE_PERSONA=x cadre </dev/null 2>/dev/null"
+out=$(cadre --tmux </dev/null)
+check "cadre --tmux starts it in tmux" grep -q "started the orchestrator of demo; attach with: cadre attach" <<<"$out"
+check "its session is marked as the orchestrator" test "$(tm show-options -qv -t =cadre-demo: @cadre_role)" = orchestrator
+check "with the way back in its status line" bash -c "tm show-options -qv -t =cadre-demo: status-right | grep -q 'then d: back to your terminal'"
+check "ls shows it" bash -c "cadre ls | grep -q 'orchestrator: running in tmux (cadre-demo)'"
+check "stop leaves it" bash -c "cadre stop --all --yes >/dev/null; running cadre-demo"
+check "unless asked" bash -c "cadre stop --all --with-orchestrator --yes | grep -q 'cadre-demo stopped'"
+
 echo "help"
 check "help lists the visible commands" bash -c "cadre help | grep -q 'cadre stop' && ! cadre help | grep -q 'cadre allow'"
 check "help advanced lists the rest" bash -c "cadre help advanced | grep -q 'cadre allow add'"

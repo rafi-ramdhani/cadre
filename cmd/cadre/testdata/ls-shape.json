@@ -5,6 +5,9 @@
     "name": "string",
     "path": "string"
   },
+  "orchestrator": {
+    "running": "bool"
+  },
   "other_cadres": "array of {\"name\":\"string\",\"path\":\"string\",\"running\":\"number\"}",
   "problems": "array of ",
   "projects": "array of {\"about\":\"string\",\"cloned\":\"bool\",\"name\":\"string\",\"path\":\"string\",\"team\":\"string\"}",

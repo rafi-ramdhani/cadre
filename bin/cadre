@@ -125,14 +125,11 @@ class Lock:
             try:
                 st = os.stat(self.path)
                 if time.time() - st.st_mtime > 60:
-                    # Take a stale lock over by renaming it, which only one
-                    # process can do; put it back if it turns out to be new.
-                    old = "%s.stale-%d" % (self.path, os.getpid())
+                    # Take a stale lock over by renaming it aside, which only
+                    # one process can do, then retry; never rename back.
+                    old = "%s.stale-%d-%d" % (self.path, os.getpid(), int(time.time() * 1e6))
                     os.rename(self.path, old)
-                    if os.stat(old).st_ino != st.st_ino:
-                        os.rename(old, self.path)
-                    else:
-                        os.rmdir(old)
+                    os.rmdir(old)
                     continue
             except FileNotFoundError:
                 continue
@@ -167,7 +164,7 @@ def pointer():
         given = open(config).readline().strip()
     except OSError:
         return ""
-    if not given:
+    if not os.path.expanduser(given).startswith("/"):
         return ""
     p = phys(given)
     if p != given and os.path.isdir(p):

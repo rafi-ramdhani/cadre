@@ -253,16 +253,20 @@ cmd_sync() {
 # ~/.claude/settings.json) without ever damaging it:
 #   json_edit <op> <file> <backup> [args...]
 # It never creates the file, leaves it untouched when it is not the JSON it
-# expects, copies it to <backup> before writing, writes a temporary file with
-# the same mode and renames it over the original, and starts again (up to 3
-# times) when the file changed while it worked. Exit: 0 written, 3 nothing to
-# change, 4 no such file, 5 unreadable or unexpected content, 6 kept changing.
+# expects or belongs to another user, copies it to <backup> before the first
+# write (an existing backup, the oldest original, is kept), writes a
+# temporary file with the same mode and renames it over the original, and
+# starts again (up to 3 times) when the file changed while it worked.
+# Exit: 0 written, 3 nothing to change, 4 no such file, 5 unreadable,
+# unexpected content or another owner, 6 kept changing, 7 could not write.
+# CADRE_TEST_JSON_EDIT_HOOK, for tests only, names a program run with the
+# attempt number and the file just before the re-check.
 # Op trust, args "name<TAB>path[<TAB>path...]": sets
 # projects[path].hasTrustDialogAccepted for every path and prints
 # "name<TAB>trusted" or "name<TAB>already" per project.
 json_edit() {
   python3 - "$@" <<'PY'
-import hashlib, json, os, sys, tempfile
+import hashlib, json, os, subprocess, sys, tempfile
 
 op, path, backup, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 
@@ -315,8 +319,10 @@ def write(target, data, mode):
         raise
 
 
-for _ in range(3):
+def attempt(n):
     try:
+        if os.stat(path).st_uid != os.geteuid():
+            sys.exit(5)
         stamp, raw, mode = snapshot()
     except FileNotFoundError:
         sys.exit(4)
@@ -326,53 +332,101 @@ for _ in range(3):
         data = json.loads(raw)
         before = json.dumps(data, sort_keys=True)
         lines = OPS[op](data)
-    except (ValueError, Shape):
+        after = json.dumps(data, sort_keys=True)
+        new = (json.dumps(data, indent=2) + "\n").encode()
+    except (ValueError, TypeError, RecursionError, Shape):
         sys.exit(5)
-    if json.dumps(data, sort_keys=True) == before:
+    if after == before:
         print("\n".join(lines))
         sys.exit(3)
-    os.replace(write(backup, raw, mode), backup)
-    tmp = write(path, (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode(), mode)
+    tmp = None
     try:
-        same = snapshot()[0] == stamp
+        if not os.path.lexists(backup):
+            os.replace(write(backup, raw, mode), backup)
+        tmp = write(path, new, mode)
+        hook = os.environ.get("CADRE_TEST_JSON_EDIT_HOOK")
+        if hook:
+            subprocess.call([hook, str(n), path])
+        try:
+            same = snapshot()[0] == stamp
+        except OSError:
+            same = False
+        if same:
+            os.replace(tmp, path)
+            tmp = None
+            print("\n".join(lines))
+            sys.exit(0)
     except OSError:
-        same = False
-    if same:
-        os.replace(tmp, path)
-        print("\n".join(lines))
-        sys.exit(0)
-    os.unlink(tmp)
-sys.exit(6)
+        sys.exit(7)
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+try:
+    for n in range(1, 4):
+        attempt(n)
+    sys.exit(6)
+except SystemExit:
+    raise
+except BaseException:
+    sys.exit(5)
 PY
 }
 
 # Claude Code's global config, where workspace trust is stored per folder.
 claude_config() { echo "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"; }
 
+# Why folder $1 (a physical path) must not be trusted, or nothing when it
+# may be: only the top folder of a project repo is, never /, the home
+# folder, the cadre or a folder containing it, or a team folder.
+trust_refusal() {
+  local d=$1 home cadre
+  home=$(cd "$HOME" && pwd -P); cadre=$(cd "$CADRE_HOME" && pwd -P)
+  if [ "$d" = / ]; then echo "it is the root folder"; return; fi
+  if [ "$d" = "$home" ]; then echo "it is your home folder"; return; fi
+  case "$cadre/" in "$d/"*) echo "it is the cadre folder or contains it"; return ;; esac
+  case "$d/" in "$cadre/teams/"*) echo "it is a team folder"; return ;; esac
+  [ "$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" = "$d" ] || echo "it is not the top folder of a git repo"
+}
+
 # Marks registry projects' folders as trusted in Claude Code, in one write
 # with one backup. Each folder is keyed by its physical path and, when it
 # differs, by the path as cadre spells it. Sets TRUST_RESULT to
-# "name<TAB>trusted|already|skipped" lines and TRUST_NOTE to a note for the
-# user when the config was left alone.
+# "name<TAB>trusted|already|refused|skipped[<TAB>reason]" lines and
+# TRUST_NOTE to a note for the user when the config was left alone.
 trust_projects() {
-  local cfg args=() name dir phys code=0 out=""
+  local cfg args=() names=() name dir phys why code=0 out=""
   cfg=$(claude_config)
   TRUST_RESULT="" TRUST_NOTE=""
+  if [ -n "${CADRE_PERSONA:-}" ]; then
+    TRUST_NOTE="persona sessions cannot trust folders in Claude Code; run cadre trust $* from the orchestrator"
+    for name in "$@"; do TRUST_RESULT+="$name"$'\t'"skipped"$'\n'; done
+    return
+  fi
   for name in "$@"; do
     dir=$(cd "$(project_dir "$name")" && pwd); phys=$(cd "$dir" && pwd -P)
+    why=$(trust_refusal "$phys")
+    if [ -n "$why" ]; then TRUST_RESULT+="$name"$'\t'"refused"$'\t'"$why"$'\n'; continue; fi
+    names+=("$name")
     if [ "$dir" = "$phys" ]; then args+=("$name"$'\t'"$phys"); else args+=("$name"$'\t'"$phys"$'\t'"$dir"); fi
   done
+  [ ${#names[@]} -gt 0 ] || return 0
   out=$(json_edit trust "$cfg" "$cfg.bak-cadre" "${args[@]}") || code=$?
   case $code in
-    0|3) TRUST_RESULT=$out; return ;;
+    0|3) TRUST_RESULT+="$out"$'\n'; return ;;
     4) TRUST_NOTE="Claude Code has not created its config yet; it will ask to trust the folder on first launch" ;;
     6) TRUST_NOTE="warning: $cfg kept changing (a running Claude Code session?), so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
-    *) TRUST_NOTE="warning: $cfg could not be read as Claude Code's config, so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
+    7) TRUST_NOTE="warning: could not write next to $cfg (folder not writable, or disk full?), so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
+    *) TRUST_NOTE="warning: $cfg is not a file cadre can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user), so it was left unchanged; Claude Code will ask to trust the folder on first launch" ;;
   esac
-  for name in "$@"; do TRUST_RESULT+="$name"$'\t'"skipped"$'\n'; done
+  for name in "${names[@]}"; do TRUST_RESULT+="$name"$'\t'"skipped"$'\n'; done
 }
 
-trust_of() { awk -F'\t' -v n="$1" '$1 == n { print $2 }' <<<"$TRUST_RESULT"; }
+trust_of() { awk -F'\t' -v n="$1" -v f="${2:-2}" '$1 == n { print $f }' <<<"$TRUST_RESULT"; }
 
 # Trusts the given projects and prints one line per project.
 trust_report() {
@@ -382,6 +436,7 @@ trust_report() {
     case $(trust_of "$name") in
       trusted) echo "  $name: trusted in Claude Code" ;;
       already) echo "  $name: already trusted in Claude Code" ;;
+      refused) echo "  $name: not trusted, $(trust_of "$name" 3)" ;;
       *) echo "  $name: not trusted (see below)" ;;
     esac
   done
@@ -390,6 +445,7 @@ trust_report() {
 
 cmd_trust() {
   local names=() name
+  [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot trust folders in Claude Code; ask the user in the orchestrator"
   case "${1:-}" in
     --all)
       [ -z "${2:-}" ] || die "usage: cadre trust <project> | --all"
@@ -579,9 +635,16 @@ cmd_add() {
     project)
       shift
       local trust=1 a pos=()
-      for a in "$@"; do if [ "$a" = --no-trust ]; then trust=""; else pos+=("$a"); fi; done
+      for a in "$@"; do
+        case $a in
+          --no-trust) trust="" ;;
+          -*) die "unknown option $a (usage: cadre add project <name> <owner/repo> [team] [about] [--no-trust])" ;;
+          *) pos+=("$a") ;;
+        esac
+      done
       local name=${pos[0]:-} repo=${pos[1]:-} team=${pos[2]:-dev} about=${pos[3]:-}
       if [ -z "$name" ] || [ -z "$repo" ]; then die "usage: cadre add project <name> <owner/repo> [team] [about] [--no-trust]"; fi
+      if ! [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [[ $name == *..* ]]; then die "project name may use letters, digits, ., - and _ (no ..)"; fi
       [ -z "$(reg has "$name")" ] || die "project '$name' is already in projects.yaml"
       printf '\n%s:\n  repo: %s\n  team: %s\n  about: %s\n' "$name" "$repo" "$team" "$about" >> "$REGISTRY"
       commit_change "Add project $name" "$REGISTRY"
@@ -592,6 +655,7 @@ cmd_add() {
       case $(trust_of "$name") in
         trusted) echo "  $name added, $where and trusted in Claude Code (registered projects are trusted; use --no-trust to skip)" ;;
         already) echo "  $name added, $where; its folder was already trusted in Claude Code" ;;
+        refused) echo "  $name added, $where; not trusted in Claude Code, $(trust_of "$name" 3)" ;;
         *) echo "  $name added, $where"; echo "${TRUST_NOTE/the folder/$path}" ;;
       esac ;;
     team)

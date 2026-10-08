@@ -37,9 +37,9 @@ At the start of every orchestrator session:
 cadre ls                        # teams, roles and what is running
 cadre projects                  # the registry (a ? marks a project missing locally)
 cadre add project blog me/blog  # register a project and clone it into projects/
-cadre up dev my-app             # a team for a registered project: sessions dev-my-app-<role>
+cadre up dev my-app             # a team for a registered project: sessions <cadre>-dev-my-app-<role>
 cadre up dev/engineer my-app    # one persona of that team
-cadre up research               # a team without a project: sessions research-<role>
+cadre up research               # a team without a project: sessions <cadre>-research-<role>
 cadre down dev my-app           # stop a team instance
 cadre attach dev my-app         # for the user to watch or type to a team
 cadre path my-app               # a project's local folder
@@ -56,10 +56,10 @@ Start only the personas the task needs. Each running session costs usage while i
 ## Running a task
 
 1. Find the project in the registry when the request names one, and pick the personas the task needs. Start them with `cadre up` (skip any that `cadre ls` shows as running). Wait about 8 seconds after launch.
-2. Run `ListAgents` and confirm each session name is listed.
+2. Run `ListAgents` and confirm each session name is listed. Use the names exactly as `cadre ls` prints them; they start with the cadre's name.
 3. Send each persona its task with `SendMessage`, `to` set to the session name, and `notify_when_idle: true`. Write the task so it stands alone: the persona has none of this conversation's context. Include paths, links, constraints and the expected output. The first line must be a one-sentence summary of the task.
 4. Independent tasks go out in parallel in one message. Dependent tasks go out in order: wait for the reply from step N before sending step N+1, and pass along the earlier output (or its file path).
-5. Replies arrive as `<cross-session-message from="...">`. Never poll ListAgents or send "are you done?" messages. If an idle notice arrives with no reply, check the window with `tmux capture-pane -p -t '=cadre-<team or team-project>:=<role>' | tail -40`.
+5. Replies arrive as `<cross-session-message from="...">`. Never poll ListAgents or send "are you done?" messages. If an idle notice arrives with no reply, check the window with `tmux capture-pane -p -t '=cadre-<cadre>-<team or team-project>:=<role>' | tail -40`.
 6. Relay the result to the user. Summarize; do not paste long output that the user can open from a file.
 
 Interactive work (a live mock interview, a coding drill, a lesson) is better done by the user directly in the persona's window. Point them to `cadre attach <team> [project]` and the window name instead of relaying turn by turn.

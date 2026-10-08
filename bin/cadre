@@ -11,9 +11,10 @@
 #   cadre add team <team> | cadre add persona <team>/<role>
 #   cadre up <team|team/role> [project|dir]   start a team or one persona
 #   cadre down <team|team/role> [project]     stop a team or one persona
-#   cadre down --all [--yes]                  stop every cadre session (asks first)
+#   cadre down --all [--all-cadres] [--yes]   stop this cadre's sessions, or every
+#                                             cadre's (asks first)
 #   cadre attach <team> [project]             open a team's tmux session
-#   cadre ls                                  list teams, roles and what runs
+#   cadre ls [--all-cadres]                   list teams, roles and what runs
 #   cadre projects                            list the project registry
 #   cadre path <project>                      print a project's local folder
 #   cadre sync [--no-trust]                   clone missing registry projects
@@ -33,9 +34,10 @@
 # Registered projects are trusted in Claude Code when added or cloned, so
 # personas start there without the trust prompt; --no-trust skips that.
 #
-# A team started for a project gets its own sessions: `cadre up dev my-app`
-# names them dev-my-app-<role> in tmux session cadre-dev-my-app. Without a
-# project they are <team>-<role> in tmux session cadre-<team>.
+# Session names carry the cadre: in cadre work, `cadre up dev my-app` names
+# the personas work-dev-my-app-<role> in tmux session cadre-work-dev-my-app.
+# Without a project they are work-<team>-<role> in tmux session
+# cadre-work-<team>.
 
 set -euo pipefail
 
@@ -78,9 +80,9 @@ CADRES="$HOME/.config/cadre/cadres"
 #                                   prints its path
 #   cadres_db default               the default cadre (may be missing)
 #   cadres_db set-default <dir>     make a cadre the default
-#   cadres_db resolve <dir>         the nearest known cadre at or above dir,
-#                                   else the default, then a line naming the
-#                                   source; nothing when there is neither
+#   cadres_db resolve <dir>         three lines: the nearest known cadre at
+#                                   or above dir, else the default (empty
+#                                   when neither); its source; the default
 cadres_db() {
   python3 -I - "$CADRES" "$CONFIG" "$@" <<'PY'
 import os, re, sys, tempfile, time
@@ -125,14 +127,11 @@ class Lock:
             try:
                 st = os.stat(self.path)
                 if time.time() - st.st_mtime > 60:
-                    # Take a stale lock over by renaming it, which only one
-                    # process can do; put it back if it turns out to be new.
-                    old = "%s.stale-%d" % (self.path, os.getpid())
+                    # Take a stale lock over by renaming it aside, which only
+                    # one process can do, then retry; never rename back.
+                    old = "%s.stale-%d-%d" % (self.path, os.getpid(), int(time.time() * 1e6))
                     os.rename(self.path, old)
-                    if os.stat(old).st_ino != st.st_ino:
-                        os.rename(old, self.path)
-                    else:
-                        os.rmdir(old)
+                    os.rmdir(old)
                     continue
             except FileNotFoundError:
                 continue
@@ -167,7 +166,7 @@ def pointer():
         given = open(config).readline().strip()
     except OSError:
         return ""
-    if not given:
+    if not os.path.expanduser(given).startswith("/"):
         return ""
     p = phys(given)
     if p != given and os.path.isdir(p):
@@ -270,8 +269,9 @@ elif op == "resolve":
         if other:
             sys.exit("cadres at %s and %s share the name %s; rename one of the folders, "
                      "or forget one with cadre cadres remove <dir>" % (found, other[0], name_of(found)))
-        print(found)
-        print(source)
+    print(found or "")
+    print(source if found else "")
+    print(pointer())
 PY
 }
 
@@ -280,15 +280,15 @@ default_home() { cadres_db default; }
 
 # Which cadre a command uses: $CADRE_HOME, else the nearest known cadre at or
 # above the current folder, else the default. Sets CADRE_HOME, a physical
-# path, and CADRE_FROM. CADRE_HOME is used as given, registered or not.
+# path, CADRE_FROM and CADRE_DEFAULT (the default cadre's path). CADRE_HOME is used as given, registered or not.
 resolve_home() {
   local r
   if [ -n "${CADRE_HOME:-}" ]; then
     if [ -d "$CADRE_HOME" ]; then CADRE_HOME=$(cd "$CADRE_HOME" && pwd -P); fi
-    CADRE_FROM="from CADRE_HOME"; return
+    CADRE_FROM="from CADRE_HOME" CADRE_DEFAULT=$(cadres_db default); return
   fi
   r=$(cadres_db resolve "$(pwd -P)") || exit 1
-  CADRE_HOME=$(sed -n 1p <<<"$r") CADRE_FROM=$(sed -n 2p <<<"$r")
+  CADRE_HOME=$(sed -n 1p <<<"$r") CADRE_FROM=$(sed -n 2p <<<"$r") CADRE_DEFAULT=$(sed -n 3p <<<"$r")
 }
 
 # The cadre this command acts on (see resolve_home), with its settings.
@@ -302,6 +302,7 @@ load_home() {
   # shellcheck source=/dev/null
   if [ -f "$CADRE_HOME/cadre.conf" ]; then . "$CADRE_HOME/cadre.conf"; fi
   MODE=${CADRE_PERMISSION_MODE:-$PERMISSION_MODE}
+  CADRE_NAME=$(basename "$CADRE_HOME")
   PERSONAS="$CADRE_HOME/personas"
   REGISTRY="$CADRE_HOME/projects.yaml"
   PSET="$CADRE_HOME/.claude/persona-settings.json"
@@ -409,21 +410,60 @@ else:
 PY
 }
 
-# Running cadre sessions, one per line: the tmux session, a tab, and the
-# personas in it (its windows are named by role).
-running_sessions() {
-  local s
-  for s in $(tmux ls -F '#S' 2>/dev/null | grep '^cadre-' || true); do
-    printf '%s\t%s\n' "$s" "$(tmux list-windows -t "=$s" -F "${s#cadre-}-#W" 2>/dev/null | paste -sd ' ' -)"
-  done
+TAB=$(printf '\t')
+
+# Every cadre tmux session, one per line: its name, a tab, and its cadre's
+# physical path (@cadre_home; empty for a legacy session, one started
+# before session names carried the cadre).
+cadre_sessions() { tmux ls -F "#S$TAB#{@cadre_home}" 2>/dev/null | grep '^cadre-' || true; }
+
+# Whether this command's cadre is the default one. Legacy sessions belong to
+# the default cadre.
+is_default() { [ -n "${CADRE_DEFAULT:-}" ] && [ "$CADRE_HOME" = "$CADRE_DEFAULT" ]; }
+
+# Whether a session whose @cadre_home is $1 belongs to this cadre.
+ours() {
+  if [ "$1" = "$CADRE_HOME" ]; then return 0; fi
+  [ -z "$1" ] && is_default
 }
 
-# Prints running_sessions output for a person to read.
-show_sessions() {
-  local s personas
-  [ -n "$1" ] || return 0
-  while IFS=$'\t' read -r s personas; do echo "  $s: $personas"; done <<<"$1"
+# Running cadre sessions, one per line: the tmux session, a tab, the
+# personas in it (its windows are named by role), a tab, and a group label.
+# Only this cadre's sessions; with "all", every cadre session, grouped and
+# labelled by cadre.
+running_sessions() {
+  local mode=${1:-} s home label known="" all
+  all=$(cadre_sessions)
+  # Read only when needed: reading the list seeds it, which would recreate
+  # ~/.config/cadre after an uninstall.
+  if [ "$mode" = all ] && awk -F'\t' '$2 != ""' <<<"$all" | grep -q .; then known=$(cadres_db list); fi
+  while IFS=$'\t' read -r s home; do
+    [ -n "$s" ] || continue
+    label=""
+    if [ "$mode" = all ]; then
+      if [ -z "$home" ]; then label="legacy sessions (from before cadre names)"
+      elif grep -qxF "$home" <<<"$known"; then label="cadre $(basename "$home")"
+      else label="unknown cadre at $home"; fi
+    elif ! ours "$home"; then
+      continue
+    fi
+    printf '%s\t%s\t%s\n' "$s" "$(tmux list-windows -t "=$s" -F "${s#cadre-}-#W" 2>/dev/null | paste -sd ' ' -)" "$label"
+  done <<<"$all" | sort -t "$TAB" -k3,3 -k1,1
 }
+
+# Prints running_sessions output for a person to read, under a heading for
+# each group.
+show_sessions() {
+  local s personas label last=""
+  [ -n "$1" ] || return 0
+  while IFS=$'\t' read -r s personas label; do
+    if [ -n "$label" ] && [ "$label" != "$last" ]; then echo "  $label:"; last=$label; fi
+    echo "  ${label:+  }$s: $personas"
+  done <<<"$1"
+}
+
+# Whether a legacy session runs.
+legacy_running() { cadre_sessions | awk -F'\t' '$2 == ""' | grep -q .; }
 
 # The cadre session this command runs in, if any: $TMUX names a session on
 # the same tmux server.
@@ -489,7 +529,47 @@ ensure_build() {
 
 roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
 key_of() { if [ -n "${2:-}" ]; then echo "$1-$2"; else echo "$1"; fi; }
-window_exists() { tmux list-windows -t "=cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
+
+# Sessions of team key $1 (team or team-project). Names are never split to
+# find a cadre: a session's cadre is its @cadre_home option.
+session_of() { echo "cadre-$CADRE_NAME-$1"; }
+home_of() { tmux show-options -qv -t "=$1:" @cadre_home 2>/dev/null || true; }
+running() { tmux has-session -t "=$1" 2>/dev/null; }
+window_in() { tmux list-windows -t "=$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
+# This cadre's session for key $1, when it runs.
+mine_of() {
+  local s; s=$(session_of "$1")
+  if running "$s" && [ "$(home_of "$s")" = "$CADRE_HOME" ]; then echo "$s"; fi
+}
+# In the default cadre, a legacy session for key $1, when it runs.
+legacy_of() {
+  if is_default && running "cadre-$1" && [ -z "$(home_of "cadre-$1")" ]; then echo "cadre-$1"; fi
+}
+# The session that runs key $1 for this cadre: its own, else a legacy one.
+live_of() {
+  local s; s=$(mine_of "$1")
+  if [ -n "$s" ]; then echo "$s"; else legacy_of "$1"; fi
+}
+
+# Refuses when this cadre's session name for team $1 and project $2 is taken
+# by another cadre, a legacy session, or another team and project whose
+# names join to the same key.
+check_session() {
+  local s home team proj
+  s=$(session_of "$(key_of "$1" "$2")")
+  running "$s" || return 0
+  home=$(home_of "$s")
+  if [ -z "$home" ]; then
+    die "tmux session $s is a legacy session from before cadre names, not cadre $CADRE_NAME's; stop it, or rename a team or this cadre's folder"
+  elif [ "$home" != "$CADRE_HOME" ]; then
+    die "tmux session $s belongs to cadre $(basename "$home") ($home), not cadre $CADRE_NAME ($CADRE_HOME); rename a team or one of the cadre folders"
+  fi
+  team=$(tmux show-options -qv -t "=$s:" @cadre_team 2>/dev/null || true)
+  proj=$(tmux show-options -qv -t "=$s:" @cadre_project 2>/dev/null || true)
+  if [ -n "$team" ] && { [ "$team" != "$1" ] || [ "$proj" != "$2" ]; }; then
+    die "tmux session $s holds team $team${proj:+ for project $proj}, whose names join to the same session name; rename a team or project"
+  fi
+}
 
 # A team's .workdir file wins; otherwise the team gets a folder in the setup.
 default_dir() {
@@ -497,11 +577,18 @@ default_dir() {
   if [ -f "$wd" ]; then expand "$(head -1 "$wd")"; else echo "$CADRE_HOME/teams/$1"; fi
 }
 
+# Starts persona $3 of team $2 for key $1 in folder $4 ($5 set when the
+# folder was given). UP_PROJ is the project, recorded on a new session.
 start_role() {
   local key=$1 team=$2 role=$3 dir=$4 explicit=$5
-  local name="$key-$role" prompt="$BUILD/$key-$role.md"
+  local s name="$CADRE_NAME-$key-$role" prompt="$BUILD/$key-$role.md" legacy
+  s=$(session_of "$key")
   [ -f "$PERSONAS/$team/$role.md" ] || die "no persona $team/$role"
-  if window_exists "$key" "$role"; then echo "  $name already running"; return; fi
+  if window_in "$s" "$role"; then echo "  $name already running"; return; fi
+  legacy=$(legacy_of "$key")
+  if [ -n "$legacy" ] && window_in "$legacy" "$role"; then
+    echo "  $key-$role already running (legacy session $legacy; it keeps its old name until restarted)"; return
+  fi
 
   # A <role>.workdir file pins one persona to its own folder, unless a
   # project or dir was given.
@@ -521,19 +608,23 @@ start_role() {
 
   # Every value is single-quoted: tmux hands the command to the user's shell
   # (bash, zsh, sh, fish), and a path may hold a quote or a space.
+  # CADRE_HOME pins the persona to this cadre wherever it works.
   local cmd
-  cmd="CADRE_PERSONA=$(sq "$name") claude --name $(sq "$name") --permission-mode $(sq "$MODE") --append-system-prompt-file $(sq "$prompt")"
+  cmd="CADRE_HOME=$(sq "$CADRE_HOME") CADRE_PERSONA=$(sq "$name") claude --name $(sq "$name") --permission-mode $(sq "$MODE") --append-system-prompt-file $(sq "$prompt")"
   if [ -n "${PSET_ARG:-}" ]; then cmd+=" --settings $(sq "$PSET_ARG")"; fi
-  if tmux has-session -t "=cadre-$key" 2>/dev/null; then
-    tmux new-window -d -t "=cadre-$key:" -n "$role" -c "$dir" "$cmd"
+  if running "$s"; then
+    tmux new-window -d -t "=$s:" -n "$role" -c "$dir" "$cmd"
   else
-    tmux new-session -d -s "cadre-$key" -n "$role" -c "$dir" "$cmd"
+    tmux new-session -d -s "$s" -n "$role" -c "$dir" "$cmd"
+    tmux set-option -q -t "=$s:" @cadre_home "$CADRE_HOME" 2>/dev/null || true
+    tmux set-option -q -t "=$s:" @cadre_team "$team" 2>/dev/null || true
+    tmux set-option -q -t "=$s:" @cadre_project "${UP_PROJ:-}" 2>/dev/null || true
   fi
   # A command that cannot run ends at once: its window closes, or stays with
   # a dead pane when the user's tmux sets remain-on-exit.
   sleep 0.5
-  if ! window_exists "$key" "$role" \
-    || [ "$(tmux list-panes -t "=cadre-$key:=$role" -F '#{pane_dead}' 2>/dev/null | head -1)" = 1 ]; then
+  if ! window_in "$s" "$role" \
+    || [ "$(tmux list-panes -t "=$s:=$role" -F '#{pane_dead}' 2>/dev/null | head -1)" = 1 ]; then
     echo "  $name failed to start: its command exited at once; run it by hand in $dir to see why:" >&2
     echo "    $cmd" >&2
     return 1
@@ -565,54 +656,72 @@ split_target() {
 cmd_up() {
   [ -n "${1:-}" ] || die "usage: cadre up <team|team/role> [project|dir]"
   split_target "$1"
+  [[ $CADRE_NAME =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] \
+    || die "this cadre's folder name $CADRE_NAME does not work in session names; rename the folder to use letters, digits, - and _"
   local proj="" dir="" explicit=""
   if [ -n "${2:-}" ]; then read -r proj dir <<<"$(locate "$2")"; explicit=$dir; fi
   [ -n "$dir" ] || dir=$(default_dir "$TEAM")
   local key; key=$(key_of "$TEAM" "$proj")
+  check_session "$TEAM" "$proj"
   ensure_persona_settings
   check_persona_settings
   if [ -s "${PSET%.json}.once" ]; then
     echo "note: one-time grants are still in place; see cadre allow list and remove each when its task is done"
   fi
-  local failed=""
+  local failed="" UP_PROJ=$proj
   if [ -n "$ROLE" ]; then
     start_role "$key" "$TEAM" "$ROLE" "$dir" "$explicit" || failed=1
   else
     for r in $(roles_of "$TEAM"); do start_role "$key" "$TEAM" "$r" "$dir" "$explicit" || failed=1; done
   fi
   # Recorded so cadre update can print the exact restart commands.
-  local target=""
+  local target="" s; s=$(session_of "$key")
   if [ -n "$proj" ]; then
     if [ -n "$(reg has "$2")" ]; then target=$2; else target=$dir; fi
   fi
-  tmux set-option -q -t "=cadre-$key:" @cadre_team "$TEAM" 2>/dev/null || true
-  tmux set-option -q -t "=cadre-$key:" @cadre_project "$proj" 2>/dev/null || true
-  tmux set-option -q -t "=cadre-$key:" @cadre_target "$target" 2>/dev/null || true
+  tmux set-option -q -t "=$s:" @cadre_target "$target" 2>/dev/null || true
   if [ -n "$failed" ]; then exit 1; fi
 }
 
 cmd_down() {
   [ -n "${1:-}" ] || die "usage: cadre down <team|team/role> [project]"
   split_target "$1"
-  local key; key=$(key_of "$TEAM" "${2:-}")
+  local key s; key=$(key_of "$TEAM" "${2:-}")
   if [ -z "$ROLE" ]; then
-    if tmux kill-session -t "=cadre-$key" 2>/dev/null; then echo "  cadre-$key stopped"; else echo "  cadre-$key not running"; fi
-  else
-    if tmux kill-window -t "=cadre-$key:=$ROLE" 2>/dev/null; then echo "  $key-$ROLE stopped"; else echo "  $key-$ROLE not running"; fi
+    s=$(live_of "$key")
+    if [ -n "$s" ] && tmux kill-session -t "=$s" 2>/dev/null; then echo "  $s stopped"; else echo "  $(session_of "$key") not running"; fi
+    return
   fi
+  # The persona runs in this cadre's session or, in the default cadre, a
+  # legacy one.
+  # shellcheck disable=SC2046 # session names have no spaces
+  for s in $(mine_of "$key") $(legacy_of "$key"); do
+    if tmux kill-window -t "=$s:=$ROLE" 2>/dev/null; then echo "  ${s#cadre-}-$ROLE stopped"; return; fi
+  done
+  echo "  $CADRE_NAME-$key-$ROLE not running"
 }
 
-# Stops every running cadre session after a confirmation. Needs only tmux,
-# so it runs without an active cadre.
+# Stops this cadre's running sessions (with --all-cadres, every cadre
+# session) after a confirmation. With --all-cadres it needs only tmux, so it
+# runs without a cadre.
 cmd_down_all() {
   local yes="" a
+  DOWN_EVERY=""
   for a in "$@"; do
-    case $a in --all) ;; --yes|-y) yes=1 ;; *) die "usage: cadre down --all [--yes]" ;; esac
+    case $a in --all) ;; --yes|-y) yes=1 ;; --all-cadres) DOWN_EVERY=1 ;; *) die "usage: cadre down --all [--all-cadres] [--yes]" ;; esac
   done
   [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot stop the whole cadre"
-  local sessions; sessions=$(running_sessions)
-  if [ -z "$sessions" ]; then echo "no cadre sessions running"; return 0; fi
-  echo "Running cadre sessions:"
+  local sessions
+  if [ -n "$DOWN_EVERY" ]; then
+    sessions=$(running_sessions all)
+    if [ -z "$sessions" ]; then echo "no cadre sessions running"; return 0; fi
+    echo "Running cadre sessions, by cadre:"
+  else
+    load_home
+    sessions=$(running_sessions)
+    if [ -z "$sessions" ]; then echo "no sessions of cadre $CADRE_NAME running"; return 0; fi
+    echo "Running sessions of cadre $CADRE_NAME:"
+  fi
   show_sessions "$sessions"
   confirm "Stop these sessions?" "$yes" || exit 1
   local code=0
@@ -621,28 +730,68 @@ cmd_down_all() {
   exit "$code"
 }
 
-down_all_done() { if [ -z "$STOP_FAILED" ]; then echo "stopped every cadre session"; fi; }
+down_all_done() {
+  if [ -n "$STOP_FAILED" ]; then return 0; fi
+  if [ -n "$DOWN_EVERY" ]; then echo "stopped every cadre session"; else echo "stopped every session of cadre $CADRE_NAME"; fi
+}
 
 cmd_attach() {
   [ -n "${1:-}" ] || die "usage: cadre attach <team> [project]"
-  local key; key=$(key_of "$1" "${2:-}")
-  tmux has-session -t "=cadre-$key" 2>/dev/null || die "cadre-$key is not running"
-  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "=cadre-$key"; else exec tmux attach -t "=cadre-$key"; fi
+  local key s; key=$(key_of "$1" "${2:-}")
+  s=$(live_of "$key")
+  [ -n "$s" ] || die "$(session_of "$key") is not running"
+  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "=$s"; else exec tmux attach -t "=$s"; fi
+}
+
+# Whether legacy session $1 (its @cadre_team is $2, empty before 0.2.0)
+# is team $3's.
+legacy_team() {
+  if [ -n "$2" ]; then [ "$2" = "$3" ]; return; fi
+  case ${1#cadre-} in "$3"|"$3"-*) return 0 ;; *) return 1 ;; esac
 }
 
 cmd_ls() {
-  local sessions; sessions=$(tmux ls -F '#S' 2>/dev/null | grep '^cadre-' || true)
+  [ $# -eq 0 ] || die "usage: cadre ls [--all-cadres]"
+  local sessions s home team t r shown legacy=""
+  sessions=$(tmux ls -F "#S$TAB#{@cadre_home}$TAB#{@cadre_team}" 2>/dev/null | grep '^cadre-' || true)
   for t in $(find "$PERSONAS" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort); do
     echo "$t"
-    local keys; keys=$(grep -E "^cadre-$t(-|$)" <<<"$sessions" | sed 's/^cadre-//' || true)
     for r in $(roles_of "$t"); do
-      local shown=""
-      for k in $keys; do
-        if window_exists "$k" "$r"; then echo "  [running] $k-$r"; shown=1; fi
-      done
-      [ -n "$shown" ] || echo "  [ ]       $t-$r"
+      shown=""
+      while IFS=$'\t' read -r s home team; do
+        [ -n "$s" ] || continue
+        if [ "$home" = "$CADRE_HOME" ] && [ "$team" = "$t" ]; then
+          if window_in "$s" "$r"; then echo "  [running] ${s#cadre-}-$r"; shown=1; fi
+        elif [ -z "$home" ] && [ -z "${CADRE_LS_NO_LEGACY:-}" ] && is_default && legacy_team "$s" "$team" "$t"; then
+          if window_in "$s" "$r"; then echo "  [running, legacy] ${s#cadre-}-$r"; shown=1 legacy=1; fi
+        fi
+      done <<<"$sessions"
+      [ -n "$shown" ] || echo "  [ ]       $CADRE_NAME-$t-$r"
     done
   done
+  if [ -n "$legacy" ]; then echo "legacy sessions keep their old names until restarted"; fi
+}
+
+# Every known cadre's teams and sessions, one block each, then legacy
+# sessions and sessions of cadres no longer known. Needs no cadre.
+cmd_ls_all() {
+  [ $# -eq 0 ] || die "usage: cadre ls [--all-cadres]"
+  local p def s home w known last=""
+  def=$(cadres_db default) known=$(cadres_db list)
+  while IFS= read -r p; do
+    if [ -z "$p" ] || [ ! -d "$p" ]; then continue; fi
+    if [ "$p" = "$def" ]; then echo "cadre $(basename "$p") ($p, default)"; else echo "cadre $(basename "$p") ($p)"; fi
+    CADRE_HOME="$p" CADRE_LS_NO_LEGACY=1 "$0" ls | sed 's/^/  /'
+  done <<<"$known"
+  while IFS=$'\t' read -r s home; do
+    [ -n "$s" ] || continue
+    if [ -n "$home" ] && grep -qxF "$home" <<<"$known" && [ -d "$home" ]; then continue; fi
+    if [ -z "$home" ]; then w="legacy sessions (from before cadre names; they belong to the default cadre)"; else w="unknown cadre at $home"; fi
+    if [ "$w" != "$last" ]; then echo "$w"; last=$w; fi
+    for r in $(tmux list-windows -t "=$s" -F '#W' 2>/dev/null); do
+      if [ -z "$home" ]; then echo "  [running, legacy] ${s#cadre-}-$r"; else echo "  [running] ${s#cadre-}-$r"; fi
+    done
+  done <<<"$(cadre_sessions | sort -t "$TAB" -k2,2 -k1,1)"
 }
 
 cmd_projects() {
@@ -1287,6 +1436,9 @@ def reaches(glob, target):
 def check_path(rule, tool, spec):
     """Refuses Edit rules that reach protected or code-running files and
     cadre's own state; warns on Read rules that reach secrets."""
+    # A path ending in an unpaired backslash may be read as the folder before it.
+    if (len(spec) - len(spec.rstrip("\\"))) % 2:
+        refuse("refused: %s ends in a backslash; write the path without it" % rule)
     # An escaped / is a plain / (escapes are read in pairs, so \\/ is a
     # backslash, then a separator).
     spec = re.sub(r"\\(.)", lambda m: "/" if m.group(1) == "/" else m.group(0), spec, flags=re.S)
@@ -1857,12 +2009,13 @@ cmd_update() {
     echo "the installed cadre command or skill points at another framework folder; links left as they are (run $fw/install.sh --link-only to switch to this one)"
   fi
 
-  local sessions; sessions=$(running_sessions)
+  local sessions; sessions=$(running_sessions all)
   if [ -n "$sessions" ]; then
     echo "These sessions still run the old version until restarted:"
     show_sessions "$sessions"
     echo "Restart them with:"
     restart_commands "$sessions"
+    if legacy_running; then echo "legacy sessions keep their old names until restarted"; fi
   fi
 }
 
@@ -2028,7 +2181,7 @@ cmd_uninstall() {
       die "cadre is installed from $other; run $other/bin/cadre uninstall. (--force goes ahead from here: it leaves that framework's links and hook, but still stops every cadre session and removes ~/.config/cadre and the cache, which $other uses.)"
     fi
   done
-  UN_SESSIONS=$(running_sessions)
+  UN_SESSIONS=$(running_sessions all)
   UN_CONFIG_WHY=$(unsafe_to_remove "$UN_CONFIG") UN_CACHE_WHY=$(unsafe_to_remove "$UN_CACHE")
   UN_BIN=$(link_plan "$UN_BIN_LINK" "$CADRE_ROOT/bin/cadre")
   UN_SKILL=$(link_plan "$UN_SKILL_LINK" "$CADRE_ROOT/skills/cadre")
@@ -2124,8 +2277,9 @@ case "${1:-}" in
   which)    shift; cmd_which "$@"; exit ;;
   update)   shift; cmd_update "$@"; exit ;;
   down)     case " $* " in *" --all "*) shift; cmd_down_all "$@"; exit ;; esac ;;
+  ls)       if [ "${2:-}" = --all-cadres ]; then shift 2; cmd_ls_all "$@"; exit; fi ;;
   uninstall) shift; cmd_uninstall "$@"; exit ;;
-  ""|-h|--help|help) sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
+  ""|-h|--help|help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
   version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
 esac
 load_home
@@ -2135,7 +2289,7 @@ case "$1" in
   up)       shift; cmd_up "$@" ;;
   down)     shift; cmd_down "$@" ;;
   attach)   shift; cmd_attach "$@" ;;
-  ls)       cmd_ls ;;
+  ls)       shift; cmd_ls "$@" ;;
   projects) cmd_projects ;;
   path)     [ -n "${2:-}" ] || die "usage: cadre path <project>"; read -r _ p <<<"$(locate "$2")"; echo "$p" ;;
   sync)     shift; cmd_sync "$@" ;;

@@ -300,7 +300,7 @@ project_dir() {
 # Registry lookups. projects.yaml is a flat list of entries, each a name
 # line followed by indented "key: value" lines.
 reg() {
-  python3 - "$REGISTRY" "$@" <<'PY'
+  python3 -I - "$REGISTRY" "$@" <<'PY'
 import os, sys
 path, args = sys.argv[1], sys.argv[2:]
 entries, cur = {}, None
@@ -607,7 +607,7 @@ cmd_sync() {
 # every write, unlike the other ops, which keep the first one.
 # An op ending in :dry only reports: exit 0 when it would write, 3 when not.
 json_edit() {
-  python3 - "$@" <<'PY'
+  python3 -I - "$@" <<'PY'
 import hashlib, json, os, shlex, subprocess, sys, tempfile
 
 op, path, backup, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
@@ -797,7 +797,7 @@ PY
 # valid when the cadre is cloned to another machine. Edit rules also cover
 # the Write tool; Claude Code ignores Write(path) rules.
 persona_settings() {
-  python3 - "$@" <<'PY'
+  python3 -I - "$@" <<'PY'
 import hashlib, json, os, sys, tempfile
 
 FIXED_DENY = ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)"]
@@ -986,7 +986,7 @@ check_persona_settings() {
 # add and remove print the commit message first, then what changed. Exit: 0
 # changed, 3 nothing to change, 1 refused (with the reason).
 allow_edit() {
-  python3 - "$@" <<'PY'
+  python3 -I - "$@" <<'PY'
 import json, os, re, shlex, sys, tempfile, time, unicodedata
 
 op, path, oncefile, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
@@ -1020,14 +1020,12 @@ PROTECTED = [".bashrc", ".bash_profile", ".bash_login", ".bash_aliases", ".zshrc
              ".zshenv", ".zlogin", ".profile", ".envrc", ".gitconfig", ".gitmodules", ".npmrc",
              ".yarnrc", ".yarnrc.yml", ".mcp.json", ".claude.json"]
 # Files and folders that run code outside a persona's session, and cadre's own state.
-OUTSIDE = [HOME + "/.ssh/config", HOME + "/.ssh/authorized_keys", HOME + "/.ssh/rc",
-           HOME + "/.config/fish/config.fish", HOME + "/.tmux.conf", HOME + "/.vimrc",
-           HOME + "/Library/LaunchAgents/x.plist", HOME + "/.config/autostart/x.desktop",
-           HOME + "/.config/systemd/user/x.service", HOME + "/.local/bin/x",
-           HOME + "/.config/cadre/home", CACHE + "/cadre/build/x", CADRE + "/.claude/build/x",
-           "/var/spool/cron/x", "/usr/lib/cron/tabs/x", "/etc/crontab"]
-SECRETS = [HOME + "/.ssh/id_ed25519", HOME + "/.aws/credentials", HOME + "/.gnupg/x",
-           HOME + "/.config/gh/hosts.yml"]
+# A folder entry ends in /; a rule that reaches anything inside it is refused.
+OUTSIDE = [HOME + "/.ssh/", HOME + "/.config/fish/", HOME + "/.tmux.conf", HOME + "/.vimrc",
+           HOME + "/Library/LaunchAgents/", HOME + "/.config/autostart/", HOME + "/.config/systemd/user/",
+           HOME + "/.local/bin/", HOME + "/.config/cadre/", CACHE + "/cadre/", CADRE + "/.claude/build/",
+           "/var/spool/cron/", "/usr/lib/cron/tabs/", "/etc/crontab"]
+SECRETS = [HOME + "/.ssh/", HOME + "/.aws/", HOME + "/.gnupg/", HOME + "/.config/gh/"]
 VERSIONED = re.compile(r"(python|ruby|perl|php|lua|node|pip)\d+(\.\d+)*")
 BLANKET = ["anything", "any command", "all files", "everything", "any file", "all commands"]
 # --auto text may not argue about permissions or claim the user's approval.
@@ -1037,7 +1035,7 @@ AUTO_REFUSED = re.compile(
     r"|zshrc|bashrc|bash_profile|zprofile|zshenv|\.profile|gitconfig|gitmodules|npmrc|envrc|\.ssh|authorized_keys"
     r"|launchagents|crontab|tmux\.conf|vimrc|\.config/fish|autostart|systemd|\.local/bin|\.mcp\.json|\.claude\.json"
     r"|\b(user|owner|human)'?s?\b.{0,40}\b(wish|wants?|ok with|fine with)\b"
-    r"|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b|cadre\.conf"
+    r"|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b|cadre\W*conf"
     r"|\b(user|owner|human|you)\b.{0,40}\b(approv|consent|authori[sz]|agree)")
 
 
@@ -1076,8 +1074,10 @@ def program(spec):
 def operators(spec):
     """The shell operators outside quotes in a command specifier. An escaped
     character (find ... -exec rm {} \\;) is an argument, not an operator;
-    shlex's punctuation mode ignores the backslash, so it is masked first."""
-    text = re.sub(r"\\[;&|]", "_", spec.replace(":*", " *"))
+    shlex's punctuation mode ignores the backslash, so it is masked first.
+    Escapes are read in pairs: in \\\\; the backslash is literal and ; is real."""
+    text = re.sub(r"\\(.)", lambda m: "_" if m.group(1) in ";&|" else m.group(0),
+                  spec.replace(":*", " *"), flags=re.S)
     lex = shlex.shlex(text, posix=True, punctuation_chars=True)
     lex.whitespace_split = True
     try:
@@ -1117,21 +1117,78 @@ def check_command(rule, spec):
     return None
 
 
-def path_regex(glob):
-    """A gitignore-style glob as a regex; a match on a folder covers its contents."""
+def seg_regex(seg):
+    """One path segment of a gitignore-style glob as a regex: * ? [...] [!...]
+    and backslash escapes, with {a,b} read as alternatives to be safe."""
     out, i = "", 0
-    while i < len(glob):
-        if glob.startswith("**/", i):
-            out, i = out + "(?:.*/)?", i + 3
-        elif glob.startswith("**", i):
-            out, i = out + ".*", i + 2
-        elif glob[i] == "*":
-            out, i = out + "[^/]*", i + 1
-        elif glob[i] == "?":
-            out, i = out + "[^/]", i + 1
+    while i < len(seg):
+        c = seg[i]
+        if c == "\\" and i + 1 < len(seg):
+            out, i = out + re.escape(seg[i + 1]), i + 2
+        elif c == "*":
+            out, i = out + ".*", i + 1
+        elif c == "?":
+            out, i = out + ".", i + 1
+        elif c == "[":
+            j = i + 1
+            if seg[j:j + 1] in ("!", "^"):
+                j += 1
+            if seg[j:j + 1] == "]":
+                j += 1
+            while j < len(seg) and seg[j] != "]":
+                j += 2 if seg[j] == "\\" else 1
+            if j >= len(seg):
+                out, i = out + re.escape(c), i + 1
+                continue
+            body, cls, k = seg[i + 1:j], "", 0
+            neg = body[:1] in ("!", "^")
+            if neg:
+                body = body[1:]
+            while k < len(body):
+                if body[k] == "\\" and k + 1 < len(body):
+                    cls, k = cls + re.escape(body[k + 1]), k + 2
+                elif body[k] == "-" and cls and k + 1 < len(body):
+                    cls, k = cls + "-", k + 1
+                else:
+                    cls, k = cls + re.escape(body[k]), k + 1
+            out, i = out + "[" + ("^" if neg else "") + cls + "]", j + 1
+        elif c == "{" and "}" in seg[i:]:
+            j = seg.index("}", i)
+            out += "(?:" + "|".join(seg_regex(a) for a in seg[i + 1:j].split(",")) + ")"
+            i = j + 1
         else:
-            out, i = out + re.escape(glob[i]), i + 1
-    return re.compile(out + "(?:/.*)?$", re.I)
+            out, i = out + re.escape(c), i + 1
+    return out
+
+
+def segments(path):
+    return [x for x in path.split("/") if x not in ("", ".")]
+
+
+def spells(seg, name):
+    """Whether a segment with no * or ? names exactly name, reading classes,
+    escapes and braces."""
+    return not re.search(r"(?<!\\)[*?]", seg) and bool(re.fullmatch(seg_regex(seg), name, re.I | re.S))
+
+
+def reaches(glob, target):
+    """Whether a glob matches target, a folder holding it, or, when target is
+    a folder (ends in /), anything inside it."""
+    rule, want, folder = segments(glob), segments(target), target.endswith("/")
+    seen = {}
+
+    def walk(i, j):
+        if (i, j) not in seen:
+            if i == len(rule):
+                seen[i, j] = True
+            elif j == len(want):
+                seen[i, j] = folder or all(x == "**" for x in rule[i:])
+            elif rule[i] == "**":
+                seen[i, j] = walk(i + 1, j) or walk(i, j + 1)
+            else:
+                seen[i, j] = bool(re.fullmatch(seg_regex(rule[i]), want[j], re.I | re.S)) and walk(i + 1, j + 1)
+        return seen[i, j]
+    return walk(0, 0)
 
 
 def check_path(rule, tool, spec):
@@ -1147,39 +1204,46 @@ def check_path(rule, tool, spec):
         full = HOME + spec[1:]
     else:
         full = None
+    forms = []
     if full:
-        # Compare real paths: resolve the folders before the first wildcard.
-        head = re.split(r"[*?\[{]", full)[0]
+        # Check the path as written and with the folders before the first
+        # wildcard resolved; refuse if either form reaches a target.
+        head = re.split(r"[*?\[{\\]", full)[0]
         head = head[:head.rfind("/") + 1] or "/"
-        full = os.path.realpath(head).rstrip("/") + "/" + full[len(head):]
-    parts = [norm(x) for x in spec.replace("\\", "/").split("/")]
-    if ".." in parts:
+        forms = [full, os.path.realpath(head).rstrip("/") + "/" + full[len(head):]]
+    parts = [norm(x) for x in spec.split("/")]
+    if any(spells(x, "..") for x in parts):
         refuse("refused: %s has a .. segment; name the path without it" % rule)
-    joined = "/" + "/".join(parts)
+
+    def hit(target):
+        return any(reaches(f, t) for f in forms for t in {target, os.path.realpath(target) + ("/" if target.endswith("/") else "")})
+
+    def named(*names):
+        return any(all(spells(parts[i + k], x) for k, x in enumerate(names)) for i in range(len(parts) - len(names) + 1))
     for suffix in (".local/bin", ".config/cadre", ".cache/cadre", ".config/fish", "library/launchagents",
                    ".config/autostart", ".config/systemd/user"):
-        if "/" + suffix + "/" in joined + "/" and tool != "Read":
+        if named(*suffix.split("/")) and tool != "Read":
             refuse("refused: %s reaches %s, which runs code outside a persona's session or holds cadre's own state; make that edit yourself" % (rule, suffix))
     if tool == "Read":
-        if full and any(path_regex(full).match(t) for t in SECRETS):
+        if any(hit(t) for t in SECRETS):
             return "warning: %s lets personas read secrets (~/.ssh, ~/.aws, ~/.gnupg, ~/.config/gh); keep it as narrow as you can" % rule
         return None
     for name in PROTECTED:
-        if name in parts or (full and path_regex(full).match(HOME + "/" + name)):
+        if named(name) or hit(HOME + "/" + name):
             refuse("refused: Claude Code never pre-approves writes to %s; make that edit yourself" % name)
-    if ".claude" in parts or (full and (path_regex(full).match(HOME + "/.claude/settings.json")
-                                        or path_regex(full).match(HOME + "/.config/git/config"))):
+    if named(".claude") or hit(HOME + "/.claude/") or hit(HOME + "/.config/git/"):
         refuse("refused: Claude Code never pre-approves writes under .claude or .config/git; make that edit yourself")
-    if full and path_regex(full).match(CADRE + "/cadre.conf"):
+    # A relative rule is read from the persona's folder, which may be the cadre itself.
+    if named("cadre.conf") or hit(CADRE + "/cadre.conf") or (not full and reaches(spec, "cadre.conf")):
         refuse("refused: %s reaches %s/cadre.conf, which cadre runs as shell code; make that edit yourself" % (rule, CADRE))
-    if full:
-        fixed = re.split(r"[*?\[{]", full)[0].rstrip("/")
+    for f in forms:
+        fixed = re.split(r"[*?\[{\\]", f)[0].rstrip("/")
         if fixed == "" or HOME == fixed or HOME.startswith(fixed + "/"):
             refuse("refused: %s covers your whole home folder; name the folder or file" % rule)
-        for t in OUTSIDE:
-            if path_regex(full).match(t):
-                refuse("refused: %s lets a persona change %s, which runs code outside its session or holds cadre's own state; make that edit yourself" % (rule, t))
-    if any(x in (".ssh", ".tmux.conf", ".vimrc", "launchagents", "crontab") for x in parts):
+    for t in OUTSIDE:
+        if hit(t):
+            refuse("refused: %s lets a persona change %s, which runs code outside its session or holds cadre's own state; make that edit yourself" % (rule, t.rstrip("/")))
+    if any(named(x) for x in (".ssh", ".tmux.conf", ".vimrc", "launchagents", "crontab")):
         refuse("refused: %s lets a persona change files that run code outside its session; make that edit yourself" % rule)
     return None
 
@@ -1569,7 +1633,7 @@ version_in() { sed -n 's/^CADRE_VERSION=//p' "$1" | head -1; }
 # Prints the CHANGELOG's Unreleased section when it has entries, then the
 # sections newer than version $2; nothing when it has no sections it can read.
 changes_since() {
-  python3 - "$1" "$2" <<'PY'
+  python3 -I - "$1" "$2" <<'PY'
 import re, sys
 path, old = sys.argv[1], sys.argv[2]
 def ver(s):

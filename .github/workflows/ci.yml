@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, rewrite/0.2.0]
   pull_request:
 
 jobs:
@@ -13,7 +13,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Install tools (Linux)
@@ -31,3 +31,40 @@ jobs:
         run: shellcheck -x bin/cadre bin/orchestrator-hook.sh install.sh tests/smoke.sh
       - name: Smoke test
         run: tests/smoke.sh
+
+  go:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # The version go.mod declares, and the latest stable that releases use.
+        go: [go.mod, stable]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ matrix.go == 'go.mod' && 'go.mod' || '' }}
+          go-version: ${{ matrix.go == 'stable' && 'stable' || '' }}
+      - name: Format
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: Vet
+        run: go vet ./...
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
+      - name: Test
+        run: go test -race ./...
+
+  release-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean

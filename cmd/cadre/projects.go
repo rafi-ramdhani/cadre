@@ -42,6 +42,10 @@ func (e *env) setProjectsDir(answer string) (string, bool) {
 	if !filepath.IsAbs(dir) {
 		dir, _ = filepath.Abs(dir)
 	}
+	if why := project.DestRefusal(paths.Real(dir)); why != "" {
+		e.fail("%s cannot hold projects: %s", dir, why)
+		return "", false
+	}
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		if !paths.Within(paths.Real(dir), paths.Home()) {
 			e.fail("%s does not exist; create it first, or choose a folder under your home folder", dir)

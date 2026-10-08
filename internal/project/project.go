@@ -25,19 +25,24 @@ func CheckName(name string) error {
 }
 
 // Clone clones repo (owner/repo through gh when signed in, else over
-// https; a URL or local path as it is) into dir.
+// https; a URL or local path as it is) into dir. A repo comes from a
+// registry that may be shared, so one that starts with - (an option to
+// git) is refused, and every word after the options is passed after --.
 func Clone(repo, dir string) error {
+	if strings.HasPrefix(repo, "-") || strings.HasPrefix(dir, "-") {
+		return fmt.Errorf("could not clone %s: a repo cannot start with -", repo)
+	}
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return err
 	}
 	var cmd *exec.Cmd
 	switch {
 	case strings.Count(repo, "/") >= 2 || strings.HasPrefix(repo, "/") || strings.HasPrefix(repo, ".") || strings.Contains(repo, ":"):
-		cmd = exec.Command("git", "clone", "-q", repo, dir)
+		cmd = exec.Command("git", "clone", "-q", "--", repo, dir)
 	case ghSignedIn():
 		cmd = exec.Command("gh", "repo", "clone", repo, dir, "--", "-q")
 	default:
-		cmd = exec.Command("git", "clone", "-q", "https://github.com/"+repo+".git", dir)
+		cmd = exec.Command("git", "clone", "-q", "--", "https://github.com/"+repo+".git", dir)
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("could not clone %s: %s", repo, strings.TrimSpace(string(out)))
@@ -50,6 +55,39 @@ func ghSignedIn() bool {
 		return false
 	}
 	return exec.Command("gh", "auth", "status").Run() == nil
+}
+
+// SameRepo reports whether two spellings name one repository: the same
+// owner/repo, and the same host when both name one (owner/repo alone names
+// none).
+func SameRepo(a, b string) bool {
+	if OwnerRepo(a) != OwnerRepo(b) || OwnerRepo(a) == "" {
+		return false
+	}
+	ha, hb := host(a), host(b)
+	return ha == "" || hb == "" || ha == hb
+}
+
+// host is the host a repository URL names, lower case, or "".
+func host(repo string) string {
+	r := strings.TrimSpace(repo)
+	switch {
+	case strings.Contains(r, "://"):
+		r = r[strings.Index(r, "://")+3:]
+		if at := strings.Index(r, "@"); at >= 0 && at < strings.Index(r+"/", "/") {
+			r = r[at+1:]
+		}
+		r, _, _ = strings.Cut(r, "/")
+		r, _, _ = strings.Cut(r, ":")
+	case strings.Contains(r, ":") && !strings.HasPrefix(r, "/"):
+		r, _, _ = strings.Cut(r, ":")
+		if at := strings.LastIndex(r, "@"); at >= 0 {
+			r = r[at+1:]
+		}
+	default:
+		return ""
+	}
+	return strings.ToLower(r)
 }
 
 // OwnerRepo reduces a repository spelling (owner/repo, an https or ssh URL,
@@ -114,8 +152,11 @@ func Add(c cadres.Cadre, s Spec, projectsDir string) (Added, error) {
 	if !c.External {
 		dir = filepath.Join(projectsDir, s.Name)
 	}
+	if why := DestRefusal(paths.Real(dir)); why != "" {
+		return a, fmt.Errorf("cannot clone into %s: %s", dir, why)
+	}
 	if st, err := os.Stat(dir); err == nil && st.IsDir() {
-		if OwnerRepo(Origin(dir)) != OwnerRepo(s.Repo) {
+		if !SameRepo(Origin(dir), s.Repo) {
 			return a, fmt.Errorf("%s exists and is not a clone of %s; link it with cadre project add %s --path %s, or choose another name", dir, s.Repo, s.Name, dir)
 		}
 		a.Where = "already at " + dir
@@ -144,6 +185,20 @@ func Add(c cadres.Cadre, s Spec, projectsDir string) (Added, error) {
 // LinkRefusal says why a folder (physical) cannot be linked as a project,
 // or "" (L.7, with N's ~/.cadre).
 func LinkRefusal(dir string) string {
+	if why := DestRefusal(dir); why != "" {
+		return why
+	}
+	if !TopLevel(dir) {
+		return "it is not the top folder of a git repository"
+	}
+	return ""
+}
+
+// DestRefusal says why a folder (physical) cannot hold a project, whether
+// linked or cloned there, or "": a registry may be shared, so its paths are
+// checked like a link (a project under ~/.claude/skills would be loaded by
+// Claude Code as a skill).
+func DestRefusal(dir string) string {
 	home := paths.Home()
 	root := paths.Real(cadres.Root())
 	switch {
@@ -157,6 +212,8 @@ func LinkRefusal(dir string) string {
 		return "it contains ~/.cadre"
 	case paths.Within(dir, filepath.Join(home, ".claude")):
 		return "it is inside ~/.claude"
+	case paths.Within(filepath.Join(home, ".claude"), dir):
+		return "it contains ~/.claude"
 	}
 	list, _ := cadres.List()
 	for _, c := range list {
@@ -166,9 +223,6 @@ func LinkRefusal(dir string) string {
 		if paths.Within(dir, c.Path) && !paths.Within(dir, filepath.Join(c.Path, "projects")) {
 			return "it is inside the cadre " + c.Name
 		}
-	}
-	if !TopLevel(dir) {
-		return "it is not the top folder of a git repository"
 	}
 	return ""
 }
@@ -252,6 +306,8 @@ func Sync(c cadres.Cadre) ([]SyncResult, error) {
 			r.State = "present"
 		case e.Get("repo") == "":
 			r.State = "no repo"
+		case DestRefusal(paths.Real(d)) != "":
+			r.State, r.Err = "failed", fmt.Errorf("not cloned into %s: %s", d, DestRefusal(paths.Real(d)))
 		default:
 			parent := filepath.Dir(paths.Real(d))
 			if _, err := os.Stat(parent); err != nil && !paths.Within(parent, paths.Home()) {

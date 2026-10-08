@@ -30,7 +30,11 @@ var Protect = []string{"Edit(//**/.claude/persona-settings.json)", "Bash(cadre a
 
 // cadreDeny keeps personas off cadre's own files under ~/.cadre (N.7).
 // Team folders (~/.cadre/<name>/teams) stay writable: personas work there.
-// Edit rules also cover the Write tool.
+// Edit rules also cover the Write tool. The //**/.cadre globs also match a
+// folder named .cadre inside a project, which is harmless: cadre's own
+// files do not live in projects. They do not match an outside cadre or a
+// ~/.cadre reached through a symlink, so Export adds the same rules
+// spelled with physical paths (Places).
 var cadreDeny = []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/framework/**)",
 	"Edit(//**/.cadre/*/.claude/**)", "Edit(//**/.cadre/*/cadre.conf)", "Edit(//**/.cadre/*/personas/**)",
 	"Edit(//**/.cadre/*/playbook.md)", "Edit(//**/.cadre/*/protocol.md)", "Edit(//**/.cadre/*/projects.yaml)",
@@ -179,13 +183,47 @@ func contains(list []string, s string) bool {
 	return false
 }
 
+// Places are the physical folders the deny rules name besides the
+// //**/.cadre globs: ~/.cadre as resolved, and every known cadre.
+type Places struct {
+	Root   string
+	Cadres []string
+}
+
+// deny returns the N.7 rules spelled with these folders.
+func (p Places) deny() []string {
+	var out []string
+	if p.Root != "" {
+		root := escapeGlob(p.Root)
+		out = append(out, "Edit(/"+root+"/config/**)", "Edit(/"+root+"/framework/**)")
+	}
+	for _, c := range p.Cadres {
+		for _, f := range []string{"/.claude/**", "/cadre.conf", "/personas/**", "/playbook.md", "/protocol.md", "/projects.yaml", "/.git/**"} {
+			out = append(out, "Edit(/"+escapeGlob(c)+f+")")
+		}
+	}
+	return out
+}
+
+// escapeGlob writes a path so a glob reads it literally.
+func escapeGlob(p string) string {
+	var b strings.Builder
+	for _, r := range p {
+		if strings.ContainsRune(`*?[]{}\`, r) {
+			b.WriteRune('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // Export validates the file and writes the copy personas start with into
 // dir: only the allowed keys, without legacy entries, with FixedDeny added
 // (deny beats allow in every scope, so this keeps broad Edit grants off the
 // source file whatever it says). The copy is named by its hash, mode 0400,
 // and written whole at every start, never trusted because it exists. It
 // returns the copy's path.
-func Export(path, dir string) (string, error) {
+func Export(path, dir string, places Places) (string, error) {
 	root, err := Load(path)
 	if err != nil {
 		return "", err
@@ -221,7 +259,7 @@ func Export(path, dir string) (string, error) {
 	if !ok {
 		deny = []string{}
 	}
-	for _, d := range FixedDeny {
+	for _, d := range append(append([]string{}, FixedDeny...), places.deny()...) {
 		if !contains(deny, d) {
 			deny = append(deny, d)
 		}

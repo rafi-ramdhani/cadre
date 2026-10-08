@@ -154,3 +154,26 @@ func TestTrustRefusals(t *testing.T) {
 		t.Error("a refused trust changed the config")
 	}
 }
+
+// A shared registry's paths are checked like links: a project cannot be
+// cloned where Claude Code or cadre load files.
+func TestSyncAndAddRefuseCadresAndClaudesFolders(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	repo := bareRepo(t, "demo")
+	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte("demo:\n  repo: "+repo+"\n  path: ~/.claude/skills/demo\nmine:\n  repo: "+repo+"\n  path: ~/.cadre/config/x\n"), 0o644)
+	code, out, _ := call("project", "sync")
+	if code == 0 || !strings.Contains(out, "demo: not cloned: not cloned into "+home+"/.claude/skills/demo: it is inside ~/.claude") || !strings.Contains(out, "mine: not cloned") {
+		t.Errorf("sync: %d %q", code, out)
+	}
+	for _, p := range []string{home + "/.claude/skills/demo", home + "/.cadre/config/x"} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("%s was made", p)
+		}
+	}
+	refused(t, "cannot hold projects: it is inside ~/.claude", "project", "dir", "~/.claude/skills")
+	refused(t, "cannot hold projects: it is inside ~/.cadre", "project", "dir", "~/.cadre/x")
+	// A repo that looks like an option never reaches git: the command line
+	// refuses it, and Clone refuses it too (its own test).
+	refused(t, "unknown option --upload-pack", "project", "add", "evil", "--upload-pack=touch /tmp/x")
+}

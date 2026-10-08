@@ -38,6 +38,8 @@ func TrustRefusal(dir string) string {
 		return "it is ~/.cadre or contains it"
 	case paths.Within(dir, root):
 		return "it is inside ~/.cadre, where cadre keeps its own files"
+	case paths.Within(dir, filepath.Join(home, ".claude")):
+		return "it is inside ~/.claude"
 	}
 	list, _ := cadres.List()
 	for _, c := range list {

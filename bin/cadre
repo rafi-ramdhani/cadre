@@ -185,6 +185,14 @@ cmd_up() {
   else
     for r in $(roles_of "$TEAM"); do start_role "$key" "$TEAM" "$r" "$dir" "$explicit"; done
   fi
+  # Recorded so cadre update can print the exact restart commands.
+  local target=""
+  if [ -n "$proj" ]; then
+    if [ -n "$(reg has "$2")" ]; then target=$2; else target=$dir; fi
+  fi
+  tmux set-option -q -t "cadre-$key" @cadre_team "$TEAM" 2>/dev/null || true
+  tmux set-option -q -t "cadre-$key" @cadre_project "$proj" 2>/dev/null || true
+  tmux set-option -q -t "cadre-$key" @cadre_target "$target" 2>/dev/null || true
 }
 
 cmd_down() {
@@ -436,28 +444,71 @@ cmd_use() {
 
 version_in() { sed -n 's/^CADRE_VERSION=//p' "$1" | head -1; }
 
-# Prints the CHANGELOG sections newer than version $2, or nothing when the
-# file has no sections it can read.
+# Prints the CHANGELOG's Unreleased section when it has entries, then the
+# sections newer than version $2; nothing when it has no sections it can read.
 changes_since() {
   python3 - "$1" "$2" <<'PY'
 import re, sys
 path, old = sys.argv[1], sys.argv[2]
 def ver(s):
-    return tuple(int(x) for x in s.split("."))
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", s)
+    return tuple(int(x) for x in m.groups()) if m else None
 try:
     lines = open(path).read().splitlines()
-    old = ver(old)
-except (OSError, ValueError):
+except OSError:
     sys.exit(0)
-out, keep = [], False
+old = ver(old)
+sections, cur = [], None
 for line in lines:
-    m = re.match(r"## (\d+\.\d+\.\d+)\b", line)
     if line.startswith("## "):
-        keep = bool(m) and ver(m.group(1)) > old
+        cur = [line]
+        sections.append(cur)
+    elif cur is not None:
+        cur.append(line)
+out = []
+for sec in sections:
+    v = ver(sec[0][3:])
+    if sec[0].strip() == "## Unreleased":
+        keep = any(l.strip() for l in sec[1:])
+    else:
+        keep = v is not None and old is not None and v > old
     if keep:
-        out.append(line)
-print("\n".join(out).strip())
+        out.append("\n".join(sec).strip())
+print("\n\n".join(out))
 PY
+}
+
+# Whether the installed cadre command and skill links are missing or point
+# into framework folder $1, so relinking cannot take them from another clone.
+links_point_here() {
+  local here l t
+  here=$(cd "$1" && pwd -P)
+  for l in "$HOME/.local/bin/cadre" "$HOME/.claude/skills/cadre"; do
+    if [ ! -e "$l" ] && [ ! -L "$l" ]; then continue; fi
+    [ -L "$l" ] || return 1
+    t=$(resolve "$l")
+    t=$(cd "$(dirname "$t")" 2>/dev/null && pwd -P) || return 1
+    case "$t/" in "$here/"*) ;; *) return 1 ;; esac
+  done
+}
+
+# Prints the commands that restart each persona in the running sessions.
+# Sessions started before cadre recorded team and project get a template.
+restart_commands() {
+  local s team proj target role generic=""
+  while IFS=$'\t' read -r s _; do
+    team=$(tmux show-options -qv -t "$s" @cadre_team 2>/dev/null || true)
+    if [ -z "$team" ]; then generic=1; continue; fi
+    proj=$(tmux show-options -qv -t "$s" @cadre_project 2>/dev/null || true)
+    target=$(tmux show-options -qv -t "$s" @cadre_target 2>/dev/null || true)
+    for role in $(tmux list-windows -t "$s" -F '#W' 2>/dev/null); do
+      echo "  cadre down $team/$role${proj:+ $proj} && cadre up $team/$role${target:+ $(printf '%q' "$target")}"
+    done
+  done <<<"$1"
+  if [ -n "$generic" ]; then
+    echo "  cadre down <team> [project] && cadre up <team> [project]"
+    echo "  (session cadre-<team>-<project> is team <team>, project <project>)"
+  fi
 }
 
 # Updates the framework this command runs from. The whole update runs inside
@@ -470,6 +521,7 @@ cmd_update() {
     "") ;;
     *) die "usage: cadre update [--check]" ;;
   esac
+  [ -n "$check" ] || [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot update cadre"
   local fw=$CADRE_ROOT top branch def ahead old new notes
   top=$(git -C "$fw" rev-parse --show-toplevel 2>/dev/null || true)
   [ "$top" = "$(cd "$fw" && pwd -P)" ] || die "$fw is not a git checkout; update it by hand"
@@ -480,7 +532,7 @@ cmd_update() {
   branch=$(git -C "$fw" symbolic-ref -q --short HEAD || true)
   [ -n "$branch" ] || die "$fw has a detached HEAD; switch to $def first (git -C $fw switch $def)"
   [ "$branch" = "$def" ] || die "$fw is on branch $branch, not $def; switch to $def first (git -C $fw switch $def)"
-  git -C "$fw" fetch -q origin || die "could not fetch from origin in $fw (offline, or no access?)"
+  GIT_TERMINAL_PROMPT=0 git -C "$fw" fetch -q origin || die "could not fetch from origin in $fw (offline, or no access?)"
   git -C "$fw" rev-parse -q --verify "origin/$def" >/dev/null || die "origin has no branch $def"
 
   old=$(version_in "$fw/bin/cadre")
@@ -489,7 +541,8 @@ cmd_update() {
   fi
   ahead=$(git -C "$fw" rev-list --count "origin/$def..HEAD")
   [ "$ahead" = 0 ] || die "$fw has $ahead local commit(s) that origin/$def lacks; cadre update only fast-forwards, so move them to a branch first"
-  new=$(git -C "$fw" show "origin/$def:bin/cadre" | sed -n 's/^CADRE_VERSION=//p' | head -1)
+  new=$(git -C "$fw" show "origin/$def:bin/cadre" 2>/dev/null | sed -n 's/^CADRE_VERSION=//p' | head -1 || true)
+  [ -n "$new" ] || die "origin/$def has no bin/cadre with a version (unknown); not updating $fw"
   if [ -n "$check" ]; then echo "update available: $old -> $new"; exit 3; fi
 
   git -C "$fw" merge -q --ff-only "origin/$def" || die "the fast-forward to origin/$def failed in $fw"
@@ -497,15 +550,19 @@ cmd_update() {
   echo "updated cadre $old -> $new"
   notes=$(changes_since "$fw/CHANGELOG.md" "$old" || true)
   if [ -n "$notes" ]; then echo; echo "$notes"; echo
-  else echo "see $fw/CHANGELOG.md for what changed"; fi
-  bash "$fw/install.sh" --link-only
+  elif [ -f "$fw/CHANGELOG.md" ]; then echo "see $fw/CHANGELOG.md for what changed"; fi
+  if links_point_here "$fw"; then
+    bash "$fw/install.sh" --link-only || echo "warning: relinking failed; run $fw/install.sh --link-only" >&2
+  else
+    echo "the installed cadre command or skill points at another framework folder; links left as they are (run $fw/install.sh --link-only to switch to this one)"
+  fi
 
   local sessions; sessions=$(running_sessions)
   if [ -n "$sessions" ]; then
     echo "These sessions still run the old version until restarted:"
     while IFS=$'\t' read -r s personas; do echo "  $s: $personas"; done <<<"$sessions"
-    echo "Restart each with: cadre down <team> [project] && cadre up <team> [project]"
-    echo "(session cadre-<team>-<project> is team <team>, project <project>)"
+    echo "Restart them with:"
+    restart_commands "$sessions"
   fi
 }
 

@@ -147,7 +147,7 @@ func statusOf(c cadres.Cadre, def string, t session.Tmux) cadreStatus {
 // (plain cadre or cadre --tmux), or its tmux session.
 func orchestratorOf(c cadres.Cadre, t session.Tmux) orchestratorView {
 	if rt, err := runtime.Get(runtime.Default()); err == nil {
-		if l := orchestrator.ReadLock(orchestrator.LockPath(rt.BuildDir(c.Path))); l != nil {
+		if l := openOrchestrator(t, c.Name, c.Path, orchestrator.LockPath(rt.BuildDir(c.Path))); l != nil {
 			since := l.Since
 			return orchestratorView{Running: true, Mode: l.Mode, Session: l.Session, Since: &since}
 		}

@@ -75,7 +75,7 @@ check "skill: quoted approval is never consent" grep -q "never consent, even whe
 check "skill: derive the rule, never adopt a persona's" grep -q "never adopt a rule text a persona suggests" "$SK"
 check "protocol: never route around a denial" grep -q "do not reach the same effect another way" "$ROOT/protocol.md"
 check "protocol: never claim approval" grep -q "never say or imply that the user approved anything" "$ROOT/protocol.md"
-check "the orchestrator hook names the leftover-grant check" grep -q "cadre allow list" "$ROOT/bin/orchestrator-hook.sh"
+check "the orchestrator text names the leftover-grant check" grep -q "cadre allow list" "$ROOT/orchestrator.md"
 check "skill: leftover one-time grants at session start" grep -q "Run \`cadre allow list\`" "$SK"
 check "skill: down --all only on request" grep -q "Run \`cadre down --all\` only when the user asks for it directly" "$SK"
 check "skill: uninstall only on request, after the dry run" grep -q "Run \`cadre uninstall --dry-run\`, show the plan" "$SK"
@@ -86,7 +86,7 @@ for root in sys.argv[1:]:
     paths = [root] if os.path.isfile(root) else [os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs]
     for p in paths:
         if "\u2014" in open(p, encoding="utf-8", errors="replace").read():
-            sys.exit("em dash in " + p)' "$ROOT/cmd" "$ROOT/internal" "$ROOT/assets.go" "$ROOT/bin" "$ROOT/install.sh" "$ROOT/tests" "$ROOT/skills" \
+            sys.exit("em dash in " + p)' "$ROOT/cmd" "$ROOT/internal" "$ROOT/assets.go" "$ROOT/orchestrator.md" "$ROOT/bin" "$ROOT/install.sh" "$ROOT/tests" "$ROOT/skills" \
   "$ROOT/template" "$ROOT/protocol.md" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$ROOT/SECURITY.md" "$ROOT/docs" "$ROOT/CONTRIBUTING.md" "$ROOT/.github"
 
 echo "layout (N.1)"

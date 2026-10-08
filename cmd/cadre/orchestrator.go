@@ -20,6 +20,7 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
 	"github.com/rafi-ramdhani/cadre/internal/session"
+	"golang.org/x/term"
 )
 
 // runPlain is plain cadre: open this cadre's orchestrator in this
@@ -78,17 +79,38 @@ func runPlain(e *env) int {
 		return 1
 	}
 	build := rt.BuildDir(r.Path)
+	if err := session.EnsureBuild(build); err != nil {
+		return e.fail("%s", err)
+	}
+	// One cadre run at a time reads the lock, starts and writes the lock.
+	guard, err := orchestrator.Guard(build)
+	if err != nil {
+		return e.fail("%s", err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			guard.Release()
+			released = true
+		}
+	}
+	defer release()
+	t := session.Default()
 	lockPath := orchestrator.LockPath(build)
-	if l := orchestrator.ReadLock(lockPath); l != nil {
-		if l.Mode == orchestrator.Tmux && l.Session != "" {
+	if l := openOrchestrator(t, r.Name, r.Path, lockPath); l != nil {
+		if l.Mode == orchestrator.Tmux {
+			release()
 			e.say("the orchestrator of %s is already running", r.Name)
 			return e.attachTo(l.Session, detach)
 		}
 		return e.fail("the orchestrator of %s is already open in another terminal (%s, since %s); use that one, or close it first",
 			r.Name, l.TTY, l.Since.Format("15:04"))
 	}
-	if err := session.EnsureBuild(build); err != nil {
-		return e.fail("%s", err)
+	// One in tmux that cadre could not record in the lock still counts.
+	if name := orchestrator.SessionName(r.Name); !useTmux && haveTmux() && orchestratorSession(t, name, r.Path, 0) {
+		release()
+		e.say("the orchestrator of %s is already running", r.Name)
+		return e.attachTo(name, detach)
 	}
 	text, _ := cadre.Assets.ReadFile("orchestrator.md")
 	from := ""
@@ -108,9 +130,45 @@ func runPlain(e *env) int {
 	// adds nothing more (K.3).
 	cmd.Env = append(cmd.Env, "CADRE_HOME="+r.Path, "CADRE_ORCHESTRATOR=1")
 	if useTmux {
-		return e.startTmux(r, cmd, lockPath, detach)
+		return e.startTmux(r, cmd, lockPath, detach, release)
 	}
-	return e.runTerminal(cmd, lockPath)
+	return e.runTerminal(cmd, lockPath, release)
+}
+
+func haveTmux() bool {
+	_, err := exec.LookPath("tmux")
+	return err == nil
+}
+
+// orchestratorSession reports whether the tmux session name is this
+// cadre's orchestrator: marked as such for home, and, when pid is set,
+// running pid in its pane.
+func orchestratorSession(t session.Tmux, name, home string, pid int) bool {
+	if !t.Has(name) || t.Option(name, "@cadre_role") != "orchestrator" || t.Option(name, "@cadre_home") != home {
+		return false
+	}
+	if pid > 0 {
+		p, err := t.PanePID(name, "orchestrator")
+		return err == nil && p == pid
+	}
+	return true
+}
+
+// openOrchestrator returns the cadre's open orchestrator from its lock, or
+// nil. A tmux lock counts only when it names this cadre's orchestrator
+// session running the recorded process; otherwise the lock was not
+// cadre's (a persona's shell can write it) and is removed, so cadre never
+// attaches the user to a session that only claims to be the orchestrator.
+func openOrchestrator(t session.Tmux, cadre, home, lockPath string) *orchestrator.Lock {
+	l := orchestrator.ReadLock(lockPath)
+	if l == nil || l.Mode != orchestrator.Tmux {
+		return l
+	}
+	if l.Session != orchestrator.SessionName(cadre) || !orchestratorSession(t, l.Session, home, l.PID) {
+		orchestrator.RemoveLock(lockPath, l)
+		return nil
+	}
+	return l
 }
 
 // openingNotes says, in one line each, which cadre opens and why, before
@@ -155,23 +213,43 @@ func lookalike(dir string) string {
 }
 
 // runTerminal runs the orchestrator as a child in this terminal, holding
-// the lock while it runs, and returns its exit code.
-func (e *env) runTerminal(c runtime.Command, lockPath string) int {
+// the lock while it runs, and returns its exit code. release ends the
+// start guard once the lock is written.
+func (e *env) runTerminal(c runtime.Command, lockPath string, release func()) int {
 	cmd := exec.Command(c.Argv[0], c.Argv[1:]...)
 	cmd.Dir = c.Dir
 	cmd.Env = append(withoutPersona(os.Environ()), c.Env...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = e.stdin, e.stdout, e.stderr
-	// Ctrl-C and the like are for Claude Code: cadre only waits.
-	signal.Ignore(syscall.SIGINT, syscall.SIGQUIT)
-	defer signal.Reset(syscall.SIGINT, syscall.SIGQUIT)
+	// The terminal comes back as it was, even if the child dies raw.
+	if f, ok := e.stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		if saved, err := term.GetState(int(f.Fd())); err == nil {
+			defer term.Restore(int(f.Fd()), saved)
+		}
+	}
+	// Ctrl-C and the like are for Claude Code: cadre catches them and only
+	// waits. Caught, not ignored: an ignored signal stays ignored in the
+	// child across exec.
+	quiet := make(chan os.Signal, 1)
+	signal.Notify(quiet, syscall.SIGINT, syscall.SIGQUIT)
+	go func() {
+		for range quiet {
+		}
+	}()
+	defer func() {
+		signal.Stop(quiet)
+		close(quiet)
+	}()
 	if err := cmd.Start(); err != nil {
 		return e.fail("could not start the orchestrator: %s", err)
 	}
 	tty, _ := os.Readlink("/dev/fd/0")
-	if err := orchestrator.WriteLock(lockPath, cmd.Process.Pid, orchestrator.Terminal, tty, ""); err != nil {
+	lock, err := orchestrator.WriteLock(lockPath, cmd.Process.Pid, orchestrator.Terminal, tty, "")
+	release()
+	if err != nil {
 		fmt.Fprintf(e.stderr, "warning: could not record the open orchestrator: %s\n", err)
+	} else {
+		defer orchestrator.RemoveLock(lockPath, lock)
 	}
-	defer os.Remove(lockPath)
 	// A closed terminal or a kill ends the orchestrator; the lock goes with it.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGHUP, syscall.SIGTERM)
@@ -181,7 +259,7 @@ func (e *env) runTerminal(c runtime.Command, lockPath string) int {
 			cmd.Process.Signal(s)
 		}
 	}()
-	err := cmd.Wait()
+	err = cmd.Wait()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		return exit.ExitCode()
@@ -206,11 +284,12 @@ func withoutPersona(env []string) []string {
 
 // startTmux starts the orchestrator in its tmux session (K.1), or finds
 // the running one, and attaches unless detach is set.
-func (e *env) startTmux(r *cadres.Resolved, c runtime.Command, lockPath string, detach bool) int {
+func (e *env) startTmux(r *cadres.Resolved, c runtime.Command, lockPath string, detach bool, release func()) int {
 	t := session.Default()
 	name := orchestrator.SessionName(r.Name)
 	if t.Has(name) {
 		if t.Option(name, "@cadre_role") == "orchestrator" && t.Option(name, "@cadre_home") == r.Path {
+			release()
 			e.say("the orchestrator of %s is already running", r.Name)
 			return e.attachTo(name, detach)
 		}
@@ -228,9 +307,15 @@ func (e *env) startTmux(r *cadres.Resolved, c runtime.Command, lockPath string, 
 		return e.fail("the orchestrator failed to start: its command exited at once; run it by hand in %s to see why:\n    %s",
 			c.Dir, session.Line(append(c.Env, c.Argv...)))
 	}
-	if pid, err := t.PanePID(name, "orchestrator"); err == nil {
-		orchestrator.WriteLock(lockPath, pid, orchestrator.Tmux, "", name)
+	// Without the lock, cadre still finds it by its session (runPlain).
+	pid, err := t.PanePID(name, "orchestrator")
+	if err == nil {
+		_, err = orchestrator.WriteLock(lockPath, pid, orchestrator.Tmux, "", name)
 	}
+	if err != nil {
+		fmt.Fprintf(e.stderr, "warning: could not record the orchestrator in %s (%s); cadre finds it by its tmux session\n", lockPath, err)
+	}
+	release()
 	if detach || !e.interactive() {
 		e.say("started the orchestrator of %s; attach with: cadre attach", r.Name)
 		return 0

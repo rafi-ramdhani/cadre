@@ -3,11 +3,16 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/rafi-ramdhani/cadre/internal/proc"
 )
 
 // stubClaude replaces the test's stub with one that records its
@@ -169,5 +174,104 @@ func TestOrchestratorRuntimeRules(t *testing.T) {
 	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("ORCHESTRATOR_TMUX=yes\n"), 0o644)
 	if out := must(t); !strings.Contains(out, "started the orchestrator of work") {
 		t.Errorf("ORCHESTRATOR_TMUX=yes: %q", out)
+	}
+}
+
+// plantLock writes a lock as a persona's shell could: a live pid with its
+// real start time, pointing at a session of the planter's choosing.
+func plantLock(t *testing.T, path string, pid int, session string) {
+	t.Helper()
+	info, err := proc.Of(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(map[string]any{"pid": pid, "start": info.Start, "command": info.Command, "mode": "tmux", "session": session, "since": time.Now()})
+	os.WriteFile(path, raw, 0o600)
+}
+
+func TestATmuxLockIsCheckedBeforeAttaching(t *testing.T) {
+	home := sandbox(t)
+	socket := withTmux(t, home)
+	stubClaude(t, home)
+	os.WriteFile(home+"/release", nil, 0o644)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	lock := c + "/.claude/build/orchestrator.lock"
+	os.MkdirAll(c+"/.claude/build", 0o755)
+	pane := func(target string) int {
+		pid, _ := strconv.Atoi(tmuxIn(socket, "display-message", "-p", "-t", target, "#{pane_pid}"))
+		return pid
+	}
+	// Another session, a session named like the orchestrator but not
+	// marked as one, and the real orchestrator session with another
+	// process's pid: none is attached to.
+	tmuxIn(socket, "new-session", "-d", "-s", "evil", "-n", "orchestrator", "sleep", "60")
+	tmuxIn(socket, "new-session", "-d", "-s", "cadre-work", "-n", "orchestrator", "sleep", "60")
+	for _, plant := range []struct{ name, session string }{{"another session", "evil"}, {"an unmarked session", "cadre-work"}} {
+		plantLock(t, lock, pane("="+plant.session+":"), plant.session)
+		out := must(t, "--no-tmux")
+		if strings.Contains(out, "already running") {
+			t.Errorf("%s was taken for the orchestrator: %q", plant.name, out)
+		}
+	}
+	tmuxIn(socket, "set-option", "-t", "=cadre-work:", "@cadre_role", "orchestrator")
+	tmuxIn(socket, "set-option", "-t", "=cadre-work:", "@cadre_home", c)
+	// The marked session with another process's pid: the lock is not
+	// trusted, and removed (cadre then finds the session itself).
+	plantLock(t, lock, pane("=evil:"), "cadre-work")
+	must(t, "--no-tmux")
+	if _, err := os.Stat(lock); err == nil {
+		t.Error("a lock naming another process was left")
+	}
+}
+
+func TestAnOrchestratorInTmuxWithoutItsLockStillCounts(t *testing.T) {
+	home := sandbox(t)
+	withTmux(t, home)
+	stubClaude(t, home)
+	must(t, "init", "work")
+	must(t, "--tmux")
+	os.Remove(home + "/.cadre/work/.claude/build/orchestrator.lock")
+	if out := must(t); !strings.Contains(out, "the orchestrator of work is already running") {
+		t.Errorf("a second orchestrator started: %q", out)
+	}
+	if _, err := os.Stat(home + "/orch-ran"); err != nil {
+		t.Fatal("the tmux orchestrator did not run")
+	}
+}
+
+func TestTwoRunsStartOneOrchestrator(t *testing.T) {
+	home := sandbox(t)
+	withTmux(t, home)
+	must(t, "init", "work")
+	os.WriteFile(home+"/bin/claude", []byte("#!/bin/sh\necho x >> \""+home+"/starts\"\n"+
+		"i=0; while [ ! -e \""+home+"/release\" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done\n"), 0o755)
+	var wg sync.WaitGroup
+	codes := make([]int, 4)
+	for i := range codes {
+		wg.Add(1)
+		go func() { defer wg.Done(); codes[i], _, _ = call() }()
+	}
+	time.Sleep(1500 * time.Millisecond)
+	os.WriteFile(home+"/release", nil, 0o644)
+	wg.Wait()
+	if n := strings.Count(readFile(t, home+"/starts"), "x"); n != 1 {
+		t.Errorf("%d orchestrators started (exit codes %v)", n, codes)
+	}
+	if _, err := os.Stat(home + "/.cadre/work/.claude/build/orchestrator.lock"); err == nil {
+		t.Error("the lock outlived the orchestrator")
+	}
+}
+
+// cadre waits through Ctrl-C, but the orchestrator gets the default
+// disposition: an ignored signal would stay ignored across exec.
+func TestTheOrchestratorKeepsDefaultSignals(t *testing.T) {
+	home := sandbox(t)
+	withTmux(t, home)
+	must(t, "init", "work")
+	os.WriteFile(home+"/bin/claude", []byte("#!/bin/sh\nkill -INT $$\nsleep 0.2\necho survived > \""+home+"/survived\"\n"), 0o755)
+	call()
+	if _, err := os.Stat(home + "/survived"); err == nil {
+		t.Error("SIGINT was ignored in the orchestrator")
 	}
 }

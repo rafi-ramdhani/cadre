@@ -56,6 +56,7 @@ my-cadre/                     your cadre: its own git repo, yours to grow
 ├── personas/<team>/<role>.md one persona per file
 ├── teams/<team>/             notes and outputs of teams without a project
 ├── cadre.conf                settings, such as the persona permission mode
+├── .claude/                  persona grants (cadre allow) and generated prompts (build/)
 └── projects/                 your project repos, each still its own git repo
     ├── my-app/
     └── cadre/                the framework itself
@@ -119,7 +120,7 @@ git -C "$(head -1 ~/.config/cadre/home)/projects/cadre" pull --ff-only
 cadre version    # cadre 0.2.0
 ```
 
-If the pull fails because you changed files in the framework folder, keep them on a branch first (`git switch -c my-changes && git commit -am "My local changes" && git switch main`), then pull. Then restart your running sessions (`cadre down <team> [project]` and `cadre up <team> [project]`, and a new orchestrator session), and optionally run `cadre trust --all` to trust the projects you registered before. The [CHANGELOG](CHANGELOG.md) has the full steps. From then on, `cadre update` does it.
+If the pull fails because you changed files in the framework folder, keep them on a branch first (`git switch -c my-changes && git commit -am "My local changes" && git switch main`; with no git identity, use `git -c user.name=me -c user.email=me@localhost commit -am ...`, or `git stash` before the pull and `git stash pop` after), then pull. Then restart your running sessions (`cadre down <team> [project]` and `cadre up <team> [project]`, and a new orchestrator session), and optionally run `cadre trust --all` to trust the projects you registered before. The [CHANGELOG](CHANGELOG.md) has the full steps. From then on, `cadre update` does it.
 
 ## What gets installed where
 
@@ -132,7 +133,7 @@ Cadre installs no programs or packages. `install.sh` only checks that git, tmux,
 | Persona permissions: `persona-settings.json` and its list of one-time grants, `persona-settings.once` | `<cadre>/.claude/` | the first `cadre up` or `cadre allow` | Kept, as part of your cadre |
 | The `cadre` command (a link) | `~/.local/bin/cadre` | the installer | Removed, if it points to this framework |
 | The orchestrator skill (a link) | `~/.claude/skills/cadre` | the installer | Removed, if it points to this framework |
-| The orchestrator hook (optional) and a backup of the file before it was added | one SessionStart entry in `~/.claude/settings.json`; `~/.claude/settings.json.bak-cadre` | the installer, if you said yes | Hook removed (with a new backup, `settings.json.bak-cadre-uninstall`); backups kept |
+| The orchestrator hook (optional) and a backup of the file before it was added | one SessionStart entry in `~/.claude/settings.json` (the file is created if missing); `~/.claude/settings.json.bak-cadre` | the installer, if you said yes | Hook removed (with a new backup, `settings.json.bak-cadre-uninstall`); backups kept |
 | The active-cadre pointer and the persona settings fingerprint | `~/.config/cadre/` (`home`, `persona-settings.sha256`) | the installer, `cadre use`, `cadre up`, `cadre allow` | Removed |
 | Generated persona prompts and the settings copy each persona starts with | `<cadre>/.claude/build/` (ignored by the cadre's git) | `cadre up`, rebuilt at every start | Kept, as part of your cadre (0.1.x kept them in `~/.cache/cadre/`, which uninstall removes) |
 | Workspace trust for registered projects, and a backup | entries in `~/.claude.json`; `~/.claude.json.bak-cadre` | `cadre add project`, `cadre sync`, `cadre trust` | Kept: the entries are shared with your other Claude Code sessions, and you may have trusted those folders yourself |

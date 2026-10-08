@@ -14,6 +14,7 @@
 #   cadre projects                            list the project registry
 #   cadre path <project>                      print a project's local folder
 #   cadre sync                                clone missing registry projects
+#   cadre update [--check]                    update the framework (fast-forward only)
 #   cadre version                             print the version
 #
 # A team started for a project gets its own sessions: `cadre up dev my-app`
@@ -28,6 +29,8 @@ die() { echo "cadre: $*" >&2; exit 1; }
 expand() { case $1 in "~"*) echo "$HOME${1#\~}" ;; *) echo "$1" ;; esac; }
 
 # CADRE_TMUX_SOCKET runs every session on a separate tmux server (tests use it).
+# Targets use tmux's exact match (=name, =session:=window): a plain -t falls
+# back to a prefix match, so cadre-dev would hit cadre-dev-app.
 tmux() { command tmux ${CADRE_TMUX_SOCKET:+-L "$CADRE_TMUX_SOCKET"} "$@"; }
 
 resolve() {
@@ -100,9 +103,18 @@ else:
 PY
 }
 
+# Running cadre sessions, one per line: the tmux session, a tab, and the
+# personas in it (its windows are named by role).
+running_sessions() {
+  local s
+  for s in $(tmux ls -F '#S' 2>/dev/null | grep '^cadre-' || true); do
+    printf '%s\t%s\n' "$s" "$(tmux list-windows -t "=$s" -F "${s#cadre-}-#W" 2>/dev/null | paste -sd ' ' -)"
+  done
+}
+
 roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
 key_of() { if [ -n "${2:-}" ]; then echo "$1-$2"; else echo "$1"; fi; }
-window_exists() { tmux list-windows -t "cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
+window_exists() { tmux list-windows -t "=cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
 
 # A team's .workdir file wins; otherwise the team gets a folder in the setup.
 default_dir() {
@@ -130,8 +142,8 @@ start_role() {
   } > "$prompt"
 
   local cmd="CADRE_PERSONA=$name claude --name $name --permission-mode $MODE --append-system-prompt-file '$prompt'"
-  if tmux has-session -t "cadre-$key" 2>/dev/null; then
-    tmux new-window -d -t "cadre-$key" -n "$role" -c "$dir" "$cmd"
+  if tmux has-session -t "=cadre-$key" 2>/dev/null; then
+    tmux new-window -d -t "=cadre-$key:" -n "$role" -c "$dir" "$cmd"
   else
     tmux new-session -d -s "cadre-$key" -n "$role" -c "$dir" "$cmd"
   fi
@@ -171,6 +183,14 @@ cmd_up() {
   else
     for r in $(roles_of "$TEAM"); do start_role "$key" "$TEAM" "$r" "$dir" "$explicit"; done
   fi
+  # Recorded so cadre update can print the exact restart commands.
+  local target=""
+  if [ -n "$proj" ]; then
+    if [ -n "$(reg has "$2")" ]; then target=$2; else target=$dir; fi
+  fi
+  tmux set-option -q -t "=cadre-$key:" @cadre_team "$TEAM" 2>/dev/null || true
+  tmux set-option -q -t "=cadre-$key:" @cadre_project "$proj" 2>/dev/null || true
+  tmux set-option -q -t "=cadre-$key:" @cadre_target "$target" 2>/dev/null || true
 }
 
 cmd_down() {
@@ -178,17 +198,17 @@ cmd_down() {
   split_target "$1"
   local key; key=$(key_of "$TEAM" "${2:-}")
   if [ -z "$ROLE" ]; then
-    if tmux kill-session -t "cadre-$key" 2>/dev/null; then echo "  cadre-$key stopped"; else echo "  cadre-$key not running"; fi
+    if tmux kill-session -t "=cadre-$key" 2>/dev/null; then echo "  cadre-$key stopped"; else echo "  cadre-$key not running"; fi
   else
-    if tmux kill-window -t "cadre-$key:$ROLE" 2>/dev/null; then echo "  $key-$ROLE stopped"; else echo "  $key-$ROLE not running"; fi
+    if tmux kill-window -t "=cadre-$key:=$ROLE" 2>/dev/null; then echo "  $key-$ROLE stopped"; else echo "  $key-$ROLE not running"; fi
   fi
 }
 
 cmd_attach() {
   [ -n "${1:-}" ] || die "usage: cadre attach <team> [project]"
   local key; key=$(key_of "$1" "${2:-}")
-  tmux has-session -t "cadre-$key" 2>/dev/null || die "cadre-$key is not running"
-  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "cadre-$key"; else exec tmux attach -t "cadre-$key"; fi
+  tmux has-session -t "=cadre-$key" 2>/dev/null || die "cadre-$key is not running"
+  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "=cadre-$key"; else exec tmux attach -t "=cadre-$key"; fi
 }
 
 cmd_ls() {
@@ -260,6 +280,130 @@ cmd_use() {
   echo "active cadre: $(cat "$CONFIG")"
 }
 
+version_in() { sed -n 's/^CADRE_VERSION=//p' "$1" | head -1; }
+
+# Prints the CHANGELOG's Unreleased section when it has entries, then the
+# sections newer than version $2; nothing when it has no sections it can read.
+changes_since() {
+  python3 - "$1" "$2" <<'PY'
+import re, sys
+path, old = sys.argv[1], sys.argv[2]
+def ver(s):
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", s)
+    return tuple(int(x) for x in m.groups()) if m else None
+try:
+    lines = open(path).read().splitlines()
+except OSError:
+    sys.exit(0)
+old = ver(old)
+sections, cur = [], None
+for line in lines:
+    if line.startswith("## "):
+        cur = [line]
+        sections.append(cur)
+    elif cur is not None:
+        cur.append(line)
+out = []
+for sec in sections:
+    v = ver(sec[0][3:])
+    if sec[0].strip() == "## Unreleased":
+        keep = any(l.strip() for l in sec[1:])
+    else:
+        keep = v is not None and old is not None and v > old
+    if keep:
+        out.append("\n".join(sec).strip())
+print("\n\n".join(out))
+PY
+}
+
+# Whether the installed cadre command and skill links are missing or point
+# into framework folder $1, so relinking cannot take them from another clone.
+links_point_here() {
+  local here l t
+  here=$(cd "$1" && pwd -P)
+  for l in "$HOME/.local/bin/cadre" "$HOME/.claude/skills/cadre"; do
+    if [ ! -e "$l" ] && [ ! -L "$l" ]; then continue; fi
+    [ -L "$l" ] || return 1
+    t=$(resolve "$l")
+    t=$(cd "$(dirname "$t")" 2>/dev/null && pwd -P) || return 1
+    case "$t/" in "$here/"*) ;; *) return 1 ;; esac
+  done
+}
+
+# Prints the commands that restart each persona in the running sessions.
+# Sessions started before cadre recorded team and project get a template.
+restart_commands() {
+  local s team proj target role generic=""
+  while IFS=$'\t' read -r s _; do
+    team=$(tmux show-options -qv -t "=$s:" @cadre_team 2>/dev/null || true)
+    if [ -z "$team" ]; then generic=1; continue; fi
+    proj=$(tmux show-options -qv -t "=$s:" @cadre_project 2>/dev/null || true)
+    target=$(tmux show-options -qv -t "=$s:" @cadre_target 2>/dev/null || true)
+    for role in $(tmux list-windows -t "=$s" -F '#W' 2>/dev/null); do
+      echo "  cadre down $team/$role${proj:+ $proj} && cadre up $team/$role${target:+ $(printf '%q' "$target")}"
+    done
+  done <<<"$1"
+  if [ -n "$generic" ]; then
+    echo "  cadre down <team> [project] && cadre up <team> [project]"
+    echo "  (session cadre-<team>-<project> is team <team>, project <project>)"
+  fi
+}
+
+# Updates the framework this command runs from. The whole update runs inside
+# this function, which bash has parsed in full before the merge rewrites
+# bin/cadre, and the caller exits right after it returns.
+cmd_update() {
+  local check=""
+  case "${1:-}" in
+    --check) check=1 ;;
+    "") ;;
+    *) die "usage: cadre update [--check]" ;;
+  esac
+  [ -n "$check" ] || [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot update cadre"
+  local fw=$CADRE_ROOT top branch def ahead old new notes
+  top=$(git -C "$fw" rev-parse --show-toplevel 2>/dev/null || true)
+  [ "$top" = "$(cd "$fw" && pwd -P)" ] || die "$fw is not a git checkout; update it by hand"
+  [ -z "$(git -C "$fw" status --porcelain --untracked-files=no)" ] \
+    || die "$fw has local changes to tracked files; commit or stash them, then run cadre update again"
+  def=$(git -C "$fw" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  def=${def#origin/}; def=${def:-main}
+  branch=$(git -C "$fw" symbolic-ref -q --short HEAD || true)
+  [ -n "$branch" ] || die "$fw has a detached HEAD; switch to $def first (git -C $fw switch $def)"
+  [ "$branch" = "$def" ] || die "$fw is on branch $branch, not $def; switch to $def first (git -C $fw switch $def)"
+  GIT_TERMINAL_PROMPT=0 git -C "$fw" fetch -q origin || die "could not fetch from origin in $fw (offline, or no access?)"
+  git -C "$fw" rev-parse -q --verify "origin/$def" >/dev/null || die "origin has no branch $def"
+
+  old=$(version_in "$fw/bin/cadre")
+  if [ "$(git -C "$fw" rev-parse HEAD)" = "$(git -C "$fw" rev-parse "origin/$def")" ]; then
+    echo "cadre $old is up to date"; return 0
+  fi
+  ahead=$(git -C "$fw" rev-list --count "origin/$def..HEAD")
+  [ "$ahead" = 0 ] || die "$fw has $ahead local commit(s) that origin/$def lacks; cadre update only fast-forwards, so move them to a branch first"
+  new=$(git -C "$fw" show "origin/$def:bin/cadre" 2>/dev/null | sed -n 's/^CADRE_VERSION=//p' | head -1 || true)
+  [ -n "$new" ] || die "origin/$def has no bin/cadre with a version (unknown); not updating $fw"
+  if [ -n "$check" ]; then echo "update available: $old -> $new"; exit 3; fi
+
+  git -C "$fw" merge -q --ff-only "origin/$def" || die "the fast-forward to origin/$def failed in $fw"
+  new=$(version_in "$fw/bin/cadre")
+  echo "updated cadre $old -> $new"
+  notes=$(changes_since "$fw/CHANGELOG.md" "$old" || true)
+  if [ -n "$notes" ]; then echo; echo "$notes"; echo
+  elif [ -f "$fw/CHANGELOG.md" ]; then echo "see $fw/CHANGELOG.md for what changed"; fi
+  if links_point_here "$fw"; then
+    bash "$fw/install.sh" --link-only || echo "warning: relinking failed; run $fw/install.sh --link-only" >&2
+  else
+    echo "the installed cadre command or skill points at another framework folder; links left as they are (run $fw/install.sh --link-only to switch to this one)"
+  fi
+
+  local sessions; sessions=$(running_sessions)
+  if [ -n "$sessions" ]; then
+    echo "These sessions still run the old version until restarted:"
+    while IFS=$'\t' read -r s personas; do echo "  $s: $personas"; done <<<"$sessions"
+    echo "Restart them with:"
+    restart_commands "$sessions"
+  fi
+}
+
 # Records a change to the cadre in its own git history, when it has one.
 commit_change() {
   local msg=$1; shift
@@ -296,7 +440,8 @@ cmd_add() {
 case "${1:-}" in
   init)     shift; cmd_init "$@"; exit ;;
   use)      shift; cmd_use "$@"; exit ;;
-  ""|-h|--help|help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
+  update)   shift; cmd_update "$@"; exit ;;
+  ""|-h|--help|help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
   version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
 esac
 load_home

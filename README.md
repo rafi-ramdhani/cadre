@@ -63,7 +63,7 @@ my-cadre/                     your cadre: its own git repo, yours to grow
 
 - **Everything you work on lives in one folder.** Projects are cloned into `projects/` but stay independent repos; your cadre's git ignores that folder and records only the links in `projects.yaml`. `cadre sync` re-clones them anywhere.
 - **The playbook is yours.** It tells the orchestrator which team handles what and in which order. The starter version has a dev team (pm, engineer, reviewer, designer) and a research team (researcher, skeptic, writer, editor).
-- **The framework stays generic.** It lives in `projects/cadre` and updates with `git pull`; your personas and playbook are never touched.
+- **The framework stays generic.** It lives in `projects/cadre` and updates with `cadre update`; your personas and playbook are never touched.
 
 ## Commands
 
@@ -81,6 +81,7 @@ cadre add persona <team>/<role>
 cadre sync                      # clone registry projects missing on this machine
 cadre init <name>               # generate another cadre from the template
 cadre use <dir>                 # switch the active cadre
+cadre update                    # update the framework (--check only looks)
 cadre version
 ```
 

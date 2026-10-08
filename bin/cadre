@@ -9,6 +9,7 @@
 #   cadre add team <team> | cadre add persona <team>/<role>
 #   cadre up <team|team/role> [project|dir]   start a team or one persona
 #   cadre down <team|team/role> [project]     stop a team or one persona
+#   cadre down --all [--yes]                  stop every cadre session (asks first)
 #   cadre attach <team> [project]             open a team's tmux session
 #   cadre ls                                  list teams, roles and what runs
 #   cadre projects                            list the project registry
@@ -114,6 +115,49 @@ running_sessions() {
   done
 }
 
+# Prints running_sessions output for a person to read.
+show_sessions() {
+  local s personas
+  while IFS=$'\t' read -r s personas; do echo "  $s: $personas"; done <<<"$1"
+}
+
+# The cadre session this command runs in, if any: $TMUX names a session on
+# the same tmux server.
+own_session() {
+  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || return 0
+  [ "${TMUX%%,*}" = "$(tmux display -p -t "$TMUX_PANE" '#{socket_path}' 2>/dev/null)" ] || return 0
+  tmux display -p -t "$TMUX_PANE" '#S' 2>/dev/null | grep '^cadre-' || true
+}
+
+# Stops the given tmux sessions and prints one line each. The session this
+# command runs in is left for stop_own_session, so the caller can print its
+# summary first. Sets OWN_SESSION and STOP_FAILED (names that would not stop).
+stop_sessions() {
+  local s
+  OWN_SESSION=$(own_session) STOP_FAILED=""
+  for s in "$@"; do
+    [ "$s" != "$OWN_SESSION" ] || continue
+    if tmux kill-session -t "$s" 2>/dev/null; then echo "  $s stopped"; else STOP_FAILED+=" $s"; echo "  $s could not be stopped"; fi
+  done
+  case " $* " in *" $OWN_SESSION "*) ;; *) OWN_SESSION="" ;; esac
+}
+
+stop_own_session() {
+  [ -n "$OWN_SESSION" ] || return 0
+  echo "  stopping $OWN_SESSION last (this command runs in it)"
+  tmux kill-session -t "$OWN_SESSION"
+}
+
+# Asks "<question> [y/N]" on a terminal. Succeeds with --yes ($2 set) or a
+# yes answer; without a terminal it says how to confirm and fails.
+confirm() {
+  local reply=""
+  [ -z "${2:-}" ] || return 0
+  if [ ! -t 0 ]; then echo "run with --yes to confirm" >&2; return 1; fi
+  read -r -p "$1 [y/N] " reply || true
+  case $reply in y|Y|yes|YES|Yes) return 0 ;; *) echo "nothing changed"; return 1 ;; esac
+}
+
 roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
 key_of() { if [ -n "${2:-}" ]; then echo "$1-$2"; else echo "$1"; fi; }
 window_exists() { tmux list-windows -t "cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
@@ -196,6 +240,29 @@ cmd_down() {
   else
     if tmux kill-window -t "cadre-$key:$ROLE" 2>/dev/null; then echo "  $key-$ROLE stopped"; else echo "  $key-$ROLE not running"; fi
   fi
+}
+
+# Stops every running cadre session after a confirmation. Needs only tmux,
+# so it runs without an active cadre.
+cmd_down_all() {
+  local yes="" a
+  for a in "$@"; do
+    case $a in --all) ;; --yes|-y) yes=1 ;; *) die "usage: cadre down --all [--yes]" ;; esac
+  done
+  [ -z "${CADRE_PERSONA:-}" ] || die "persona sessions cannot stop the whole cadre"
+  local sessions; sessions=$(running_sessions)
+  if [ -z "$sessions" ]; then echo "no cadre sessions running"; return 0; fi
+  echo "Running cadre sessions:"
+  show_sessions "$sessions"
+  confirm "Stop these sessions?" "$yes" || exit 1
+  # shellcheck disable=SC2046 # session names have no spaces
+  stop_sessions $(cut -f1 <<<"$sessions")
+  if [ -n "$STOP_FAILED" ]; then
+    echo "cadre: could not stop:$STOP_FAILED" >&2
+    stop_own_session; exit 2
+  fi
+  echo "stopped every cadre session"
+  stop_own_session
 }
 
 cmd_attach() {
@@ -503,7 +570,7 @@ cmd_update() {
   local sessions; sessions=$(running_sessions)
   if [ -n "$sessions" ]; then
     echo "These sessions still run the old version until restarted:"
-    while IFS=$'\t' read -r s personas; do echo "  $s: $personas"; done <<<"$sessions"
+    show_sessions "$sessions"
     echo "Restart each with: cadre down <team> [project] && cadre up <team> [project]"
     echo "(session cadre-<team>-<project> is team <team>, project <project>)"
   fi
@@ -556,7 +623,8 @@ case "${1:-}" in
   init)     shift; cmd_init "$@"; exit ;;
   use)      shift; cmd_use "$@"; exit ;;
   update)   shift; cmd_update "$@"; exit ;;
-  ""|-h|--help|help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
+  down)     case " $* " in *" --all "*) shift; cmd_down_all "$@"; exit ;; esac ;;
+  ""|-h|--help|help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
   version|--version|-v) echo "cadre $CADRE_VERSION"; exit ;;
 esac
 load_home

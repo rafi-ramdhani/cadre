@@ -75,6 +75,7 @@ cadre up dev/engineer my-app    # one persona
 cadre up research               # a team without a project
 cadre attach dev my-app         # watch a team or talk to it
 cadre down dev my-app           # stop it
+cadre down --all                # stop every cadre session (asks first; --yes skips)
 cadre add project <name> <repo> [team] [about]   # also trusts its folder (--no-trust skips)
 cadre trust <project> | --all   # trust registered projects added before 0.2.0
 cadre add team <team>

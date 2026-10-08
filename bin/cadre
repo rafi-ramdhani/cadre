@@ -51,7 +51,8 @@ resolve() {
 CADRE_ROOT=$(cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")/.." && pwd)
 
 CONFIG="$HOME/.config/cadre/home"
-BUILD="${XDG_CACHE_HOME:-$HOME/.cache}/cadre/build"
+# Hashes of persona settings files as cadre last wrote them, one per line.
+PSET_HASHES="$HOME/.config/cadre/persona-settings.sha256"
 
 # The active cadre: $CADRE_HOME, else the one recorded by init or use.
 load_home() {
@@ -68,6 +69,10 @@ load_home() {
   MODE=${CADRE_PERMISSION_MODE:-$PERMISSION_MODE}
   PERSONAS="$CADRE_HOME/personas"
   REGISTRY="$CADRE_HOME/projects.yaml"
+  PSET="$CADRE_HOME/.claude/persona-settings.json"
+  # Generated persona prompts and settings copies. They live under .claude/,
+  # which Claude Code protects: no allow rule pre-approves writes there.
+  BUILD="$CADRE_HOME/.claude/build"
 }
 
 set_home() { mkdir -p "$(dirname "$CONFIG")"; echo "$1" > "$CONFIG"; }
@@ -177,6 +182,17 @@ confirm() {
   case $reply in y|Y|yes|YES|Yes) return 0 ;; *) echo "nothing changed"; return 1 ;; esac
 }
 
+# Quotes $1 for any shell tmux may run (POSIX sh, bash, zsh, fish): single
+# quotes, with each ' written as '\''.
+sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# The folder for generated prompts and settings copies, ignored by the
+# cadre's git through its own .gitignore.
+ensure_build() {
+  mkdir -p "$BUILD"
+  if [ ! -f "$BUILD/.gitignore" ]; then printf '*\n' > "$BUILD/.gitignore"; fi
+}
+
 roles_of() { find "$PERSONAS/$1" -maxdepth 1 -name '*.md' -exec basename {} .md \; | sort; }
 key_of() { if [ -n "${2:-}" ]; then echo "$1-$2"; else echo "$1"; fi; }
 window_exists() { tmux list-windows -t "=cadre-$1" -F '#W' 2>/dev/null | grep -qx "$2"; }
@@ -198,19 +214,35 @@ start_role() {
   local wd="$PERSONAS/$team/$role.workdir"
   if [ -z "$explicit" ] && [ -f "$wd" ]; then dir=$(expand "$(head -1 "$wd")"); fi
 
-  mkdir -p "$BUILD" "$dir"
+  mkdir -p "$dir"
+  ensure_build
+  # Rebuilt and swapped in whole at every start, whatever is there now.
   {
     cat "$CADRE_ROOT/protocol.md"
     if [ -f "$CADRE_HOME/protocol.md" ]; then echo; cat "$CADRE_HOME/protocol.md"; fi
     echo
     cat "$PERSONAS/$team/$role.md"
-  } > "$prompt"
+  } > "$prompt.tmp.$$"
+  mv -f "$prompt.tmp.$$" "$prompt"
 
-  local cmd="CADRE_PERSONA=$name claude --name $name --permission-mode $MODE --append-system-prompt-file '$prompt'"
+  # Every value is single-quoted: tmux hands the command to the user's shell
+  # (bash, zsh, sh, fish), and a path may hold a quote or a space.
+  local cmd
+  cmd="CADRE_PERSONA=$(sq "$name") claude --name $(sq "$name") --permission-mode $(sq "$MODE") --append-system-prompt-file $(sq "$prompt")"
+  if [ -n "${PSET_ARG:-}" ]; then cmd+=" --settings $(sq "$PSET_ARG")"; fi
   if tmux has-session -t "=cadre-$key" 2>/dev/null; then
     tmux new-window -d -t "=cadre-$key:" -n "$role" -c "$dir" "$cmd"
   else
     tmux new-session -d -s "cadre-$key" -n "$role" -c "$dir" "$cmd"
+  fi
+  # A command that cannot run ends at once: its window closes, or stays with
+  # a dead pane when the user's tmux sets remain-on-exit.
+  sleep 0.5
+  if ! window_exists "$key" "$role" \
+    || [ "$(tmux list-panes -t "=cadre-$key:=$role" -F '#{pane_dead}' 2>/dev/null | head -1)" = 1 ]; then
+    echo "  $name failed to start: its command exited at once; run it by hand in $dir to see why:" >&2
+    echo "    $cmd" >&2
+    return 1
   fi
   echo "  $name started in $dir"
 }
@@ -243,10 +275,13 @@ cmd_up() {
   if [ -n "${2:-}" ]; then read -r proj dir <<<"$(locate "$2")"; explicit=$dir; fi
   [ -n "$dir" ] || dir=$(default_dir "$TEAM")
   local key; key=$(key_of "$TEAM" "$proj")
+  ensure_persona_settings
+  check_persona_settings
+  local failed=""
   if [ -n "$ROLE" ]; then
-    start_role "$key" "$TEAM" "$ROLE" "$dir" "$explicit"
+    start_role "$key" "$TEAM" "$ROLE" "$dir" "$explicit" || failed=1
   else
-    for r in $(roles_of "$TEAM"); do start_role "$key" "$TEAM" "$r" "$dir" "$explicit"; done
+    for r in $(roles_of "$TEAM"); do start_role "$key" "$TEAM" "$r" "$dir" "$explicit" || failed=1; done
   fi
   # Recorded so cadre update can print the exact restart commands.
   local target=""
@@ -256,6 +291,7 @@ cmd_up() {
   tmux set-option -q -t "=cadre-$key:" @cadre_team "$TEAM" 2>/dev/null || true
   tmux set-option -q -t "=cadre-$key:" @cadre_project "$proj" 2>/dev/null || true
   tmux set-option -q -t "=cadre-$key:" @cadre_target "$target" 2>/dev/null || true
+  if [ -n "$failed" ]; then exit 1; fi
 }
 
 cmd_down() {
@@ -357,7 +393,7 @@ cmd_sync() {
 # An op ending in :dry only reports: exit 0 when it would write, 3 when not.
 json_edit() {
   python3 - "$@" <<'PY'
-import hashlib, json, os, subprocess, sys, tempfile
+import hashlib, json, os, shlex, subprocess, sys, tempfile
 
 op, path, backup, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 
@@ -391,7 +427,10 @@ def hook_script(hook):
     """The script a "bash <path>/orchestrator-hook.sh" hook runs, or None."""
     if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
         return None
-    words = hook["command"].split()
+    try:
+        words = shlex.split(hook["command"])
+    except ValueError:
+        return None
     if len(words) == 2 and words[0] == "bash" and os.path.basename(words[1]) == "orchestrator-hook.sh":
         return words[1]
     return None
@@ -524,6 +563,190 @@ except SystemExit:
 except BaseException:
     sys.exit(5)
 PY
+}
+
+# The persona settings file: a plain Claude Code settings file holding the
+# user's grants to personas and fixed entries that keep personas from
+# changing it. Only permissions.allow/deny and autoMode.allow/soft_deny are
+# allowed, since a --settings file sits at command-line precedence and could
+# otherwise carry hooks or env. Personas never get the file itself: each
+# launch passes a copy rebuilt from the validated keys only (export), so a
+# duplicate key, an edit between check and launch, or a live edit to the
+# file cannot reach them.
+#   persona_settings create <file>          write the starting file
+#   persona_settings check <file>           exit 1 and say why when unusable
+#   persona_settings export <file> <dir>    write the copy, print its path
+#   persona_settings record <file> <hashes> remember the file's hash
+#   persona_settings verify <file> <hashes> exit 0 same, 1 changed, 2 unknown
+# The fixed entries name the file by a pattern, not its path, so they stay
+# valid when the cadre is cloned to another machine. Edit rules also cover
+# the Write tool; Claude Code ignores Write(path) rules.
+persona_settings() {
+  python3 - "$@" <<'PY'
+import hashlib, json, os, sys, tempfile
+
+FIXED_DENY = ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)"]
+LEGACY = ["Write(//**/.claude/persona-settings.json)"]
+FIXED_SOFT = ("Changing persona permissions (editing a cadre's .claude/persona-settings.json "
+              "or running cadre allow) is only done by the user through the orchestrator")
+ALLOWED = {"permissions": ("allow", "deny"), "autoMode": ("allow", "soft_deny")}
+op, path = sys.argv[1], sys.argv[2]
+
+
+class Duplicate(ValueError):
+    pass
+
+
+def no_duplicates(pairs):
+    keys = [k for k, _ in pairs]
+    for k in keys:
+        if keys.count(k) > 1:
+            raise Duplicate(k)
+    return dict(pairs)
+
+
+def atomic(target, text, mode=0o600):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target) or ".", prefix=".cadre-")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.chmod(tmp, mode)
+    os.replace(tmp, target)
+
+
+def problem(data):
+    if not isinstance(data, dict):
+        return "it is not a JSON object"
+    for key, value in data.items():
+        if key not in ALLOWED:
+            return "it has the key %s; only permissions and autoMode are allowed" % key
+        if not isinstance(value, dict):
+            return "%s is not an object" % key
+        for sub, items in value.items():
+            if sub not in ALLOWED[key]:
+                return "it has %s.%s; only %s are allowed" % (key, sub, " and ".join(ALLOWED[key]))
+            if not isinstance(items, list) or not all(isinstance(i, str) for i in items):
+                return "%s.%s is not a list of strings" % (key, sub)
+            if key == "autoMode" and "$defaults" not in items:
+                return "autoMode.%s lacks \"$defaults\", which would replace the built-in rules" % sub
+    deny = data.get("permissions", {}).get("deny", [])
+    if not all(d in deny for d in FIXED_DENY):
+        return "permissions.deny lacks the entries that protect the file"
+    if FIXED_SOFT not in data.get("autoMode", {}).get("soft_deny", []):
+        return "autoMode.soft_deny lacks the entry that protects the file"
+    return None
+
+
+def load():
+    """The parsed file, or exits 1 with the reason it cannot be used."""
+    try:
+        with open(path) as f:
+            data = json.load(f, object_pairs_hook=no_duplicates)
+    except OSError:
+        why = "it cannot be read"
+    except Duplicate as e:
+        why = "it has the key %s twice" % e
+    except ValueError:
+        why = "it is not valid JSON"
+    else:
+        why = problem(data)
+    if why:
+        print(why)
+        sys.exit(1)
+    return data
+
+
+def digest():
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def hashes(hfile):
+    found = {}
+    try:
+        for line in open(hfile):
+            h, _, p = line.rstrip("\n").partition(" ")
+            if p:
+                found[p] = h
+    except OSError:
+        pass
+    return found
+
+
+if op == "create":
+    data = {"permissions": {"allow": [], "deny": FIXED_DENY},
+            "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults", FIXED_SOFT]}}
+    atomic(path, json.dumps(data, indent=2) + "\n", 0o644)
+elif op == "check":
+    load()
+elif op == "export":
+    data = load()
+    copy = {}
+    for key, subs in ALLOWED.items():
+        for sub in subs:
+            items = [i for i in data.get(key, {}).get(sub, []) if i not in LEGACY]
+            if sub in data.get(key, {}):
+                copy.setdefault(key, {})[sub] = items
+    text = json.dumps(copy, indent=2) + "\n"
+    out = os.path.join(sys.argv[3], "persona-settings.%s.json" % hashlib.sha256(text.encode()).hexdigest()[:16])
+    # Written whole at every start, never trusted because it exists.
+    os.makedirs(sys.argv[3], exist_ok=True)
+    atomic(out, text, 0o400)
+    print(out)
+elif op == "record":
+    hfile = sys.argv[3]
+    found = hashes(hfile)
+    found[os.path.realpath(path)] = digest()
+    os.makedirs(os.path.dirname(hfile), exist_ok=True)
+    atomic(hfile, "".join("%s %s\n" % (h, p) for p, h in sorted(found.items())))
+elif op == "verify":
+    want = hashes(sys.argv[3]).get(os.path.realpath(path))
+    sys.exit(2 if want is None else 0 if want == digest() else 1)
+PY
+}
+
+# Creates the persona settings file when the cadre has none, records its
+# hash and commits it.
+ensure_persona_settings() {
+  [ ! -e "$PSET" ] || return 0
+  mkdir -p "$(dirname "$PSET")"
+  persona_settings create "$PSET"
+  persona_settings record "$PSET" "$PSET_HASHES"
+  commit_change "Add the persona settings file" "$PSET"
+  echo "  created $PSET (grants for personas; change it with cadre allow)"
+}
+
+# Whether the persona settings file is exactly as cadre last committed it:
+# equal to HEAD, and the last commit that touched it is one cadre makes.
+pset_from_cadre() {
+  local rel=".claude/persona-settings.json" subject
+  git -C "$CADRE_HOME" rev-parse --git-dir >/dev/null 2>&1 || return 1
+  git -C "$CADRE_HOME" diff --quiet HEAD -- "$rel" 2>/dev/null || return 1
+  [ -z "$(git -C "$CADRE_HOME" status --porcelain -- "$rel")" ] || return 1
+  subject=$(git -C "$CADRE_HOME" log -1 --format=%s -- "$rel" 2>/dev/null || true)
+  case $subject in
+    "Add the persona settings file"|"Allow for personas: "*|"Allow for personas once: "*|"Remove grant for personas: "*|"Remove one-time grants for personas") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Checks the persona settings file and sets PSET_ARG to a validated copy for
+# personas (empty when the file is unusable). Warns when the file is unusable
+# or was changed outside cadre allow. A file with no recorded hash, or one
+# that differs from it, is accepted quietly only when it is what cadre last
+# committed (for example a grant pulled from another machine).
+check_persona_settings() {
+  local why code=0
+  PSET_ARG=""
+  ensure_build
+  if ! PSET_ARG=$(persona_settings export "$PSET" "$BUILD"); then
+    why=$PSET_ARG PSET_ARG=""
+    echo "warning: personas start without $PSET because $why; fix it or restore it with git -C $CADRE_HOME checkout -- .claude/persona-settings.json" >&2
+    return 0
+  fi
+  persona_settings verify "$PSET" "$PSET_HASHES" || code=$?
+  [ "$code" != 0 ] || return 0
+  if pset_from_cadre; then persona_settings record "$PSET" "$PSET_HASHES"; return 0; fi
+  echo "warning: $PSET was changed outside cadre allow (see git -C $CADRE_HOME diff and log -p -- .claude/persona-settings.json); personas still get it because it is valid" >&2
 }
 
 # Claude Code's global config, where workspace trust is stored per folder.
@@ -796,6 +1019,7 @@ other_framework() {
   [ -L "$l" ] || return 0
   t=$(resolve "$l"); [ -e "$t" ] || return 0
   t=$(phys_of "$(dirname "$t")/..")
+  [ -f "$t/bin/orchestrator-hook.sh" ] || return 0
   [ "$t" = "$(phys_of "$CADRE_ROOT")" ] || echo "$t"
 }
 
@@ -929,7 +1153,7 @@ cmd_uninstall() {
   for a in "$UN_BIN_LINK" "$UN_SKILL_LINK"; do
     other=$(other_framework "$a")
     if [ -n "$other" ] && [ -z "$force" ]; then
-      die "cadre is installed from $other; run $other/bin/cadre uninstall (or add --force to remove only what is not tied to that framework)"
+      die "cadre is installed from $other; run $other/bin/cadre uninstall. (--force goes ahead from here: it leaves that framework's links and hook, but still stops every cadre session and removes ~/.config/cadre and the cache, which $other uses.)"
     fi
   done
   UN_SESSIONS=$(running_sessions)
@@ -971,7 +1195,10 @@ cmd_uninstall() {
 commit_change() {
   local msg=$1; shift
   git -C "$CADRE_HOME" rev-parse --git-dir >/dev/null 2>&1 || return 0
-  git -C "$CADRE_HOME" config user.email >/dev/null || return 0
+  if ! git -C "$CADRE_HOME" config user.email >/dev/null; then
+    echo "note: git has no user identity, so this change was left uncommitted in $CADRE_HOME; set one (git config --global user.name/user.email) and commit"
+    return 0
+  fi
   if git -C "$CADRE_HOME" add -- "$@"; then git -C "$CADRE_HOME" commit -qm "$msg" -- "$@" || true; fi
 }
 

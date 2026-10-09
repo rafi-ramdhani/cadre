@@ -219,9 +219,10 @@ type SessionOps interface {
 	// resumed in dir, the folder it ran in (its transcript is where the
 	// runtime looks for that folder).
 	Exists(id, dir string) bool
-	// ResumeFailed reports whether a run's error output says it could not
-	// find the conversation it was asked to resume.
-	ResumeFailed(output string) bool
+	// LastWrite is when the conversation's transcript for dir was last
+	// written, or the zero time when there is none: a resumed run that
+	// wrote nothing to it did not get going.
+	LastWrite(id, dir string) time.Time
 	// FromHook reads the conversation id from what a session start hook
 	// receives, or "".
 	FromHook(input io.Reader) string

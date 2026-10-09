@@ -65,8 +65,8 @@ func TestSessions(t *testing.T) {
 	if !ops.Exists(id, "/Users/me/.cadre/w") {
 		t.Error("a folder with a dot")
 	}
-	if !ops.ResumeFailed("No conversation found with session ID: "+id) || ops.ResumeFailed("Error: something else") {
-		t.Error("ResumeFailed")
+	if ops.LastWrite(id, "/Users/me/.cadre/w").IsZero() || !ops.LastWrite(id, "/Users/me/other").IsZero() {
+		t.Error("LastWrite")
 	}
 	if got := ops.FromHook(strings.NewReader(`{"session_id": "` + id + `", "source": "clear"}`)); got != id {
 		t.Errorf("FromHook %q", got)

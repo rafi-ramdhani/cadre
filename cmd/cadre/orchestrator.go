@@ -5,7 +5,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -174,15 +173,15 @@ func runPlain(e *env) int {
 		return e.startTmux(r, cmd, lockPath, detach, release, renew)
 	}
 	start := time.Now()
-	var errTail tail
-	var capture io.Writer
+	var before time.Time
 	if renew != nil {
-		capture = &errTail
+		before = rt.Sessions().LastWrite(conv.Resume, r.Path)
 	}
-	code := e.runTerminal(cmd, lockPath, release, capture)
-	// A new conversation only when the runtime could not find the one to
-	// resume: a quick quit, or a closed terminal, is not that.
-	if renew != nil && code != 0 && time.Since(start) < 5*time.Second && rt.Sessions().ResumeFailed(errTail.String()) {
+	code := e.runTerminal(cmd, lockPath, release)
+	// The run keeps the real terminal, so its output is not read: a resume
+	// failed when the run ended at once, with an error, and wrote nothing
+	// to the conversation. A quick quit after it got going is not that.
+	if renew != nil && code != 0 && time.Since(start) < 5*time.Second && !rt.Sessions().LastWrite(conv.Resume, r.Path).After(before) {
 		// Under the start guard again, so no other cadre run opens a
 		// second orchestrator meanwhile.
 		g, err := orchestrator.Guard(build)
@@ -198,7 +197,7 @@ func runPlain(e *env) int {
 			g.Release()
 			return e.fail("%s", err)
 		}
-		code = e.runTerminal(cmd, lockPath, func() { g.Release() }, nil)
+		code = e.runTerminal(cmd, lockPath, func() { g.Release() })
 	}
 	return code
 }
@@ -278,14 +277,11 @@ func lookalike(dir string) string {
 // runTerminal runs the orchestrator as a child in this terminal, holding
 // the lock while it runs, and returns its exit code. release ends the
 // start guard once the lock is written.
-func (e *env) runTerminal(c runtime.Command, lockPath string, release func(), capture io.Writer) int {
+func (e *env) runTerminal(c runtime.Command, lockPath string, release func()) int {
 	cmd := exec.Command(c.Argv[0], c.Argv[1:]...)
 	cmd.Dir = c.Dir
 	cmd.Env = append(withoutMember(os.Environ()), c.Env...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = e.stdin, e.stdout, e.stderr
-	if capture != nil {
-		cmd.Stderr = io.MultiWriter(e.stderr, capture)
-	}
 	// The terminal comes back as it was, even if the child dies raw.
 	if f, ok := e.stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
 		if saved, err := term.GetState(int(f.Fd())); err == nil {
@@ -461,17 +457,3 @@ func upWaitOr(d time.Duration) time.Duration {
 	}
 	return d
 }
-
-// tail keeps the last few kilobytes written to it: enough of a run's
-// error output to tell why it ended.
-type tail struct{ b []byte }
-
-func (t *tail) Write(p []byte) (int, error) {
-	t.b = append(t.b, p...)
-	if len(t.b) > 8<<10 {
-		t.b = t.b[len(t.b)-(8<<10):]
-	}
-	return len(p), nil
-}
-
-func (t *tail) String() string { return string(t.b) }

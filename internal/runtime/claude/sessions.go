@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
+	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
 )
 
@@ -28,19 +30,31 @@ func (sessions) NewID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// Exists looks for the conversation's transcript, which Claude Code keeps
-// in <config>/projects/<folder>/<id>.jsonl.
-func (sessions) Exists(id string) bool {
-	if !uuidRule.MatchString(id) {
+// Exists looks for the conversation's transcript where Claude Code keeps
+// it for the folder the session ran in, <config>/projects/<folder>/<id>.jsonl,
+// the folder written with every character but letters and digits as "-":
+// that is where claude --resume looks.
+func (sessions) Exists(id, dir string) bool {
+	if !uuidRule.MatchString(id) || dir == "" {
 		return false
 	}
-	found, _ := filepath.Glob(filepath.Join(ConfigDir(), "projects", "*", id+".jsonl"))
-	for _, f := range found {
-		if st, err := os.Stat(f); err == nil && st.Mode().IsRegular() {
+	for _, d := range []string{dir, paths.Real(dir)} {
+		f := filepath.Join(ConfigDir(), "projects", projectFolder(d), id+".jsonl")
+		if st, err := os.Lstat(f); err == nil && st.Mode().IsRegular() {
 			return true
 		}
 	}
 	return false
+}
+
+var notAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// projectFolder is the name Claude Code gives a folder under projects/.
+func projectFolder(dir string) string { return notAlnum.ReplaceAllString(dir, "-") }
+
+// ResumeFailed recognizes claude's error for a --resume id it cannot find.
+func (sessions) ResumeFailed(output string) bool {
+	return strings.Contains(strings.ToLower(output), "no conversation found")
 }
 
 // FromHook reads session_id from the SessionStart hook's JSON input.

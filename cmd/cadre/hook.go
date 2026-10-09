@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	cadre "github.com/rafi-ramdhani/cadre"
 	"github.com/rafi-ramdhani/cadre/internal/backup"
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
+	"github.com/rafi-ramdhani/cadre/internal/orchestrator"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
 	"github.com/rafi-ramdhani/cadre/internal/session"
@@ -76,15 +78,18 @@ func runHookSession(e *env) int {
 	if name == "" || home == "" {
 		return 0
 	}
-	known := false
+	var own *cadres.Cadre
 	list, _ := cadres.List()
-	for _, c := range list {
+	for i, c := range list {
 		if c.Path == paths.Real(home) {
-			known = true
+			own = &list[i]
 		}
 	}
 	rt, err := runtime.Get(runtimeName())
-	if !known || err != nil {
+	// Only a member's record: the orchestrator's is cadre's own, written
+	// at launch, and a name that is no team and role of this cadre is no
+	// member's.
+	if own == nil || err != nil || name == orchestrator.Name(own.Name) || !memberOf(*own, name) {
 		return 0
 	}
 	record := session.RecordPath(rt.BuildDir(paths.Real(home)), name)
@@ -101,4 +106,27 @@ func runHookSession(e *env) int {
 	}
 	session.WriteRecord(record, session.Record{ID: id, Dir: dir, Since: time.Now()})
 	return 0
+}
+
+// memberOf reports whether name is a member session name of cadre c:
+// <cadre>-<team>-<role> or <cadre>-<team>-<project>-<role>, for a team
+// folder and a role file that exist.
+func memberOf(c cadres.Cadre, name string) bool {
+	teams, _ := os.ReadDir(filepath.Join(c.Path, "members"))
+	for _, t := range teams {
+		if !t.IsDir() || strings.HasPrefix(t.Name(), ".") {
+			continue
+		}
+		prefix := c.Name + "-" + t.Name() + "-"
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		for _, role := range session.Roles(c.Path, t.Name()) {
+			rest := strings.TrimPrefix(name, prefix)
+			if rest == role || strings.HasSuffix(rest, "-"+role) && len(rest) > len(role)+1 {
+				return true
+			}
+		}
+	}
+	return false
 }

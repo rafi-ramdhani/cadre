@@ -98,6 +98,11 @@ func (e *env) picker(r *cadres.Resolved, mode string) func(string) (runtime.Runt
 		if err := runtime.Usable(got, mode); err != nil {
 			return nil, "", err
 		}
+		// Prepare writes the settings copy into the build folder, so the
+		// folder is checked first.
+		if err := session.EnsureBuild(got.BuildDir(r.Path)); err != nil {
+			return nil, "", err
+		}
 		p := got.Permissions().Prepare(r.Path, places(r))
 		for _, n := range p.Notes {
 			e.say("%s", n)

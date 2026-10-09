@@ -353,7 +353,9 @@ func TestFirstRunStopsAtTheEndOfInput(t *testing.T) {
 	exec.Command("git", "-C", home+"/src/app", "init", "-q").Run()
 	t.Chdir(home + "/src/app")
 	code, _, errOut := callIn("new\nmine\n")
-	if code != 1 || !strings.Contains(errOut, "input ended before the orchestrator opened") {
+	// Nothing more is asked once the input has ended.
+	if code != 1 || !strings.Contains(errOut, "input ended; your cadre is created, run cadre to finish") ||
+		strings.Contains(errOut, "Make every new") || strings.Contains(errOut, "Link the cadre skill") {
 		t.Errorf("ended after the name: %d %q", code, errOut)
 	}
 	if _, err := os.Stat(home + "/orch-ran"); err == nil {
@@ -600,5 +602,24 @@ func TestRestoreRefusesCommittedLinks(t *testing.T) {
 	}
 	if readFile(t, scratch+"/keep.txt") != "scratch\n" {
 		t.Error("the scratch folder was touched")
+	}
+}
+
+// Ctrl-D at the projects question of a restore clones nothing and asks
+// nothing more: the cadre is restored, and cadre stops with one line.
+func TestRestoreStopsAskingAtTheEndOfInput(t *testing.T) {
+	home := firstMachine(t)
+	backup := backupOf(t, "work", bareRepo(t, "app"))
+	code, out, errOut := callIn("restore\n" + backup + "\n\n")
+	if code != 1 || !strings.Contains(errOut, "input ended; the cadre is restored, run cadre to finish") {
+		t.Errorf("exit %d\n%s%s", code, out, errOut)
+	}
+	for _, q := range []string{"Make every new", "Link the cadre skill", "Where do you keep"} {
+		if strings.Contains(errOut, q) {
+			t.Errorf("asked %q after the input ended:\n%s", q, errOut)
+		}
+	}
+	if _, err := os.Stat(home + "/.cadre/work/members"); err != nil || readFile(t, home+"/orch-ran") != "" {
+		t.Error("the cadre was not kept, or the orchestrator opened")
 	}
 }

@@ -178,9 +178,6 @@ func runLs(e *env) int {
 			return e.fail("usage: cadre ls [--all] [--json]")
 		}
 	}
-	if !e.home() {
-		return 1
-	}
 	t := session.Default()
 	def := cadres.Default()
 	list, _ := cadres.List()

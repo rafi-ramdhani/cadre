@@ -32,33 +32,29 @@ func (e *env) interactive() bool {
 
 // ask prints question on stderr and reads one line of answer.
 func (e *env) ask(question string) string {
+	answer, _ := e.answer(question)
+	return answer
+}
+
+// answer asks like ask, and reports false when the input has ended (Ctrl-D
+// on a terminal): never an answer, so it never accepts a default.
+func (e *env) answer(question string) (string, bool) {
 	fmt.Fprint(e.stderr, question)
 	if e.lines == nil {
 		e.lines = bufio.NewReader(e.stdin)
 	}
-	line, _ := e.lines.ReadString('\n')
-	return strings.TrimSpace(line)
-}
-
-// home prepares ~/.cadre: the one-time copy of ~/.config/cadre (N.1).
-func (e *env) home() bool {
-	msg, err := cadres.CopyOldConfig()
-	if err != nil {
-		e.fail("%s", err)
-		return false
+	line, err := e.lines.ReadString('\n')
+	if err != nil && line == "" {
+		e.eof = true
+		fmt.Fprintln(e.stderr)
+		return "", false
 	}
-	if msg != "" {
-		fmt.Fprintln(e.stderr, "note: "+msg)
-	}
-	return true
+	return strings.TrimSpace(line), true
 }
 
 // resolve finds the cadre this command acts on (N.3), asking which one
 // when several cadres link the project the user is in.
 func (e *env) resolve() (*cadres.Resolved, bool) {
-	if !e.home() {
-		return nil, false
-	}
 	var ask cadres.Asker
 	if e.interactive() {
 		ask = func(project string, names []string) (string, error) {
@@ -96,7 +92,7 @@ func runInit(e *env) int {
 	if len(e.args) != 1 || strings.HasPrefix(e.args[0], "-") {
 		return e.fail("usage: cadre init <name>")
 	}
-	if e.member("create or switch cadres") || !e.home() {
+	if e.member("create or switch cadres") {
 		return 1
 	}
 	c, note, err := cadres.Create(e.args[0], cadre.Assets)
@@ -124,7 +120,7 @@ func runUse(e *env) int {
 	if len(e.args) != 1 || strings.HasPrefix(e.args[0], "-") {
 		return e.fail("usage: cadre use <name>")
 	}
-	if e.member("create or switch cadres") || !e.home() {
+	if e.member("create or switch cadres") {
 		return 1
 	}
 	c, ok := cadres.Find(e.args[0])

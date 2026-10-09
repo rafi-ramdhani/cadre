@@ -110,9 +110,12 @@ for root in sys.argv[1:]:
 echo "first run"
 out=$(cadre </dev/null 2>&1 || true)
 check "without a terminal it says what to run" grep -q "run cadre in a terminal to set one up" <<<"$out"
-check "and creates nothing" test ! -e "$HOME/.cadre/config/default"
+check "and creates nothing" test ! -e "$HOME/.cadre"
+check "Ctrl-D at the first question changes nothing" bash -c "printf '' | CADRE_TEST_TTY=1 cadre 2>&1 | grep -q 'input ended; nothing was changed' && test ! -e '$HOME/.cadre'"
 mkdir -p "$T/start" && cd "$T/start"
-out=$(printf 'new\nfirst\ny\ny\n' | CADRE_TEST_TTY=1 cadre 2>&1)
+# The hook names this test build, which lives in a temporary folder: a
+# release build refuses that.
+out=$(printf 'new\nfirst\ny\ny\n' | CADRE_TEST_TTY=1 CADRE_TEST_HOOK_ANYWHERE=1 cadre 2>&1)
 check "a new cadre with the starter team" bash -c "test -f '$HOME/.cadre/first/members/dev/engineer.md' -a -f '$HOME/.cadre/first/members/dev/reviewer.md' && test \"\$(ls '$HOME/.cadre/first/members')\" = dev"
 check "it is the default" grep -qx first "$HOME/.cadre/config/default"
 check "the skill is written out and linked, after a yes" test "$(readlink "$HOME/.claude/skills/cadre")" = "$HOME/.cadre/framework/skills/cadre" -a -f "$HOME/.cadre/framework/skills/cadre/SKILL.md"
@@ -155,17 +158,15 @@ check "cadre.conf is never run" bash -c "echo 'touch $T/marker' >> '$C/cadre.con
 check "and its command line is named" bash -c "cd '$C' && cadre ls 2>&1 | grep -q 'ignored (only KEY=VALUE'"
 git -C "$C" checkout -q -- cadre.conf
 
-echo "the old ~/.config/cadre is moved once"
+echo "a 0.1.x config is left as it is"
 mkdir -p "$T/old/visible/personas" "$HOME/.config/cadre"
 echo "$T/old/visible" > "$HOME/.config/cadre/home"
-mv "$HOME/.cadre/config/default" "$T/default.saved"
-err=$(cadre ls 2>&1 >/dev/null || true)
-check "moved, with a note" grep -q "moved cadre's settings" <<<"$err"
-check "the old folder is kept aside" test -f "$HOME/.config/cadre.moved-to-0.2.0/home" -a ! -e "$HOME/.config/cadre"
-check "the default is kept by name" grep -qx visible "$HOME/.cadre/config/default"
-check "a 0.1.x cadre is not listed as an outside cadre" test ! -e "$HOME/.cadre/config/external"
-check "nor opened where it is, until it is migrated" bash -c "cd '$T' && ! cadre ls >/dev/null 2>&1"
-mv "$T/default.saved" "$HOME/.cadre/config/default"
+snap() { find "$T/old/visible" "$HOME/.config/cadre" -exec ls -ldn {} + | sort; find "$HOME/.config/cadre" -type f -exec cksum {} +; }
+before=$(snap)
+cadre ls >/dev/null 2>&1; cadre ls --all >/dev/null 2>&1; cadre --check >/dev/null 2>&1 || true
+check "cadre changes neither the 0.1.x cadre nor ~/.config/cadre" test "$(snap)" = "$before"
+check "the default stays this machine's" grep -qx demo "$HOME/.cadre/config/default"
+rm -rf "$HOME/.config/cadre"
 
 echo "grow"
 cd "$C"

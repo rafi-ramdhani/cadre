@@ -41,7 +41,7 @@ func runPlain(e *env) int {
 	if detach && !useTmux {
 		return e.fail("--detach goes with --tmux")
 	}
-	if e.member("start the orchestrator") || !e.home() {
+	if e.member("start the orchestrator") {
 		return 1
 	}
 	rt, err := runtime.Get(runtimeName())
@@ -64,6 +64,9 @@ func runPlain(e *env) int {
 	}
 	if _, fatal := e.health(rt, first); fatal {
 		return 1
+	}
+	if e.eof {
+		return e.fail("input ended before the orchestrator opened; run cadre again to open it")
 	}
 	if err := runtime.CanOrchestrate(rt); err != nil {
 		return e.fail("%s", err)

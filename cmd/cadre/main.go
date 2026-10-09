@@ -25,6 +25,7 @@ type env struct {
 	stdout io.Writer
 	stderr io.Writer
 	lines  *bufio.Reader // stdin, read by ask, one reader for every question
+	eof    bool          // the input ended while cadre asked
 }
 
 func (e *env) say(format string, a ...any) { fmt.Fprintf(e.stdout, format+"\n", a...) }

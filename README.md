@@ -1,15 +1,25 @@
 # Cadre
 
-[![CI](https://github.com/rafi-ramdhani/cadre/actions/workflows/ci.yml/badge.svg)](https://github.com/rafi-ramdhani/cadre/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
 **Plug-and-play orchestration for Claude Code.**
 
-Run `cadre`, then talk to it. Cadre opens Claude Code as an orchestrator that runs a small team for you: an engineer that builds on a branch, a reviewer that checks the work, and any other member you ask for. Each member is its own Claude Code session in tmux. The orchestrator hands out the work, passes results between members and reports back to you.
+Cadre gives you a permanent AI dev team in Claude Code: run one command, and an orchestrator hands work to members who remember your projects.
+
+- **One command, nothing to learn.** Install with `brew install rafi-ramdhani/cadre/cadre`, run `cadre`, and talk to it. There are no config files to write first, and a new cadre comes with an engineer and a reviewer.
+- **A team that stays.** Members are full Claude Code sessions, defined in files. They outlive any one session, pick up their conversations after a restart, and keep working across days.
+- **One team for all your projects.** The orchestrator knows every project you register and sends work to the right members. There is no setup per repository.
+- **Your team follows you to any machine.** Say "back up my cadre" once, and it goes to a private GitHub repository, updated with every change. On a new machine, the first `cadre` restores your members, their work and your projects (conversations stay on the old machine). Before each push, a check refuses files that look like passwords or tokens.
+- **Safe by default.** Members can't approve anything on your behalf. You grant narrow permissions through the orchestrator (`cadre allow`) instead of broad access, and no folder is trusted and no permission is granted without your yes.
+
+Every member is a Claude Code session, so more members means more usage on your plan. What Cadre saves is re-explaining and babysitting.
+
+**Why not subagents?** Members are full, long-lived Claude Code sessions with their own context: you can open one and talk to it directly, and they keep working across days.
+
+**Why not agent teams?** Claude Code's agent teams (experimental, off by default) are built for parallel work within one session: the team belongs to that session, its config is removed when the session ends, in-process teammates don't come back after `/resume`, and each session has one team. Cadre's members are a standing roster defined in files, kept across projects and restarts. Cadre builds on Claude Code's own cross-session messaging.
 
 <!-- The demo GIF is recorded from docs/demo.tape; see the comments at its top. -->
 <!-- ![cadre in a terminal](docs/demo.gif) -->
 
-**Why not subagents?** Members are full, long-lived Claude Code sessions with their own context: you can open one and talk to it directly, and they keep working across days.
+[![CI](https://github.com/rafi-ramdhani/cadre/actions/workflows/ci.yml/badge.svg)](https://github.com/rafi-ramdhani/cadre/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 > Cadre is an independent project. It is not affiliated with or endorsed by Anthropic.
 

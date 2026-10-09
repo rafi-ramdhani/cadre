@@ -333,7 +333,33 @@ func Remove(repo string) (bool, error) {
 	if err != nil || !bytes.Contains(raw, []byte(marker)) {
 		return false, nil
 	}
+	// Only the file exactly as cadre writes it goes: lines the user added
+	// to it are theirs.
+	if !ours(string(raw)) {
+		return false, ErrChanged
+	}
 	return true, os.Remove(file)
+}
+
+// ErrChanged is returned when cadre's pre-push hook holds lines cadre did
+// not write: cadre leaves the file as it is.
+var ErrChanged = errors.New("cadre's pre-push hook holds lines of your own, so it was left as it is; remove cadre's lines from it yourself")
+
+// ours reports whether text is exactly the hook cadre writes, for the
+// binary it names.
+func ours(text string) bool {
+	const lead = "if [ -x '"
+	i := strings.Index(text, lead)
+	if i < 0 {
+		return false
+	}
+	rest := text[i+len(lead):]
+	j := strings.Index(rest, "' ]; then exec ")
+	if j < 0 {
+		return false
+	}
+	binary := strings.ReplaceAll(rest[:j], `'\''`, "'")
+	return text == hookText(binary)
 }
 
 // Installed reports whether a cadre repository has cadre's pre-push hook.

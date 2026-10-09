@@ -43,7 +43,7 @@ The first `cadre` asks a name and a yes or two, then opens the orchestrator with
 **Without Homebrew**, download the release binary to `~/.local/bin/cadre` (it checks the checksum, and running it again upgrades):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rafi-ramdhani/cadre/main/install.sh | sh
+curl -fsSL --proto '=https' https://raw.githubusercontent.com/rafi-ramdhani/cadre/main/install.sh | sh
 ```
 
 **On a new machine**, run `cadre` and choose "restore": it clones your cadre from its GitHub backup, shows what it brings in, and clones its projects after your yes.

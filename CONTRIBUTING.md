@@ -10,7 +10,7 @@ Thanks for helping. Cadre is small on purpose: one program that starts and stops
 ## Making a change
 
 1. Fork and branch from `main`.
-2. **Go version:** `go.mod` declares Go 1.26.0. CI tests with it and with the latest stable release, and releases build with the latest stable.
+2. **Go version:** `go.mod` declares Go 1.26.0. CI tests with it and with the latest stable release, and releases build with the go.mod version (`.github/workflows/release.yml`).
 3. **Dependencies:** the standard library, plus `golang.org/x/term`, `golang.org/x/sys` and `golang.org/x/text` (Unicode normalization for `cadre allow`). Nothing else without an issue first.
 4. Run the checks:
    ```bash

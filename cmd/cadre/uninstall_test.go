@@ -99,3 +99,38 @@ func TestUninstallKeepsWhatIsNotItsOwn(t *testing.T) {
 		t.Error("another cadre's skill link was removed")
 	}
 }
+
+// Sessions started by cadre 0.1.x are the user's, not this cadre's: they
+// are named and left running. A config folder that is a link is removed
+// as a link, and the plan says its folder stays.
+func TestUninstallLeavesLegacySessionsAndLinkedFolders(t *testing.T) {
+	home := sandbox(t)
+	socket := withTmux(t, home)
+	must(t, "init", "work")
+	tmuxIn(socket, "new-session", "-d", "-s", "cadre-dev", "-n", "engineer", "sleep", "300")
+	os.Rename(home+"/.cadre/config", home+"/realconfig")
+	os.Symlink(home+"/realconfig", home+"/.cadre/config")
+	out := must(t, "uninstall", "--dry-run")
+	for _, want := range []string{"sessions started by cadre 0.1.x, left running: cadre-dev",
+		"remove the link ~/.cadre/config (its folder ~/realconfig is kept)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("plan lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "stop 1 member sessions: cadre-dev") {
+		t.Errorf("the plan stops the 0.1.x session:\n%s", out)
+	}
+	out = must(t, "uninstall", "--yes")
+	if !strings.Contains(out, "removed the link ~/.cadre/config") {
+		t.Errorf("uninstall: %q", out)
+	}
+	if tmuxIn(socket, "has-session", "-t", "=cadre-dev:") != "" {
+		t.Error("the 0.1.x session was stopped")
+	}
+	if _, err := os.Lstat(home + "/.cadre/config"); err == nil {
+		t.Error("the link is still there")
+	}
+	if _, err := os.Stat(home + "/realconfig/default"); err != nil {
+		t.Error("the linked folder was removed")
+	}
+}

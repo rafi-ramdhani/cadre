@@ -60,12 +60,12 @@ func findings(rt runtime.Runtime, full bool) []finding {
 			Fix: "on macOS: xcode-select --install; on Linux: install git with your package manager"}})
 	}
 	if _, err := exec.LookPath("tmux"); err != nil {
-		out = append(out, finding{Problem: runtime.Problem{What: "tmux is not installed, so personas cannot start",
+		out = append(out, finding{Problem: runtime.Problem{What: "tmux is not installed, so members cannot start",
 			Fix: "brew install tmux"}})
 	} else if full {
 		major, minor, err := session.Default().Version()
 		if err == nil && (major < 3 || (major == 3 && minor < 2)) {
-			out = append(out, finding{Problem: runtime.Problem{What: fmt.Sprintf("tmux %d.%d is too old for personas; cadre needs 3.2 or newer", major, minor),
+			out = append(out, finding{Problem: runtime.Problem{What: fmt.Sprintf("tmux %d.%d is too old for members; cadre needs 3.2 or newer", major, minor),
 				Fix: "brew upgrade tmux"}})
 		}
 	}

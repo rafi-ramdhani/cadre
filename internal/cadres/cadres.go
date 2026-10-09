@@ -27,7 +27,7 @@ func ConfigDir() string { return filepath.Join(Root(), "config") }
 // Config is a file in ConfigDir.
 func Config(name string) string { return filepath.Join(ConfigDir(), name) }
 
-// Cadre is one cadre: a folder ~/.cadre/<name> with personas/.
+// Cadre is one cadre: a folder ~/.cadre/<name> with members/.
 type Cadre struct {
 	Name string // the folder's name
 	Path string // physical
@@ -35,7 +35,7 @@ type Cadre struct {
 
 // Present reports whether the cadre's folder is there.
 func (c Cadre) Present() bool {
-	st, err := os.Stat(filepath.Join(c.Path, "personas"))
+	st, err := os.Stat(filepath.Join(c.Path, "members"))
 	return err == nil && st.IsDir()
 }
 
@@ -58,7 +58,7 @@ func CheckName(name string) error {
 }
 
 // List returns every cadre: the folders under ~/.cadre that hold
-// personas/, sorted by name. Cadres live only there.
+// members/, sorted by name. Cadres live only there.
 func List() ([]Cadre, error) {
 	var out []Cadre
 	entries, err := os.ReadDir(Root())

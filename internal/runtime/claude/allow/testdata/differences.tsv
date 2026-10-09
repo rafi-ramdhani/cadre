@@ -14,13 +14,13 @@ R	Bash(x &>log)	accept		a redirection
 R	Edit(~/.ss[z-a]/config)	refuse	cannot read	a reversed class range: Python crashed on it; Go refuses it
 R	Edit(src/[z-a]/x)	refuse	cannot read	the same, in a relative path
 R	Bash(a#; bash *)	refuse	chains or backgrounds	still refused; bash refused it as a computed program name because its shlex hid the ;
-R	Edit(/{CADRE}/personas/**)	refuse	{CADRE}/personas	N.7: a cadre's personas, playbook, registry, protocol, .claude and .git are cadre's own
+R	Edit(/{CADRE}/members/**)	refuse	{CADRE}/members	N.7: a cadre's members, playbook, registry, protocol, .claude and .git are cadre's own
 R	Edit(/{CADRE}/playbook.md)	refuse	{CADRE}/playbook.md	N.7
 R	Edit(/{CADRE}/*.md)	refuse	{CADRE}/playbook.md	N.7
 R	Edit(/{CADRE}/*.yaml)	refuse	{CADRE}/projects.yaml	N.7
 R	Edit(~/.cadre/config/default)	refuse	{HOME}/.cadre/config	N.7: ~/.cadre/config holds the default, fingerprints and state
 R	Edit(~/.cadre/framework/skills/cadre/SKILL.md)	refuse	{HOME}/.cadre/framework	N.7
-R	Edit(~/.cadre/*/personas/**)	refuse	{HOME}/.cadre/	N.7, for any cadre in ~/.cadre, also ones made later
+R	Edit(~/.cadre/*/members/**)	refuse	{HOME}/.cadre/	N.7, for any cadre in ~/.cadre, also ones made later
 R	Edit(~/.cadre/work/playbook.md)	refuse	{HOME}/.cadre/<cadre>/playbook.md	N.7
 R	Edit(~/.cadre/*/cadre.conf)	refuse	cadre.conf	N.7
 R	Edit(~/.cadre/w*/.git/config)	refuse	{HOME}/.cadre/<cadre>/.git	N.7

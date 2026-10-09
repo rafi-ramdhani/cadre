@@ -15,14 +15,12 @@ import (
 
 // runHookOrchestrator is the hidden cadre hook orchestrator: the session
 // start hook that makes a new session the orchestrator. It stays silent
-// in a persona's session, with CADRE_OFF, and in an orchestrator cadre
+// in a member's session, with CADRE_OFF, and in an orchestrator cadre
 // started (which has the text in its prompt already), and it never fails:
 // a hook that errors would get in the way of every session.
 func runHookOrchestrator(e *env) int {
-	for _, v := range []string{"CADRE_PERSONA", "CADRE_OFF", "CADRE_ORCHESTRATOR"} {
-		if os.Getenv(v) != "" {
-			return 0
-		}
+	if inMember() || os.Getenv("CADRE_OFF") != "" || os.Getenv("CADRE_ORCHESTRATOR") != "" {
+		return 0
 	}
 	rt, err := runtime.Get(runtimeName())
 	if err != nil {

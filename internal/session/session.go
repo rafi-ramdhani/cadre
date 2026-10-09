@@ -8,7 +8,7 @@ import (
 
 // Names (section I.3): a team's tmux session is cadre-<cadre>-<team>, or
 // cadre-<cadre>-<team>-<project> for a project; its windows are roles; a
-// persona's Claude session name is <cadre>-<team>[-<project>]-<role>. Names
+// member's Claude session name is <cadre>-<team>[-<project>]-<role>. Names
 // are addresses, never parsed: a session's cadre, team and project are its
 // tmux options.
 
@@ -23,8 +23,8 @@ func Key(team, project string) string {
 // SessionName is a team's tmux session.
 func SessionName(cadre, key string) string { return "cadre-" + cadre + "-" + key }
 
-// PersonaName is a persona's Claude session name.
-func PersonaName(cadre, key, role string) string { return cadre + "-" + key + "-" + role }
+// MemberName is a member's Claude session name.
+func MemberName(cadre, key, role string) string { return cadre + "-" + key + "-" + role }
 
 // LegacyName is the tmux session 0.1.x gave a team: no cadre in it.
 func LegacyName(key string) string { return "cadre-" + key }
@@ -41,7 +41,7 @@ type Scope struct {
 // legacy session (no @cadre_home) when this is the default cadre.
 func (s Scope) Ours(i Info) bool { return i.Home == s.Path || (i.Home == "" && s.Default) }
 
-// Running lists this cadre's persona sessions (not its orchestrator),
+// Running lists this cadre's member sessions (not its orchestrator),
 // sorted by name.
 func (s Scope) Running() []Info {
 	var out []Info
@@ -108,14 +108,14 @@ func (s Scope) CheckSession(team, project string) error {
 	return nil
 }
 
-// CheckPersona refuses when the session name a persona would get (its
+// CheckMember refuses when the session name a member would get (its
 // messaging address) is already used by a window of another session
 // (another cadre, team, project or role whose names join the same way),
 // since a name must reach one session only.
-func (s Scope) CheckPersona(session, window, persona string) error {
-	for _, p := range s.T.Personas() {
-		if p.Name == persona && !(p.Session == session && p.Window == window) {
-			return fmt.Errorf("the session name %s is already used by window %s of tmux session %s; rename a team, role or cadre folder so the names differ", persona, p.Window, p.Session)
+func (s Scope) CheckMember(session, window, member string) error {
+	for _, p := range s.T.Members() {
+		if p.Name == member && !(p.Session == session && p.Window == window) {
+			return fmt.Errorf("the session name %s is already used by window %s of tmux session %s; rename a team, role or cadre folder so the names differ", member, p.Window, p.Session)
 		}
 	}
 	return nil
@@ -133,7 +133,7 @@ func Group(i Info, known map[string]string) string {
 	return "unknown cadre at " + i.Home
 }
 
-// All lists every persona session on the server, sorted by group and name,
+// All lists every member session on the server, sorted by group and name,
 // with known mapping a cadre's path to its name.
 func All(t Tmux, known map[string]string) []Info {
 	var out []Info
@@ -152,9 +152,9 @@ func All(t Tmux, known map[string]string) []Info {
 	return out
 }
 
-// Personas returns the persona names of a session: its windows, named as
+// Members returns the member names of a session: its windows, named as
 // <session without "cadre-">-<role>.
-func (t Tmux) PersonaNames(i Info) []string {
+func (t Tmux) MemberNames(i Info) []string {
 	var out []string
 	for _, w := range t.Windows(i.Name) {
 		out = append(out, i.Name[len("cadre-"):]+"-"+w)

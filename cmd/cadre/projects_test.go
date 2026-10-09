@@ -146,10 +146,10 @@ func TestProjectAddTrustsAndLinks(t *testing.T) {
 	refused(t, "not the top folder of a git repository", "project", "add", "sub", "--path", home+"/src")
 	refused(t, "inside ~/.cadre", "project", "add", "x", "--path", home+"/.cadre/work")
 	refused(t, "your home folder", "project", "add", "x", "--path", home)
-	t.Setenv("CADRE_PERSONA", "x")
-	refused(t, "persona sessions cannot add projects", "project", "add", "y", "--path", mine)
-	refused(t, "persona sessions cannot add projects", "project", "add", "z", "me/z")
-	refused(t, "persona sessions cannot trust", "project", "trust", "app")
+	t.Setenv("CADRE_MEMBER", "x")
+	refused(t, "refused for members: members cannot add projects", "project", "add", "y", "--path", mine)
+	refused(t, "refused for members: members cannot add projects", "project", "add", "z", "me/z")
+	refused(t, "refused for members: members cannot trust", "project", "trust", "app")
 }
 
 func TestProjectSyncAndTrust(t *testing.T) {
@@ -254,11 +254,11 @@ func TestProjectLinkUnlinkAndMissing(t *testing.T) {
 	if strings.Contains(readFile(t, home+"/.cadre/work/projects.yaml"), "Moved") {
 		t.Error("a local path went into the registry")
 	}
-	// Personas cannot change links.
-	t.Setenv("CADRE_PERSONA", "x")
-	refused(t, "persona sessions cannot link folders", "project", "link", "app", home+"/Moved/app")
-	refused(t, "persona sessions cannot unlink projects", "project", "unlink", "app")
-	t.Setenv("CADRE_PERSONA", "")
+	// Members cannot change links.
+	t.Setenv("CADRE_MEMBER", "x")
+	refused(t, "refused for members: members cannot link folders", "project", "link", "app", home+"/Moved/app")
+	refused(t, "refused for members: members cannot unlink projects", "project", "unlink", "app")
+	t.Setenv("CADRE_MEMBER", "")
 	// Unlink: out of the registry and the places, the folder kept, and
 	// with --untrust out of the runtime's trust too.
 	os.WriteFile(home+"/.claude.json", []byte("{}\n"), 0o600)

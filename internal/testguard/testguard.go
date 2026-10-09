@@ -20,7 +20,7 @@ var realHome string
 // cleared are the variables that would point a test at the user's setup.
 var cleared = []string{
 	"CLAUDE_CONFIG_DIR", "TMUX", "TMUX_PANE", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
-	"CADRE_HOME", "CADRE_PERSONA", "CADRE_OFF", "CADRE_ORCHESTRATOR", "CADRE_TEST_TTY",
+	"CADRE_HOME", "CADRE_MEMBER", "CADRE_PERSONA", "CADRE_OFF", "CADRE_ORCHESTRATOR", "CADRE_TEST_TTY",
 }
 
 // Environment a guarded test binary passes to the test binaries it runs as

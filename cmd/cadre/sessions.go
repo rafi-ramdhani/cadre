@@ -23,7 +23,7 @@ func scope(r *cadres.Resolved) session.Scope {
 	return session.Scope{Name: r.Name, Path: r.Path, Default: r.Name == r.Default, T: session.Default()}
 }
 
-// tmuxReady checks that tmux 3.2 or newer is there: cadre runs persona
+// tmuxReady checks that tmux 3.2 or newer is there: cadre runs member
 // commands without a shell, with their environment given by new-session
 // -e, which tmux 3.2 added.
 func (e *env) tmuxReady() bool {
@@ -42,7 +42,7 @@ func (e *env) tmuxReady() bool {
 // splitTarget reads team or team/role, and checks the team exists.
 func splitTarget(r *cadres.Resolved, target string) (team, role string, err error) {
 	team, role, _ = strings.Cut(target, "/")
-	if st, serr := os.Stat(filepath.Join(r.Path, "personas", team)); team == "" || serr != nil || !st.IsDir() {
+	if st, serr := os.Stat(filepath.Join(r.Path, "members", team)); team == "" || serr != nil || !st.IsDir() {
 		return "", "", fmt.Errorf("no team '%s' (see cadre help advanced: cadre team add)", team)
 	}
 	return team, role, nil
@@ -64,7 +64,7 @@ func modeOf(values map[string]string) string {
 
 // picker gives every role the cadre's runtime, refused when it cannot
 // enforce the fixed denies, has no messaging or lacks the permission mode,
-// and prepares what its personas start with, once.
+// and prepares what its members start with, once.
 func (e *env) picker(r *cadres.Resolved, mode string) func(string) (runtime.Runtime, string, error) {
 	var rt runtime.Runtime
 	var grants string
@@ -170,7 +170,7 @@ func (e *env) confirm(question string, yes bool) bool {
 	return false
 }
 
-// showSessions prints sessions with their personas, under a heading per
+// showSessions prints sessions with their members, under a heading per
 // group when known is set (a listing of every cadre).
 func (e *env) showSessions(t session.Tmux, list []session.Info, known map[string]string) {
 	last := ""
@@ -183,7 +183,7 @@ func (e *env) showSessions(t session.Tmux, list []session.Info, known map[string
 			}
 			indent = "    "
 		}
-		e.say("%s%s: %s", indent, i.Name, strings.Join(t.PersonaNames(i), " "))
+		e.say("%s%s: %s", indent, i.Name, strings.Join(t.MemberNames(i), " "))
 	}
 }
 
@@ -227,7 +227,7 @@ func runStop(e *env) int {
 		}
 		return 0
 	}
-	if e.persona("stop the whole cadre") {
+	if e.member("stop the whole cadre") {
 		return 1
 	}
 	t := session.Default()

@@ -29,7 +29,7 @@ internal/
   fsx/         atomic write, mkdir lock with stale takeover, mode and owner checks
   jsonx/       ordered JSON tree with raw leaves; strict decode (no duplicate keys)
   jsonedit/    safe edits of ~/.claude.json and settings.json (trust, hook, unhook)
-  psettings/   persona settings: validate, export, fingerprints
+  psettings/   member settings: validate, export, fingerprints
   allow/       rule checks: tables, command checks, path checks, --auto checks
   shellwords/  POSIX word splitting and operator detection for Bash(...) rules
   glob/        gitignore-style segment matcher and reaches()
@@ -77,12 +77,12 @@ Built in O-T5c (`cmd/cadre/setup.go`, `health.go`, `hook.go`):
 - **First run**: plain `cadre` with no cadre asks "new or restore". New asks a name (the login name suggested), creates `~/.cadre/<name>` with the starter team (dev: engineer, reviewer) as the default, and offers to link the git repository the user is in. Then it offers the hook, runs the full health check (which offers the skill link), prints the greeting and opens the orchestrator. Restore is O-T6b. Without a terminal it says what to run and changes nothing.
 - **Health check** on every plain `cadre`, silent unless something is wrong. Fast checks look only at files and `PATH`; the full check (first run, a version change recorded in `state.json`, a fast finding, `cadre --check`) also runs the runtime (`Health(full)`: `--version`, and `auth status` from the version whose docs list it). Each finding has a fix; the skill link and the hook are fixed only after a yes, and a kept hook is remembered per pair of programs. Fatal: the runtime or git missing.
 - **Framework folder**: `~/.cadre/framework` holds the skill written out from the binary, with `VERSION`; it is rewritten when the version differs (always, for a build from source). The skill link (`InstructionOps`) points at it; the hook (`HookOps`) runs `framework.Binary()`, the Homebrew opt path rather than the Cellar one.
-- **`cadre hook orchestrator`** (hidden) prints the runtime's hook answer with `orchestrator.md`, and nothing under `CADRE_PERSONA`, `CADRE_OFF` or `CADRE_ORCHESTRATOR`. It never fails.
+- **`cadre hook orchestrator`** (hidden) prints the runtime's hook answer with `orchestrator.md`, and nothing under `CADRE_MEMBER`, `CADRE_OFF` or `CADRE_ORCHESTRATOR`. It never fails.
 
 ## Backup and restore
 
 Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
-- **Restore** is the first run's other choice: the repository (owner/repo or a URL) is cloned into `~/.cadre/<name>` (the repository's name without `cadre-`, confirmed by the user), refused and removed when it has no `personas/`, made the default, and given the pre-push guard; then `project sync` asks for the projects folder when needed, clones, records places and trusts.
+- **Restore** is the first run's other choice: the repository (owner/repo or a URL) is cloned into `~/.cadre/<name>` (the repository's name without `cadre-`, confirmed by the user), refused and removed when it has no `members/`, made the default, and given the pre-push guard; then `project sync` asks for the projects folder when needed, clones, records places and trusts.
 - **The pre-push guard**: `.git/hooks/pre-push` in each cadre (written on init and restore, and kept on every plain `cadre`; a hook of the user's own is left alone and reported) runs `cadre hook pre-push`. It reads git's ref updates, lists every object the push carries that no remote has (`rev-list --objects <sha> --not --remotes`), and through one `cat-file --batch` checks names (`.credentials.json`, `.env` and `.env.*` but templates, private keys, key stores), sizes over 50 MB, and contents up to 8 MB for tokens (`sk-ant-`, `ghp_`, `github_pat_`, `gh[ousr]_`, private key headers). A finding, or any error, stops the push.
 - **The cadre's `.gitignore`** tracks `teams/` and leaves out dependency folders, build output and logs.
 - **Backing up** is the orchestrator's job (the skill): a private `<user>/cadre-<name>` with `gh repo create`, only after the user's yes, then a push after each commit. No cadre command is involved.
@@ -90,7 +90,7 @@ Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
 ## Data model (section N)
 
 ```
-~/.cadre/config/{default, projects-dir, persona-settings.sha256, state.json}
+~/.cadre/config/{default, projects-dir, member-settings.sha256, state.json}
 ~/.cadre/framework/            install.sh installs only
 ~/.cadre/<name>/               one cadre, its own git repository
 ```
@@ -99,7 +99,7 @@ Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
   each (`home.Config("default")`, `home.Cadre(name)`, `home.Build(name)`), so
   no package concatenates paths by hand.
 - **The cadre list** is the directory listing of `~/.cadre` (entries with
-  `personas/`, minus the reserved `config`, `framework`, dot names and
+  `members/`, minus the reserved `config`, `framework`, dot names and
   symlinks). Cadres live only there. A cadre's name is its folder's
   basename, compared case-insensitively for clashes (I-T1 review).
 - **Resolution** (`cadres.Resolve(cwd)`) returns the cadre, how it was found
@@ -120,7 +120,7 @@ Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
 - **`cadre.conf`** (`conf.Parse`) reads `KEY=VALUE` lines, `#` comments and
   optional single or double quotes, with no expansion. Any other line is
   ignored with a warning naming it. Only `PERMISSION_MODE` is read (for the
-  personas and the orchestrator alike), so a stray key never changes
+  members and the orchestrator alike), so a stray key never changes
   behaviour.
 - **The registry** (`projects.yaml`) keeps its flat format (written by cadre,
   read by the orchestrator): each project's `repo`, `team` and `about`, and
@@ -151,7 +151,7 @@ Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
   rest, the way Python's `os.path.realpath` does. `filepath.EvalSymlinks`
   fails on missing paths, which `cadre allow` and `cadres check` both need.
 - Every stored path is physical (I-T1 review): the known-cadres list, the
-  default pointer, `@cadre_home` and `CADRE_HOME` for personas.
+  default pointer, `@cadre_home` and `CADRE_HOME` for members.
 - The macOS `/System/Volumes/Data` firmlink prefix is stripped before
   comparing.
 
@@ -182,7 +182,7 @@ Design: `jsonx.Decode` walks `json.Decoder.Token()` into an ordered tree
 (`Object` is a slice of key/value pairs), keeping every scalar as its raw
 bytes (`json.RawMessage`). Only objects that an edit touches are rebuilt.
 Untouched strings are written back byte for byte, so surrogates, escapes and
-number formats survive. Duplicate keys are an error for persona settings
+number formats survive. Duplicate keys are an error for member settings
 (security) and kept as they are for Claude Code's files (not ours to judge).
 
 `jsonedit` keeps the bash rules exactly:
@@ -206,14 +206,14 @@ Hook detection for unhook parses the hook `command` with `shellwords`, never
 the cadre binary path instead of `bash .../orchestrator-hook.sh`; old entries
 are still recognised for upgrades.
 
-### Persona settings (`psettings`)
+### Member settings (`psettings`)
 
 FIXED_DENY gains the N.7 entries, as `Edit` rules only (Claude Code ignores
 `Write(path)` rules and warns about them, PR #5 review, so N.7's "the same for
 `Write`" is left out):
 `Edit(//**/.cadre/config/**)`, `Edit(//**/.cadre/framework/**)`,
 `Edit(//**/.cadre/*/.claude/**)`, `Edit(//**/.cadre/*/cadre.conf)`,
-`Edit(//**/.cadre/*/personas/**)`, `Edit(//**/.cadre/*/playbook.md)`,
+`Edit(//**/.cadre/*/members/**)`, `Edit(//**/.cadre/*/playbook.md)`,
 `Edit(//**/.cadre/*/protocol.md)`, `Edit(//**/.cadre/*/projects.yaml)` and
 `Edit(//**/.cadre/*/.git/**)`. The soft_deny line from N.7 is added the same
 way. As with today's newer entries, a file must hold only the `PROTECT`
@@ -233,8 +233,8 @@ commit subjects. Git runs as `exec.Command("git", ...)` with argv.
   `CADRE_TMUX_SOCKET` is set. No shell is ever involved on cadre's side.
 - Targets are always exact: `=session`, `=session:=window`, and `=session:` for
   options. Helpers take a session and a window, never a target string.
-- Personas start with the command as separate arguments
-  (`new-session -d -s S -n R -c DIR -e CADRE_HOME=... -e CADRE_PERSONA=... -- claude --name ...`).
+- Members start with the command as separate arguments
+  (`new-session -d -s S -n R -c DIR -e CADRE_HOME=... -e CADRE_MEMBER=... -- claude --name ...`).
   With more than one argument, tmux 3.0 and newer execs the command directly
   with no shell, and `-e` sets the environment, so paths with quotes, spaces
   or `$` need no quoting at all. That removes the whole `sq()` class.
@@ -296,7 +296,7 @@ Targets from section N (N.7):
 - refused, as OUTSIDE entries:
   - `~/.cadre/config/` and `~/.cadre/framework/`;
   - for every cadre under `~/.cadre`: `.claude/`,
-    `cadre.conf`, `personas/`, `playbook.md`, `protocol.md`, `projects.yaml`
+    `cadre.conf`, `members/`, `playbook.md`, `protocol.md`, `projects.yaml`
     and `.git/`;
 - warned: another cadre's `teams/`;
 - allowed: the cadre's own `teams/`.
@@ -361,7 +361,7 @@ Open in the last bash PR (#11) when it was frozen; the Go code must get them rig
 ## Open points
 
 - N.7 lists `Write(...)` deny entries; this design leaves them out (see
-  Persona settings). The PM should confirm.
+  Member settings). The PM should confirm.
 - Whether hooks and the status line run as `cadre hook ...` (O), and how the
   SessionStart hook finds the binary after `brew upgrade` (opt path, M.1).
 - The minimum tmux version (3.0, for argv commands and `-e`).

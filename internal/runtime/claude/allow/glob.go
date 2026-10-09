@@ -152,7 +152,7 @@ func spells(seg, name string) bool {
 }
 
 // anyName, as a segment of a target, stands for any name: a rule reaches
-// ~/.cadre/<anyName>/personas whatever it names in that place, so cadres
+// ~/.cadre/<anyName>/members whatever it names in that place, so cadres
 // made later are covered too. No file can have this name.
 const anyName = "\x00"
 

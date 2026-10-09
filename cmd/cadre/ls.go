@@ -34,17 +34,17 @@ type cadreView struct {
 	Missing bool   `json:"missing,omitempty"`
 }
 
-type personaView struct {
-	Name string `json:"name"` // the session name, the persona's messaging address
+type memberView struct {
+	Name string `json:"name"` // the session name, the member's messaging address
 	Role string `json:"role"`
 }
 
 type sessionView struct {
-	Session  string        `json:"session"` // the tmux session
-	Team     string        `json:"team"`
-	Project  string        `json:"project,omitempty"`
-	Legacy   bool          `json:"legacy"` // from before session names carried the cadre
-	Personas []personaView `json:"personas"`
+	Session string       `json:"session"` // the tmux session
+	Team    string       `json:"team"`
+	Project string       `json:"project,omitempty"`
+	Legacy  bool         `json:"legacy"` // from before session names carried the cadre
+	Members []memberView `json:"members"`
 }
 
 // A project's state on this machine: "present"; "not here" (no folder
@@ -78,14 +78,14 @@ type orchestratorView struct {
 }
 
 type cadreStatus struct {
-	Version      int                      `json:"version,omitempty"` // set on the top-level object
-	Cadre        cadreView                `json:"cadre"`
-	Orchestrator orchestratorView         `json:"orchestrator"`
-	Running      []sessionView            `json:"running"`
-	Projects     []projectView            `json:"projects"`
-	Teams        map[string][]personaView `json:"teams"` // every persona, running or not
-	Others       []otherView              `json:"other_cadres,omitempty"`
-	Problems     []string                 `json:"problems"` // what keeps personas from starting
+	Version      int                     `json:"version,omitempty"` // set on the top-level object
+	Cadre        cadreView               `json:"cadre"`
+	Orchestrator orchestratorView        `json:"orchestrator"`
+	Running      []sessionView           `json:"running"`
+	Projects     []projectView           `json:"projects"`
+	Teams        map[string][]memberView `json:"teams"` // every member, running or not
+	Others       []otherView             `json:"other_cadres,omitempty"`
+	Problems     []string                `json:"problems"` // what keeps members from starting
 }
 
 type allStatus struct {
@@ -95,7 +95,7 @@ type allStatus struct {
 	Unknown []sessionView `json:"unknown"`
 }
 
-// problemsOf says what keeps every persona of a cadre from starting: the
+// problemsOf says what keeps every member of a cadre from starting: the
 // runtime is missing, or cannot run the cadre's permission mode.
 func problemsOf(c cadres.Cadre) []string {
 	rt, err := runtime.Get(runtimeName())
@@ -114,13 +114,13 @@ func problemsOf(c cadres.Cadre) []string {
 }
 
 func viewOf(t session.Tmux, i session.Info) sessionView {
-	v := sessionView{Session: i.Name, Team: i.Team, Project: i.Project, Legacy: i.Home == "", Personas: []personaView{}}
+	v := sessionView{Session: i.Name, Team: i.Team, Project: i.Project, Legacy: i.Home == "", Members: []memberView{}}
 	if v.Team == "" {
 		// A 0.1.x session recorded no team: show its key.
 		v.Team = strings.TrimPrefix(i.Name, "cadre-")
 	}
 	for _, w := range t.Windows(i.Name) {
-		v.Personas = append(v.Personas, personaView{Name: strings.TrimPrefix(i.Name, "cadre-") + "-" + w, Role: w})
+		v.Members = append(v.Members, memberView{Name: strings.TrimPrefix(i.Name, "cadre-") + "-" + w, Role: w})
 	}
 	return v
 }
@@ -128,7 +128,7 @@ func viewOf(t session.Tmux, i session.Info) sessionView {
 // statusOf gathers one cadre's status.
 func statusOf(c cadres.Cadre, def string, t session.Tmux) cadreStatus {
 	s := cadreStatus{Cadre: cadreView{Name: c.Name, Path: c.Path, Default: c.Name == def, Missing: !c.Present()},
-		Running: []sessionView{}, Projects: []projectView{}, Teams: map[string][]personaView{}, Problems: problemsOf(c)}
+		Running: []sessionView{}, Projects: []projectView{}, Teams: map[string][]memberView{}, Problems: problemsOf(c)}
 	scope := session.Scope{Name: c.Name, Path: c.Path, Default: c.Name == def, T: t}
 	s.Orchestrator = orchestratorOf(c, t)
 	for _, i := range scope.Running() {
@@ -137,13 +137,13 @@ func statusOf(c cadres.Cadre, def string, t session.Tmux) cadreStatus {
 	if p := projectsOf(c); p != nil {
 		s.Projects = p
 	}
-	teams, _ := filepath.Glob(filepath.Join(c.Path, "personas", "*"))
+	teams, _ := filepath.Glob(filepath.Join(c.Path, "members", "*"))
 	for _, d := range teams {
 		if st, err := os.Stat(d); err == nil && st.IsDir() {
 			team := filepath.Base(d)
-			s.Teams[team] = []personaView{}
+			s.Teams[team] = []memberView{}
 			for _, role := range session.Roles(c.Path, team) {
-				s.Teams[team] = append(s.Teams[team], personaView{Name: session.PersonaName(c.Name, team, role), Role: role})
+				s.Teams[team] = append(s.Teams[team], memberView{Name: session.MemberName(c.Name, team, role), Role: role})
 			}
 		}
 	}
@@ -301,7 +301,7 @@ func (e *env) printStatus(s cadreStatus) {
 				legacy = true
 			}
 			var roles []string
-			for _, p := range v.Personas {
+			for _, p := range v.Members {
 				roles = append(roles, p.Role)
 			}
 			e.say("  %-16s %s", label, strings.Join(roles, "  "))
@@ -357,7 +357,7 @@ func (e *env) printSessions(heading string, list []sessionView) {
 	sort.Slice(list, func(a, b int) bool { return list[a].Session < list[b].Session })
 	for _, v := range list {
 		var names []string
-		for _, p := range v.Personas {
+		for _, p := range v.Members {
 			names = append(names, p.Name)
 		}
 		e.say("  %s: %s", v.Session, strings.Join(names, " "))

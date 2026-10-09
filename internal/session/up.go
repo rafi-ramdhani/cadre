@@ -23,7 +23,7 @@ type Up struct {
 	Target   string // @cadre_target: the registry name or folder it was started for
 	Dir      string // the working folder
 	Explicit bool   // Dir was given (a project or folder): a role's .workdir pin does not apply
-	Protocol []byte // the persona protocol every prompt starts with
+	Protocol []byte // the member protocol every prompt starts with
 	Mode     string // the permission mode
 	// Pick returns a role's runtime and the grants artifact it starts with
 	// ("" for none), or why the role cannot start.
@@ -31,9 +31,9 @@ type Up struct {
 	Wait time.Duration
 }
 
-// Roles lists a team's roles: the .md files in personas/<team>.
+// Roles lists a team's roles: the .md files in members/<team>.
 func Roles(cadre, team string) []string {
-	files, _ := filepath.Glob(filepath.Join(cadre, "personas", team, "*.md"))
+	files, _ := filepath.Glob(filepath.Join(cadre, "members", team, "*.md"))
 	var out []string
 	for _, f := range files {
 		out = append(out, strings.TrimSuffix(filepath.Base(f), ".md"))
@@ -59,7 +59,7 @@ func workdir(file string) string {
 // DefaultDir is a team's working folder: its .workdir file, or
 // <cadre>/teams/<team>.
 func DefaultDir(cadre, team string) string {
-	if d := workdir(filepath.Join(cadre, "personas", team, ".workdir")); d != "" {
+	if d := workdir(filepath.Join(cadre, "members", team, ".workdir")); d != "" {
 		return d
 	}
 	return filepath.Join(cadre, "teams", team)
@@ -85,10 +85,10 @@ func (u Up) Start(out io.Writer) bool {
 func (u Up) start(out io.Writer, role string) error {
 	key := Key(u.Team, u.Project)
 	session := SessionName(u.Name, key)
-	name := PersonaName(u.Name, key, role)
-	personaFile := filepath.Join(u.Path, "personas", u.Team, role+".md")
-	if _, err := os.Stat(personaFile); err != nil {
-		return fmt.Errorf("  no persona %s/%s", u.Team, role)
+	name := MemberName(u.Name, key, role)
+	memberFile := filepath.Join(u.Path, "members", u.Team, role+".md")
+	if _, err := os.Stat(memberFile); err != nil {
+		return fmt.Errorf("  no member %s/%s", u.Team, role)
 	}
 	if u.T.HasWindow(session, role) && u.mine(key) == session {
 		fmt.Fprintf(out, "  %s already running\n", name)
@@ -98,7 +98,7 @@ func (u Up) start(out io.Writer, role string) error {
 		fmt.Fprintf(out, "  %s-%s already running (legacy session %s; it keeps its old name until restarted)\n", key, role, l)
 		return nil
 	}
-	if err := u.CheckPersona(session, role, name); err != nil {
+	if err := u.CheckMember(session, role, name); err != nil {
 		return fmt.Errorf("  %s not started: %s", name, err)
 	}
 	rt, grants, err := u.Pick(role)
@@ -107,19 +107,19 @@ func (u Up) start(out io.Writer, role string) error {
 	}
 	dir := u.Dir
 	if !u.Explicit {
-		// A <role>.workdir file pins one persona to its own folder.
-		if d := workdir(filepath.Join(u.Path, "personas", u.Team, role+".workdir")); d != "" {
+		// A <role>.workdir file pins one member to its own folder.
+		if d := workdir(filepath.Join(u.Path, "members", u.Team, role+".workdir")); d != "" {
 			dir = d
 		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("  %s not started: %s", name, err)
 	}
-	prompt, err := u.writePrompt(rt.BuildDir(u.Path), key, role, personaFile)
+	prompt, err := u.writePrompt(rt.BuildDir(u.Path), key, role, memberFile)
 	if err != nil {
 		return fmt.Errorf("  %s not started: %s", name, err)
 	}
-	cmd, err := rt.Launch(runtime.LaunchSpec{Role: runtime.Persona, Name: name, Cadre: u.Path, WorkDir: dir,
+	cmd, err := rt.Launch(runtime.LaunchSpec{Role: runtime.Member, Name: name, Cadre: u.Path, WorkDir: dir,
 		Mode: u.Mode, PromptFile: prompt, Grants: grants})
 	if err != nil {
 		return fmt.Errorf("  %s not started: %s", name, err)
@@ -128,15 +128,15 @@ func (u Up) start(out io.Writer, role string) error {
 		dir = cmd.Dir
 	}
 	argv := cmd.Argv
-	// CADRE_HOME pins the persona to this cadre wherever it works.
-	env := append([]string{"CADRE_HOME=" + u.Path, "CADRE_PERSONA=" + name}, cmd.Env...)
+	// CADRE_HOME pins the member to this cadre wherever it works.
+	env := append([]string{"CADRE_HOME=" + u.Path, "CADRE_MEMBER=" + name}, cmd.Env...)
 	hint, hooks := u.T.HintOptions()
 	err = u.T.Start(StartSpec{Session: session, Window: role, Dir: dir, Env: env, Argv: argv,
 		// The target too, recorded with the rest, so a cadre up whose
 		// output pipe closes early (cadre up | head) still records it.
 		SessionOptions: append([]Option{{"@cadre_home", u.Path}, {"@cadre_team", u.Team}, {"@cadre_project", u.Project}, {"@cadre_target", u.Target}}, hint...),
 		SessionHooks:   hooks,
-		WindowOptions:  []Option{{"@cadre_persona", name}}})
+		WindowOptions:  []Option{{"@cadre_member", name}}})
 	if err != nil {
 		return fmt.Errorf("  %s not started: %s", name, err)
 	}
@@ -155,21 +155,21 @@ func (u Up) start(out io.Writer, role string) error {
 	return nil
 }
 
-// writePrompt builds the persona's prompt, rebuilt and swapped in whole at
-// every start: the protocol, the cadre's own protocol.md, then the persona.
-func (u Up) writePrompt(build, key, role, personaFile string) (string, error) {
+// writePrompt builds the member's prompt, rebuilt and swapped in whole at
+// every start: the protocol, the cadre's own protocol.md, then the member.
+func (u Up) writePrompt(build, key, role, memberFile string) (string, error) {
 	var b strings.Builder
 	b.Write(u.Protocol)
 	if own, err := os.ReadFile(filepath.Join(u.Path, "protocol.md")); err == nil {
 		b.WriteString("\n")
 		b.Write(own)
 	}
-	persona, err := os.ReadFile(personaFile)
+	member, err := os.ReadFile(memberFile)
 	if err != nil {
 		return "", err
 	}
 	b.WriteString("\n")
-	b.Write(persona)
+	b.Write(member)
 	if err := EnsureBuild(build); err != nil {
 		return "", err
 	}

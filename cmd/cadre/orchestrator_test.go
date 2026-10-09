@@ -41,8 +41,8 @@ func TestPlainCadreOpensTheOrchestratorInThisTerminal(t *testing.T) {
 			t.Errorf("the orchestrator ran without %q:\n%s", want, ran)
 		}
 	}
-	if strings.Contains(ran, "--settings") || strings.Contains(ran, "CADRE_PERSONA=") {
-		t.Errorf("the orchestrator got persona settings or a persona name:\n%s", ran)
+	if strings.Contains(ran, "--settings") || strings.Contains(ran, "CADRE_MEMBER=") {
+		t.Errorf("the orchestrator got member settings or a member name:\n%s", ran)
 	}
 	if p := readFile(t, c+"/.claude/build/orchestrator.md"); !strings.Contains(p, "This session is the cadre orchestrator") || !strings.Contains(p, "You are the orchestrator of cadre `work`") {
 		t.Errorf("prompt %q", p)
@@ -119,9 +119,9 @@ func TestPlainCadreFromAProjectAndNotes(t *testing.T) {
 	if _, err := os.Stat(home + "/marker"); err == nil {
 		t.Error("a look-alike's cadre.conf was run")
 	}
-	t.Setenv("CADRE_PERSONA", "x")
-	if code, _, errOut := call(); code != 1 || !strings.Contains(errOut, "persona sessions cannot start the orchestrator") {
-		t.Errorf("in a persona: %d %q", code, errOut)
+	t.Setenv("CADRE_MEMBER", "x")
+	if code, _, errOut := call(); code != 1 || !strings.Contains(errOut, "refused for members: members cannot start the orchestrator") {
+		t.Errorf("in a member: %d %q", code, errOut)
 	}
 }
 
@@ -178,7 +178,7 @@ func TestOrchestratorPermissionMode(t *testing.T) {
 	}
 }
 
-// plantLock writes a lock as a persona's shell could: a live pid with its
+// plantLock writes a lock as a member's shell could: a live pid with its
 // real start time, pointing at a session of the planter's choosing.
 func plantLock(t *testing.T, path string, pid int, session string) {
 	t.Helper()

@@ -18,14 +18,14 @@ import (
 type MessagingKind int
 
 const (
-	NoMessaging MessagingKind = iota // cannot be a persona or the orchestrator
+	NoMessaging MessagingKind = iota // cannot be a member or the orchestrator
 	Native                           // the CLI's own cross-session messaging
 )
 
 // Capabilities say what a runtime supports, so a runtime that cannot run
 // cadre's sessions safely is refused instead of failing in odd ways.
 type Capabilities struct {
-	FixedDenies      bool          // it enforces cadre's fixed denies; without it, personas are refused
+	FixedDenies      bool          // it enforces cadre's fixed denies; without it, members are refused
 	PermissionModes  []string      // the PERMISSION_MODE values it understands
 	Resume           bool          // resuming a conversation
 	AssignSessionID  bool          // starting with a session id cadre chose
@@ -39,7 +39,7 @@ type Capabilities struct {
 type Role int
 
 const (
-	Persona Role = iota
+	Member Role = iota
 	Orchestrator
 )
 
@@ -54,7 +54,7 @@ type LaunchSpec struct {
 	Grants     string // the runtime's grants artifact (from Permissions().Prepare), or ""
 }
 
-// Command is what cadre runs: in tmux for a persona, or as a child process.
+// Command is what cadre runs: in tmux for a member, or as a child process.
 type Command struct {
 	Argv []string
 	Env  []string // KEY=value, added to cadre's environment
@@ -89,7 +89,7 @@ type Places struct {
 
 // Prepared is what Permissions().Prepare made for a start.
 type Prepared struct {
-	Grants   string   // the artifact for LaunchSpec.Grants, or "" when the persona starts without
+	Grants   string   // the artifact for LaunchSpec.Grants, or "" when the member starts without
 	Notes    []string // printed on stdout (a file was created)
 	Warnings []string // printed on stderr
 }
@@ -132,14 +132,14 @@ type PermissionOps interface {
 	Unchanged(cadre string) bool
 	// Record remembers the grants file as cadre wrote it.
 	Record(cadre string)
-	// BuiltIn says what every persona gets that cadre allow list does not show.
+	// BuiltIn says what every member gets that cadre allow list does not show.
 	BuiltIn() string
 	// Validate checks a grant before it is stored: a rule, or a
 	// plain-English entry when auto is set. It returns a warning, or an
 	// error saying why it is refused.
 	Validate(cadre string, known []string, rule string, auto bool) (warning string, err error)
 	// Prepare makes sure the cadre's grants file exists and writes what a
-	// persona starts with, with the fixed denies added.
+	// member starts with, with the fixed denies added.
 	Prepare(cadre string, places Places) Prepared
 	// GrantsFile is where the cadre's grants are stored.
 	GrantsFile(cadre string) string
@@ -251,7 +251,7 @@ func Get(name string) (Runtime, error) {
 
 // CanOrchestrate refuses a runtime that cannot be the orchestrator:
 // it needs a place for the orchestrator's instructions, a way to start a
-// session as the orchestrator, and messaging to reach the personas.
+// session as the orchestrator, and messaging to reach the members.
 func CanOrchestrate(r Runtime) error {
 	caps := r.Caps()
 	if !caps.Instructions || !caps.OrchestratorHook || caps.Messaging == NoMessaging {
@@ -260,15 +260,15 @@ func CanOrchestrate(r Runtime) error {
 	return nil
 }
 
-// Usable refuses a runtime that cannot run a persona safely or reach the
+// Usable refuses a runtime that cannot run a member safely or reach the
 // orchestrator: one without the fixed denies, or without messaging.
 func Usable(r Runtime, mode string) error {
 	caps := r.Caps()
 	if !caps.FixedDenies {
-		return fmt.Errorf("runtime %s cannot enforce cadre's fixed denies, so its personas are refused", r.Name())
+		return fmt.Errorf("runtime %s cannot enforce cadre's fixed denies, so its members are refused", r.Name())
 	}
 	if caps.Messaging == NoMessaging {
-		return fmt.Errorf("runtime %s has no way to message the orchestrator, so it cannot run personas", r.Name())
+		return fmt.Errorf("runtime %s has no way to message the orchestrator, so it cannot run members", r.Name())
 	}
 	for _, m := range caps.PermissionModes {
 		if m == mode {

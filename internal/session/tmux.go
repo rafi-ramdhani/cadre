@@ -1,4 +1,4 @@
-// Package session runs persona sessions: Claude Code sessions in tmux,
+// Package session runs member sessions: Claude Code sessions in tmux,
 // one tmux session per team (and project), one window per role. It names
 // them, records which cadre each belongs to, and starts, lists and stops
 // them.
@@ -56,7 +56,7 @@ func (t Tmux) Option(session, name string) string {
 }
 
 // recordable refuses an option value that tmux could not give back as it
-// is: Sessions and Personas read one line per session with fields split by
+// is: Sessions and Members read one line per session with fields split by
 // sep, and tmux escapes control characters and bytes that are not UTF-8 in
 // its output.
 func recordable(name, value string) error {
@@ -193,21 +193,21 @@ func (t Tmux) Sessions() []Info {
 	return list
 }
 
-// Persona is a window and the Claude session name recorded on it.
-type Persona struct{ Session, Window, Name string }
+// Member is a window and the Claude session name recorded on it.
+type Member struct{ Session, Window, Name string }
 
-// Personas lists every window of every cadre session with its
-// @cadre_persona (empty for windows from before it was recorded).
-func (t Tmux) Personas() []Persona {
-	out, err := t.run("list-windows", "-a", "-F", strings.Join([]string{"#S", "#W", "#{@cadre_persona}"}, sep))
+// Members lists every window of every cadre session with its
+// @cadre_member (empty for windows from before it was recorded).
+func (t Tmux) Members() []Member {
+	out, err := t.run("list-windows", "-a", "-F", strings.Join([]string{"#S", "#W", "#{@cadre_member}"}, sep))
 	if err != nil || out == "" {
 		return nil
 	}
-	var list []Persona
+	var list []Member
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, sep)
 		if len(f) == 3 && strings.HasPrefix(f[0], "cadre-") {
-			list = append(list, Persona{f[0], f[1], unescape(f[2])})
+			list = append(list, Member{f[0], f[1], unescape(f[2])})
 		}
 	}
 	return list

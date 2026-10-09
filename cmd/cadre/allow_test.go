@@ -20,16 +20,16 @@ func TestAllowAddListRemove(t *testing.T) {
 	home := sandbox(t)
 	must(t, "init", "work")
 	c := home + "/.cadre/work"
-	file := c + "/.claude/persona-settings.json"
-	if out := must(t, "allow"); !strings.Contains(out, "Grants for personas: none yet") {
+	file := c + "/.claude/member-settings.json"
+	if out := must(t, "allow"); !strings.Contains(out, "Grants for members: none yet") {
 		t.Errorf("allow with no file: %q", out)
 	}
 	out := must(t, "allow", "add", "Bash(git push origin HEAD:main)")
 	if !strings.Contains(out, "created "+file) || !strings.Contains(out, "  added rule: Bash(git push origin HEAD:main)") ||
-		!strings.Contains(out, "Personas started from now on get this change.") {
+		!strings.Contains(out, "Members started from now on get this change.") {
 		t.Errorf("add: %q", out)
 	}
-	if !strings.Contains(gitLog(t, c), "Allow for personas: Bash(git push origin HEAD:main)") {
+	if !strings.Contains(gitLog(t, c), "Allow for members: Bash(git push origin HEAD:main)") {
 		t.Errorf("not committed:\n%s", gitLog(t, c))
 	}
 	if out := must(t, "allow", "add", "Bash(git push origin HEAD:main)"); !strings.Contains(out, "is already granted; nothing changed") {
@@ -71,21 +71,21 @@ func TestAllowAddListRemove(t *testing.T) {
 	refused(t, "usage", "allow", "remove", "--auto", "x")
 	refused(t, "unknown option --bogus", "allow", "add", "--bogus", "x")
 	log := gitLog(t, c)
-	for _, want := range []string{"Allow for personas once: Bash(make deploy)", "Remove one-time grants for personas", "Remove grant for personas: Bash(git push origin HEAD:main)"} {
+	for _, want := range []string{"Allow for members once: Bash(make deploy)", "Remove one-time grants for members", "Remove grant for members: Bash(git push origin HEAD:main)"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log lacks %q:\n%s", want, log)
 		}
 	}
-	t.Setenv("CADRE_PERSONA", "x")
-	refused(t, "persona sessions cannot change permissions", "allow", "add", "Bash(true)")
-	refused(t, "persona sessions cannot change permissions", "allow", "remove", "1")
+	t.Setenv("CADRE_MEMBER", "x")
+	refused(t, "refused for members: members cannot change permissions", "allow", "add", "Bash(true)")
+	refused(t, "refused for members: members cannot change permissions", "allow", "remove", "1")
 }
 
 func TestAllowWarnsAboutAnEditMadeOutside(t *testing.T) {
 	home := sandbox(t)
 	must(t, "init", "work")
 	must(t, "allow", "add", "Bash(npm test)")
-	file := home + "/.cadre/work/.claude/persona-settings.json"
+	file := home + "/.cadre/work/.claude/member-settings.json"
 	os.WriteFile(file, []byte(strings.Replace(readFile(t, file), `"Bash(npm test)"`, `"Bash(npm test)", "Bash(curl *)"`, 1)), 0o644)
 	_, _, errOut := call("allow", "add", "Bash(make)")
 	if !strings.Contains(errOut, "was changed outside cadre allow") {
@@ -124,7 +124,7 @@ func TestAllowRestartNote(t *testing.T) {
 	must(t, "init", "work")
 	must(t, "up", "dev/engineer")
 	out := must(t, "allow", "add", "Bash(true)")
-	if !strings.Contains(out, "Running personas will not see this change until restarted") ||
+	if !strings.Contains(out, "Running members will not see this change until restarted") ||
 		!strings.Contains(out, "  CADRE_HOME="+home+"/.cadre/work cadre stop dev/engineer && CADRE_HOME="+home+"/.cadre/work cadre up dev/engineer\n") {
 		t.Errorf("restart note:\n%s", out)
 	}

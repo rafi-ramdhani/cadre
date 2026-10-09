@@ -33,11 +33,11 @@ func cadreDir(t *testing.T, name string) (string, string) {
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	c := filepath.Join(root, name)
 	for _, r := range []string{"pm", "engineer"} {
-		os.MkdirAll(filepath.Join(c, "personas", "dev"), 0o755)
-		os.WriteFile(filepath.Join(c, "personas", "dev", r+".md"), []byte("# "+r+"\n"), 0o644)
+		os.MkdirAll(filepath.Join(c, "members", "dev"), 0o755)
+		os.WriteFile(filepath.Join(c, "members", "dev", r+".md"), []byte("# "+r+"\n"), 0o644)
 	}
 	stub := filepath.Join(root, "claude")
-	os.WriteFile(stub, []byte("#!/bin/sh\n{ printf '%s\\n' \"$@\"; echo \"HOME=$CADRE_HOME\"; echo \"PERSONA=$CADRE_PERSONA\"; } > \"$0.$CADRE_PERSONA\"\nexec sleep 300\n"), 0o755)
+	os.WriteFile(stub, []byte("#!/bin/sh\n{ printf '%s\\n' \"$@\"; echo \"HOME=$CADRE_HOME\"; echo \"MEMBER=$CADRE_MEMBER\"; } > \"$0.$CADRE_MEMBER\"\nexec sleep 300\n"), 0o755)
 	return c, stub
 }
 
@@ -71,7 +71,7 @@ func up(tm Tmux, cadre, stub, team, role, project string) (string, bool) {
 }
 
 func TestNames(t *testing.T) {
-	if SessionName("work", Key("dev", "app")) != "cadre-work-dev-app" || PersonaName("work", Key("dev", ""), "pm") != "work-dev-pm" || LegacyName("dev-app") != "cadre-dev-app" {
+	if SessionName("work", Key("dev", "app")) != "cadre-work-dev-app" || MemberName("work", Key("dev", ""), "pm") != "work-dev-pm" || LegacyName("dev-app") != "cadre-dev-app" {
 		t.Error("names")
 	}
 	if Quote("it's a dir") != `'it'\''s a dir'` || Quote("/x/y.md") != "/x/y.md" || Quote("") != "''" {
@@ -79,7 +79,7 @@ func TestNames(t *testing.T) {
 	}
 }
 
-func TestUpStartsPersonasWithTheirCadre(t *testing.T) {
+func TestUpStartsMembersWithTheirCadre(t *testing.T) {
 	tm := private(t)
 	c, stub := cadreDir(t, "work")
 	out, failed := up(tm, c, stub, "dev", "", "")
@@ -91,9 +91,9 @@ func TestUpStartsPersonasWithTheirCadre(t *testing.T) {
 		t.Errorf("options: %q %q", tm.Option(s, "@cadre_home"), tm.Option(s, "@cadre_team"))
 	}
 	args := waitFile(t, stub+".work-dev-pm")
-	for _, want := range []string{"--name\nwork-dev-pm\n", "--mode\ndefault\n", "HOME=" + c + "\n", "PERSONA=work-dev-pm\n"} {
+	for _, want := range []string{"--name\nwork-dev-pm\n", "--mode\ndefault\n", "HOME=" + c + "\n", "MEMBER=work-dev-pm\n"} {
 		if !strings.Contains(string(args), want) {
-			t.Errorf("the persona was started without %q:\n%s", want, args)
+			t.Errorf("the member was started without %q:\n%s", want, args)
 		}
 	}
 	prompt, _ := os.ReadFile(filepath.Join(c, ".build", "dev-pm.md"))
@@ -107,8 +107,8 @@ func TestUpStartsPersonasWithTheirCadre(t *testing.T) {
 	if r := scope.Running(); len(r) != 1 || r[0].Name != s {
 		t.Errorf("Running: %+v", r)
 	}
-	if names := tm.PersonaNames(scope.Running()[0]); strings.Join(names, ",") != "work-dev-engineer,work-dev-pm" {
-		t.Errorf("PersonaNames %v", names)
+	if names := tm.MemberNames(scope.Running()[0]); strings.Join(names, ",") != "work-dev-engineer,work-dev-pm" {
+		t.Errorf("MemberNames %v", names)
 	}
 	if line := scope.StopRole("dev", "pm"); line != "  work-dev-pm stopped" {
 		t.Errorf("StopRole: %q", line)
@@ -131,7 +131,7 @@ func TestAFailedStartIsReported(t *testing.T) {
 	var buf bytes.Buffer
 	failed := u.Start(&buf)
 	out := buf.String()
-	if !failed || !strings.Contains(out, "work-dev-pm failed to start") || !strings.Contains(out, "CADRE_PERSONA=work-dev-pm") {
+	if !failed || !strings.Contains(out, "work-dev-pm failed to start") || !strings.Contains(out, "CADRE_MEMBER=work-dev-pm") {
 		t.Errorf("failed start: %v %q", failed, out)
 	}
 }
@@ -171,10 +171,10 @@ func TestClaudeNamesCannotCollide(t *testing.T) {
 	tm := private(t)
 	c, stub := cadreDir(t, "c")
 	for _, r := range []string{"x-y"} {
-		os.WriteFile(filepath.Join(c, "personas", "dev", r+".md"), []byte("# "+r+"\n"), 0o644)
+		os.WriteFile(filepath.Join(c, "members", "dev", r+".md"), []byte("# "+r+"\n"), 0o644)
 	}
-	os.MkdirAll(filepath.Join(c, "personas", "dev-x"), 0o755)
-	os.WriteFile(filepath.Join(c, "personas", "dev-x", "y.md"), []byte("# y\n"), 0o644)
+	os.MkdirAll(filepath.Join(c, "members", "dev-x"), 0o755)
+	os.WriteFile(filepath.Join(c, "members", "dev-x", "y.md"), []byte("# y\n"), 0o644)
 	if out, failed := up(tm, c, stub, "dev", "x-y", ""); failed {
 		t.Fatalf("first: %q", out)
 	}
@@ -184,11 +184,11 @@ func TestClaudeNamesCannotCollide(t *testing.T) {
 	}
 	// Across cadres: a with team x and role y-z, a-x with team y and role z.
 	a, stubA := cadreDir(t, "a")
-	os.MkdirAll(filepath.Join(a, "personas", "x"), 0o755)
-	os.WriteFile(filepath.Join(a, "personas", "x", "y-z.md"), []byte("# y-z\n"), 0o644)
+	os.MkdirAll(filepath.Join(a, "members", "x"), 0o755)
+	os.WriteFile(filepath.Join(a, "members", "x", "y-z.md"), []byte("# y-z\n"), 0o644)
 	ax, stubAX := cadreDir(t, "a-x")
-	os.MkdirAll(filepath.Join(ax, "personas", "y"), 0o755)
-	os.WriteFile(filepath.Join(ax, "personas", "y", "z.md"), []byte("# z\n"), 0o644)
+	os.MkdirAll(filepath.Join(ax, "members", "y"), 0o755)
+	os.WriteFile(filepath.Join(ax, "members", "y", "z.md"), []byte("# z\n"), 0o644)
 	if out, failed := up(tm, a, stubA, "x", "y-z", ""); failed {
 		t.Fatalf("a: %q", out)
 	}
@@ -221,7 +221,7 @@ func TestLegacySessions(t *testing.T) {
 	}
 }
 
-func TestAnOrchestratorSessionIsNotAPersonaSession(t *testing.T) {
+func TestAnOrchestratorSessionIsNotAMemberSession(t *testing.T) {
 	tm := private(t)
 	c, _ := cadreDir(t, "work")
 	tm.command("new-session", "-d", "-s", "cadre-work", "sleep", "60").Run()
@@ -247,7 +247,7 @@ func TestVersion(t *testing.T) {
 func waitFile(t *testing.T, path string) string {
 	t.Helper()
 	for i := 0; i < 100; i++ {
-		if b, err := os.ReadFile(path); err == nil && len(b) > 0 && bytes.Contains(b, []byte("PERSONA=")) {
+		if b, err := os.ReadFile(path); err == nil && len(b) > 0 && bytes.Contains(b, []byte("MEMBER=")) {
 			return string(b)
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -335,7 +335,7 @@ func TestRecordedValuesComeBackAsTheyAre(t *testing.T) {
 			t.Errorf("%q was recorded", v)
 		}
 		if err := tm.Start(StartSpec{Session: "cadre-bad", Window: "w", Dir: dir, Argv: []string{"sleep", "30"},
-			WindowOptions: []Option{{"@cadre_persona", v}}}); err == nil {
+			WindowOptions: []Option{{"@cadre_member", v}}}); err == nil {
 			t.Errorf("%q was recorded on a window", v)
 		}
 		tm.KillSession("cadre-bad")
@@ -349,7 +349,7 @@ func TestRecordedValuesComeBackAsTheyAre(t *testing.T) {
 	home := `/Users/josé/my cadre;\ "x" 'y' $HOME #{z} 日本`
 	err := tm.Start(StartSpec{Session: "cadre-ok", Window: "w-1", Dir: dir, Argv: []string{"sleep", "30"},
 		SessionOptions: []Option{{"@cadre_home", home}, {"@cadre_team", "dev"}, {"@cadre_target", "ü"}},
-		WindowOptions:  []Option{{"@cadre_persona", "ok-dev-w-1"}}})
+		WindowOptions:  []Option{{"@cadre_member", "ok-dev-w-1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,13 +357,13 @@ func TestRecordedValuesComeBackAsTheyAre(t *testing.T) {
 	if len(list) != 1 || list[0].Home != home || list[0].Team != "dev" || list[0].Target != "ü" {
 		t.Errorf("Sessions read back %+v", list)
 	}
-	if p := tm.Personas(); len(p) != 1 || p[0] != (Persona{"cadre-ok", "w-1", "ok-dev-w-1"}) {
-		t.Errorf("Personas read back %+v", p)
+	if p := tm.Members(); len(p) != 1 || p[0] != (Member{"cadre-ok", "w-1", "ok-dev-w-1"}) {
+		t.Errorf("Members read back %+v", p)
 	}
 	if tm.Option("cadre-ok", "@cadre_home") != home {
 		t.Errorf("Option read back %q", tm.Option("cadre-ok", "@cadre_home"))
 	}
-	if tm.SetOption("cadre-ok", "@cadre_target", "x\ny") == nil || tm.SetWindowOption("cadre-ok", "w-1", "@cadre_persona", "x\ty") == nil {
+	if tm.SetOption("cadre-ok", "@cadre_target", "x\ny") == nil || tm.SetWindowOption("cadre-ok", "w-1", "@cadre_member", "x\ty") == nil {
 		t.Error("a control character was set")
 	}
 }

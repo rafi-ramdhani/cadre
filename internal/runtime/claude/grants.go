@@ -12,7 +12,7 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/runtime/claude/settings"
 )
 
-// Open reads the cadre's persona settings file. With create, a missing
+// Open reads the cadre's member settings file. With create, a missing
 // file is made (with no grants), recorded and committed.
 func (p permissions) Open(cadre string, create bool) (runtime.GrantStore, error) {
 	file := p.GrantsFile(cadre)
@@ -22,7 +22,7 @@ func (p permissions) Open(cadre string, create bool) (runtime.GrantStore, error)
 			return nil, err
 		}
 		settings.Record(file, hashFile())
-		cadres.Commit(cadre, "Add the persona settings file", settings.Rel)
+		cadres.Commit(cadre, "Add the member settings file", settings.Rel)
 	}
 	g, err := settings.OpenGrants(file)
 	if err != nil {
@@ -38,7 +38,7 @@ func (p permissions) Unchanged(cadre string) bool {
 func (p permissions) Record(cadre string) { settings.Record(p.GrantsFile(cadre), hashFile()) }
 
 func (permissions) BuiltIn() string {
-	return "Built in, not listed: deny rules and a soft_deny entry that keep personas from changing these grants."
+	return "Built in, not listed: deny rules and a soft_deny entry that keep members from changing these grants."
 }
 
 type store struct{ g *settings.Grants }

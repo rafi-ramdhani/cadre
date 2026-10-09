@@ -34,7 +34,7 @@ var subrunners = map[string]map[string]bool{
 	"pyenv": set("exec"), "dotnet": set("run exec"),
 }
 
-// fromFiles run code from project files a persona can change; a nil set
+// fromFiles run code from project files a member can change; a nil set
 // means any subcommand.
 var fromFiles = map[string]map[string]bool{
 	"make": nil, "gmake": nil, "just": nil, "rake": nil, "gradle": nil, "mvn": nil,
@@ -48,7 +48,7 @@ var protected = []string{".bashrc", ".bash_profile", ".bash_login", ".bash_alias
 	".yarnrc", ".yarnrc.yml", ".mcp.json", ".claude.json"}
 
 // outsideSuffixes are folders, wherever they are, whose files run code
-// outside a persona's session or hold cadre's own state.
+// outside a member's session or hold cadre's own state.
 var outsideSuffixes = []string{".local/bin", ".config/cadre", ".cache/cadre", ".config/fish", "library/launchagents",
 	".config/autostart", ".config/systemd/user"}
 

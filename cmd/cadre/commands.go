@@ -35,7 +35,7 @@ var oldNames = []oldName{
 	{"sync", "use cadre project sync"},
 	{"add project", "ask the orchestrator, or use cadre project add"},
 	{"add team", "ask the orchestrator to add the team"},
-	{"add persona", "ask the orchestrator to add the persona"},
+	{"add persona", "ask the orchestrator to add the member"},
 	{"version", "use cadre --version"},
 	{"trust", "use cadre project trust"},
 	{"update", "update cadre with brew upgrade cadre, or by running install.sh again"},
@@ -62,14 +62,14 @@ func init() {
 		{name: "project link", usage: "<name> <dir>", summary: "set where a project's folder is on this machine", group: "Projects", run: runProjectLink},
 		{name: "project unlink", usage: "<name> [--untrust]", summary: "remove a project from the registry (its folder is kept)", group: "Projects", run: runProjectUnlink},
 		{name: "project sync", summary: "clone registry projects missing on this machine", group: "Projects", run: runProjectSync},
-		{name: "project trust", usage: "<name> | --all", summary: "mark project folders as trusted, so personas start there without asking", group: "Projects", run: runProjectTrust},
+		{name: "project trust", usage: "<name> | --all", summary: "mark project folders as trusted, so members start there without asking", group: "Projects", run: runProjectTrust},
 		{name: "project path", usage: "<name>", summary: "print a project's folder", group: "Projects", run: runProjectPath},
 		{name: "project dir", usage: "[<dir>]", summary: "where new clones go", group: "Projects", run: runProjectDir},
 
-		{name: "up", usage: "<team|team/role> [project|dir]", summary: "start a team or one persona", group: "Sessions", run: runUp},
+		{name: "up", usage: "<team|team/role> [project|dir]", summary: "start a team or one member", group: "Sessions", run: runUp},
 
-		{name: "allow", usage: "[list]", summary: "the grants every persona gets", group: "Permissions", run: runAllowList},
-		{name: "allow add", usage: "[--once] <rule> | [--once] --auto \"<text>\"", summary: "grant a rule or a plain-English allowance to personas", group: "Permissions", run: runAllowAdd},
+		{name: "allow", usage: "[list]", summary: "the grants every member gets", group: "Permissions", run: runAllowList},
+		{name: "allow add", usage: "[--once] <rule> | [--once] --auto \"<text>\"", summary: "grant a rule or a plain-English allowance to members", group: "Permissions", run: runAllowAdd},
 		{name: "allow remove", usage: "<rule|number|--once>", summary: "remove a grant, or every one-time grant", group: "Permissions", run: runAllowRemove},
 
 		{name: "--check", summary: "the full health check", group: "Health", run: runCheck},

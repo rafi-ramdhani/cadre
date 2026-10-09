@@ -75,7 +75,7 @@ func runProjectDir(e *env) int {
 		}
 		return 0
 	case 1:
-		if e.persona("change where projects are cloned") || !e.home() {
+		if e.member("change where projects are cloned") || !e.home() {
 			return 1
 		}
 		// Every runtime's protected folders; in 0.2.0, Claude Code's.
@@ -133,8 +133,8 @@ func runProjectAdd(e *env) int {
 		s.About = pos[1]
 	}
 	// Only the user, through the orchestrator, adds projects: a project's
-	// folder is trusted and personas work in it.
-	if e.persona("add projects") {
+	// folder is trusted and members work in it.
+	if e.member("add projects") {
 		return 1
 	}
 	if err := project.CheckName(s.Name); err != nil {
@@ -277,7 +277,7 @@ func runProjectLink(e *env) int {
 	if len(pos) != 2 {
 		return e.fail("usage: cadre project link <name> <dir> [--no-trust]")
 	}
-	if e.persona("link folders to the cadre") {
+	if e.member("link folders to the cadre") {
 		return 1
 	}
 	r, ok := e.resolve()
@@ -317,7 +317,7 @@ func runProjectUnlink(e *env) int {
 	if len(pos) != 1 {
 		return e.fail("usage: cadre project unlink <name> [--untrust]")
 	}
-	if e.persona("unlink projects") {
+	if e.member("unlink projects") {
 		return 1
 	}
 	r, ok := e.resolve()
@@ -354,13 +354,13 @@ func runProjectUnlink(e *env) int {
 
 // trustReport trusts folders and prints a line each, then any note.
 func (e *env) trustReport(rt runtime.Runtime, folders []runtime.Folder) {
-	if os.Getenv("CADRE_PERSONA") != "" {
+	if inMember() {
 		var names []string
 		for _, f := range folders {
 			e.say("  %s: not trusted (see below)", f.Name)
 			names = append(names, f.Name)
 		}
-		e.say("persona sessions cannot trust folders in %s; run cadre project trust %s from the orchestrator", rt.Title(), strings.Join(names, " "))
+		e.say("refused for members: members cannot trust folders in %s; run cadre project trust %s from the orchestrator", rt.Title(), strings.Join(names, " "))
 		return
 	}
 	results, note := project.Trust(rt, folders)
@@ -377,7 +377,7 @@ func (e *env) trustReport(rt runtime.Runtime, folders []runtime.Folder) {
 }
 
 func runProjectTrust(e *env) int {
-	if e.persona("trust project folders") {
+	if e.member("trust project folders") {
 		return 1
 	}
 	if len(e.args) != 1 || (strings.HasPrefix(e.args[0], "-") && e.args[0] != "--all") {

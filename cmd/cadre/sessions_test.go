@@ -27,7 +27,7 @@ func withTmux(t *testing.T, home string) string {
 	t.Cleanup(func() { exec.Command("tmux", "-L", socket, "kill-server").Run() })
 	bin := filepath.Join(home, "bin")
 	os.MkdirAll(bin, 0o755)
-	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"+stubAnswers+"printf '%s\\n' \"$@\" > \""+home+"/args-$CADRE_PERSONA\"\nexec sleep 300\n"), 0o755)
+	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"+stubAnswers+"printf '%s\\n' \"$@\" > \""+home+"/args-$CADRE_MEMBER\"\nexec sleep 300\n"), 0o755)
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	return socket
 }
@@ -54,7 +54,7 @@ func TestUpLsStop(t *testing.T) {
 	if !strings.Contains(out, "work-dev-engineer started in "+home+"/.cadre/work/teams/dev") {
 		t.Fatalf("up: %q", out)
 	}
-	if !strings.Contains(out, "created "+home+"/.cadre/work/.claude/persona-settings.json") {
+	if !strings.Contains(out, "created "+home+"/.cadre/work/.claude/member-settings.json") {
 		t.Errorf("no settings file was made: %q", out)
 	}
 	var args string
@@ -62,8 +62,8 @@ func TestUpLsStop(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		args = readFile(t, home+"/args-work-dev-engineer")
 	}
-	if !strings.Contains(args, "--settings\n"+home+"/.cadre/work/.claude/build/persona-settings.") {
-		t.Errorf("the persona got no settings copy:\n%s", args)
+	if !strings.Contains(args, "--settings\n"+home+"/.cadre/work/.claude/build/member-settings.") {
+		t.Errorf("the member got no settings copy:\n%s", args)
 	}
 	out = must(t, "ls")
 	for _, want := range []string{"cadre work  (~/.cadre/work, from this folder; default)", "running:", "  dev              engineer", "projects: none", "other cadres: life (none running)"} {
@@ -75,7 +75,7 @@ func TestUpLsStop(t *testing.T) {
 	if err := json.Unmarshal([]byte(must(t, "ls", "--json")), &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Cadre.Name != "work" || len(st.Running) != 1 || st.Running[0].Personas[0].Name != "work-dev-engineer" ||
+	if st.Cadre.Name != "work" || len(st.Running) != 1 || st.Running[0].Members[0].Name != "work-dev-engineer" ||
 		len(st.Teams["dev"]) == 0 || len(st.Problems) != 0 {
 		t.Errorf("ls --json: %+v", st)
 	}
@@ -104,9 +104,9 @@ func TestUpLsStop(t *testing.T) {
 	if tmuxIn(socket, "has-session", "-t", "=cadre-work-dev") != "" {
 		t.Error("stop in life stopped work's session")
 	}
-	t.Setenv("CADRE_PERSONA", "x")
-	refused(t, "persona sessions cannot stop the whole cadre", "stop", "--all", "--yes")
-	t.Setenv("CADRE_PERSONA", "")
+	t.Setenv("CADRE_MEMBER", "x")
+	refused(t, "refused for members: members cannot stop the whole cadre", "stop", "--all", "--yes")
+	t.Setenv("CADRE_MEMBER", "")
 	out = must(t, "stop", "--all", "--yes")
 	if !strings.Contains(out, "cadre work:") || !strings.Contains(out, "stopped every cadre session") {
 		t.Errorf("stop --all: %q", out)
@@ -171,7 +171,7 @@ func TestTheRuntimeIsNotAChoice(t *testing.T) {
 	home := sandbox(t)
 	withTmux(t, home)
 	must(t, "init", "work")
-	os.WriteFile(home+"/.cadre/work/personas/dev/engineer.runtime", []byte("codex\n"), 0o644)
+	os.WriteFile(home+"/.cadre/work/members/dev/engineer.runtime", []byte("codex\n"), 0o644)
 	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("RUNTIME=codex\n"), 0o644)
 	if out := must(t, "up", "dev/engineer"); !strings.Contains(out, "work-dev-engineer started") {
 		t.Errorf("up: %q", out)

@@ -60,7 +60,7 @@ func TestFirstRunNewCadre(t *testing.T) {
 	if cadres.Default() != "mine" {
 		t.Errorf("default %q", cadres.Default())
 	}
-	if roles, _ := filepath.Glob(c + "/personas/*/*.md"); len(roles) != 2 {
+	if roles, _ := filepath.Glob(c + "/members/*/*.md"); len(roles) != 2 {
 		t.Errorf("starter team %v", roles)
 	}
 	if reg := readFile(t, c+"/projects.yaml"); !strings.Contains(reg, "app:\n") || cadres.Place(cadres.Cadre{Name: "mine", Path: c}, "app") != home+"/src/app" {
@@ -214,7 +214,7 @@ func TestHookOrchestrator(t *testing.T) {
 		!strings.Contains(got.HookSpecificOutput.AdditionalContext, "This session is the cadre orchestrator") {
 		t.Errorf("hook: %d %q", code, out)
 	}
-	for _, v := range []string{"CADRE_PERSONA", "CADRE_OFF", "CADRE_ORCHESTRATOR"} {
+	for _, v := range []string{"CADRE_MEMBER", "CADRE_OFF", "CADRE_ORCHESTRATOR"} {
 		t.Setenv(v, "1")
 		if code, out, errOut := call("hook", "orchestrator"); code != 0 || out != "" || errOut != "" {
 			t.Errorf("with %s: %d %q %q", v, code, out, errOut)
@@ -224,13 +224,13 @@ func TestHookOrchestrator(t *testing.T) {
 }
 
 // backupOf makes the backup repository of a cadre called name, as a
-// machine that backed it up would have pushed it: personas, a registry
+// machine that backed it up would have pushed it: members, a registry
 // with a project that has a repo and one that has none, and no places.
 func backupOf(t *testing.T, name, appRepo string) string {
 	t.Helper()
 	src := filepath.Join(t.TempDir(), name)
-	os.MkdirAll(src+"/personas/dev", 0o755)
-	os.WriteFile(src+"/personas/dev/engineer.md", []byte("# engineer\n"), 0o644)
+	os.MkdirAll(src+"/members/dev", 0o755)
+	os.WriteFile(src+"/members/dev/engineer.md", []byte("# engineer\n"), 0o644)
 	os.WriteFile(src+"/projects.yaml", []byte("app:\n  repo: "+appRepo+"\n  team: dev\nnotes:\n  team: dev\n"), 0o644)
 	bare := filepath.Join(t.TempDir(), "cadre-"+name+".git")
 	for _, args := range [][]string{{"-C", src, "init", "-q", "-b", "main"}, {"-C", src, "add", "-A"},
@@ -278,7 +278,7 @@ func TestRestoreRefusesARepositoryThatIsNotACadre(t *testing.T) {
 	home := firstMachine(t)
 	notACadre := bareRepo(t, "app")
 	code, _, errOut := callIn("restore\n" + notACadre + "\nwork\n")
-	if code != 1 || !strings.Contains(errOut, "is not a cadre (it has no personas/ folder); nothing was kept") {
+	if code != 1 || !strings.Contains(errOut, "is not a cadre (it has no members/ folder); nothing was kept") {
 		t.Errorf("exit %d, %q", code, errOut)
 	}
 	if _, err := os.Stat(home + "/.cadre/work"); err == nil {

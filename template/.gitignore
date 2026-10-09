@@ -1,5 +1,5 @@
 .DS_Store
-# teams/ is tracked, so the work personas keep there is backed up with the
+# teams/ is tracked, so the work members keep there is backed up with the
 # cadre. Generated and bulky files are not.
 node_modules/
 .venv/

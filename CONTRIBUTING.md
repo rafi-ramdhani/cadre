@@ -5,7 +5,7 @@ Thanks for helping. Cadre is small on purpose: a bash launcher, a protocol, a sk
 ## Before you start
 
 - **Bugs:** open an issue with what you ran, what you expected and what happened, plus your OS and `cadre version`.
-- **Features:** open an issue first to talk it through. Many ideas fit better in a personal cadre (a persona, a playbook rule) than in the framework.
+- **Features:** open an issue first to talk it through. Many ideas fit better in a memberl cadre (a member, a playbook rule) than in the framework.
 
 ## Making a change
 
@@ -39,10 +39,10 @@ Cadre 0.2.0 is being rewritten in Go on the `rewrite/0.2.0` branch (spec section
 
 | Change | Place |
 |---|---|
-| How personas receive and answer work | `protocol.md` |
+| How members receive and answer work | `protocol.md` |
 | How the orchestrator behaves | `skills/cadre/SKILL.md` |
 | What a new cadre starts with | `template/` |
 | Commands | `bin/cadre` |
 | Installation | `install.sh` |
 
-Personal workflows, project-specific personas and house rules belong in a user's own cadre, not here.
+Memberl workflows, project-specific members and house rules belong in a user's own cadre, not here.

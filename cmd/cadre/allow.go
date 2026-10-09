@@ -45,18 +45,18 @@ func runAllowList(e *env) int {
 	perms := rt.Permissions()
 	file := perms.GrantsFile(r.Path)
 	if _, err := os.Stat(file); err != nil {
-		e.say("Grants for personas: none yet (%s is created by the first cadre up or cadre allow add)", file)
+		e.say("Grants for members: none yet (%s is created by the first cadre up or cadre allow add)", file)
 		return 0
 	}
 	store, err := perms.Open(r.Path, false)
 	if err != nil {
-		fmt.Fprintf(e.stderr, "warning: personas start without %s because %s\n", file, err)
+		fmt.Fprintf(e.stderr, "warning: members start without %s because %s\n", file, err)
 		return 1
 	}
 	if !perms.Unchanged(r.Path) {
 		fmt.Fprintf(e.stderr, "warning: %s was changed outside cadre allow (see git -C %s diff and log -p)\n", file, r.Path)
 	}
-	e.say("Grants for personas (%s):", file)
+	e.say("Grants for members (%s):", file)
 	list := store.List()
 	if len(list) == 0 {
 		e.say("  none yet")
@@ -99,8 +99,8 @@ func runAllowAdd(e *env) int    { return allowChange(e, "add") }
 func runAllowRemove(e *env) int { return allowChange(e, "remove") }
 
 func allowChange(e *env, op string) int {
-	if os.Getenv("CADRE_PERSONA") != "" {
-		return e.fail("persona sessions cannot change permissions; report the blocked action to the orchestrator instead")
+	if inMember() {
+		return e.fail("refused for members: members cannot change permissions; report the blocked action to the orchestrator instead")
 	}
 	kind, once := "rule", false
 	var args []string
@@ -139,7 +139,7 @@ func allowChange(e *env, op string) int {
 		return e.fail("%s cannot be changed because %s; restore it with git -C %s checkout -- %s", file, err, r.Path, relTo(r.Path, file))
 	}
 	if existed != nil {
-		e.say("  created %s (grants for personas; change it with cadre allow)", file)
+		e.say("  created %s (grants for members; change it with cadre allow)", file)
 	}
 	lock, err := allowLock(rt.BuildDir(r.Path), file)
 	if err != nil {
@@ -168,9 +168,9 @@ func allowChange(e *env, op string) int {
 		case err != nil:
 			return e.fail("%s", err)
 		}
-		msg = "Allow for personas: " + entry
+		msg = "Allow for members: " + entry
 		if once {
-			msg = "Allow for personas once: " + entry
+			msg = "Allow for members once: " + entry
 		}
 		if warning != "" {
 			e.say("%s", warning)
@@ -200,9 +200,9 @@ func allowChange(e *env, op string) int {
 		case len(removed) == 0:
 			msg = "Drop stale one-time grant records"
 		case once:
-			msg = "Remove one-time grants for personas"
+			msg = "Remove one-time grants for members"
 		default:
-			msg = "Remove grant for personas: " + removed[0]
+			msg = "Remove grant for members: " + removed[0]
 		}
 		for _, x := range removed {
 			e.say("  removed: %s", x)
@@ -238,17 +238,17 @@ func knownPaths() []string {
 	return out
 }
 
-// restartNote says which running personas still have the old grants, with
+// restartNote says which running members still have the old grants, with
 // the commands that restart each (the design assumes a running session
 // does not reload its grants).
 func (e *env) restartNote(r *cadres.Resolved) {
 	s := scope(r)
 	list := s.Running()
 	if len(list) == 0 {
-		e.say("Personas started from now on get this change.")
+		e.say("Members started from now on get this change.")
 		return
 	}
-	e.say("Running personas will not see this change until restarted (each has the copy it started with):")
+	e.say("Running members will not see this change until restarted (each has the copy it started with):")
 	e.showSessions(s.T, list, nil)
 	// The commands carry the cadre, since the user may run them anywhere.
 	pin := "CADRE_HOME=" + session.Quote(r.Path) + " "

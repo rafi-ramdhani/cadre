@@ -192,7 +192,7 @@ func (e *env) restoreCadre(rt runtime.Runtime) bool {
 	if !c.Present() {
 		// Only what this command just cloned is removed.
 		os.RemoveAll(c.Path)
-		e.fail("%s is not a cadre (it has no personas/ folder); nothing was kept", repo)
+		e.fail("%s is not a cadre (it has no members/ folder); nothing was kept", repo)
 		return false
 	}
 	e.guard(c)

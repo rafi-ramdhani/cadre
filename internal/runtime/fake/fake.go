@@ -82,8 +82,11 @@ func (Fake) Sessions() runtime.SessionOps         { return sessions{} }
 // sessions hand out counted ids and know every one they gave.
 type sessions struct{}
 
-func (sessions) NewID() string         { return "fake-session" }
-func (sessions) Exists(id string) bool { return os.Getenv("CADRE_FAKE_GONE") != id }
+func (sessions) NewID() string              { return "fake-session" }
+func (sessions) Exists(id, dir string) bool { return os.Getenv("CADRE_FAKE_GONE") != id }
+func (sessions) ResumeFailed(output string) bool {
+	return strings.Contains(output, "no conversation found")
+}
 func (sessions) FromHook(input io.Reader) string {
 	line, _ := bufio.NewReader(input).ReadString('\n')
 	return strings.TrimSpace(line)

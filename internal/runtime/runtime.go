@@ -216,8 +216,12 @@ type SessionOps interface {
 	// NewID is a new conversation id, for LaunchSpec.SessionID.
 	NewID() string
 	// Exists reports whether the conversation with this id can still be
-	// resumed (its transcript is there).
-	Exists(id string) bool
+	// resumed in dir, the folder it ran in (its transcript is where the
+	// runtime looks for that folder).
+	Exists(id, dir string) bool
+	// ResumeFailed reports whether a run's error output says it could not
+	// find the conversation it was asked to resume.
+	ResumeFailed(output string) bool
 	// FromHook reads the conversation id from what a session start hook
 	// receives, or "".
 	FromHook(input io.Reader) string

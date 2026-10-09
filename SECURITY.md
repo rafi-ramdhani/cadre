@@ -50,6 +50,10 @@ Cadre writes no tokens into a cadre, and a new cadre's `.gitignore` leaves out `
 
 The hook is a safety net, not a guarantee. It does not see a token split across lines or encoded (for example in base64), the content of a file over 8 MB, or a push made with `git push --no-verify` (the skill tells the orchestrator never to use it). A session with shell access in the cadre can also change or remove the hook; one without cadre's marker line is then reported as your own, not restored. Keep credentials out of the cadre folder.
 
+### Resumed conversations
+
+Members and the orchestrator continue their last conversation when they start again. Only the members' own session hook updates a member's record; the orchestrator resumes only a conversation cadre itself started. At the same user id a record cannot be authenticated, so a member can point another member that works in the same folder at a different conversation from that folder.
+
 ### The skill on disk
 
 The orchestrator skill is written out to `~/.cadre/framework/skills/cadre`, checked against the program, and restored at every `cadre` start. A change made to it after the orchestrator opened lasts until the next start. The fixed deny rules keep members from editing it with their edit tool, but not with a shell in a permissive mode.

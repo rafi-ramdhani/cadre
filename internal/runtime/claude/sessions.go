@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
+	"time"
 
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
@@ -34,28 +34,26 @@ func (sessions) NewID() string {
 // it for the folder the session ran in, <config>/projects/<folder>/<id>.jsonl,
 // the folder written with every character but letters and digits as "-":
 // that is where claude --resume looks.
-func (sessions) Exists(id, dir string) bool {
+func (s sessions) Exists(id, dir string) bool { return !s.LastWrite(id, dir).IsZero() }
+
+// LastWrite is the transcript's modification time, or zero.
+func (sessions) LastWrite(id, dir string) time.Time {
 	if !uuidRule.MatchString(id) || dir == "" {
-		return false
+		return time.Time{}
 	}
 	for _, d := range []string{dir, paths.Real(dir)} {
 		f := filepath.Join(ConfigDir(), "projects", projectFolder(d), id+".jsonl")
 		if st, err := os.Lstat(f); err == nil && st.Mode().IsRegular() {
-			return true
+			return st.ModTime()
 		}
 	}
-	return false
+	return time.Time{}
 }
 
 var notAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
 
 // projectFolder is the name Claude Code gives a folder under projects/.
 func projectFolder(dir string) string { return notAlnum.ReplaceAllString(dir, "-") }
-
-// ResumeFailed recognizes claude's error for a --resume id it cannot find.
-func (sessions) ResumeFailed(output string) bool {
-	return strings.Contains(strings.ToLower(output), "no conversation found")
-}
 
 // FromHook reads session_id from the SessionStart hook's JSON input.
 func (sessions) FromHook(input io.Reader) string {

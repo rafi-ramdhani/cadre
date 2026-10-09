@@ -1,16 +1,16 @@
 # Cadrei
 
-**A team of Claude Code sessions you lead from one conversation.**
+**A team of Claude Code helpers you lead from one chat.**
 
-Run `cadrei` and you talk to an orchestrator. It hands your work to members, separate Claude Code sessions that each play one role and pick up where they left off after a restart. A member is one Markdown file, so a cadrei can hold any team you can describe:
+You run `cadrei` and get one Claude Code chat to talk to: the **orchestrator**. It passes your work on to **members**, other copies of Claude Code that each do one job and pick up right where they left off after a restart. A member is just a Markdown file, so if you can describe a team, your cadrei (your whole crew) can hold it:
 
 - **Dev**, one team per project: a PM, an engineer, a reviewer and a designer build a feature on a branch and review it.
-- **Research**: a researcher, a skeptic, a writer and an editor answer a question with sources.
+- **Research**: a researcher, a skeptic, a writer and an editor answer your question, with sources.
 - **Job search**: a recruiter, a resume coach and a mock interviewer.
-- **Study**: a tutor per track that keeps track of your progress and your mistakes.
+- **Study**: a tutor per track that keeps tabs on your progress (and your mistakes).
 - **Ops**: one member that looks after your server.
 
-A new cadrei starts with a dev team of an engineer and a reviewer; ask the orchestrator to add the rest. `cadrei` is the only command to learn: for everything else, you ask.
+You start with a dev team of an engineer and a reviewer. Want more? Ask the orchestrator. `cadrei` is the only command you need to learn.
 
 ## Install
 
@@ -19,24 +19,24 @@ brew install rafi-ramdhani/cadrei/cadrei
 cadrei
 ```
 
-Without Homebrew, this puts the release binary in `~/.local/bin/cadrei` after checking its checksum:
+No Homebrew? This downloads the program, makes sure it's the exact file that was released, and puts it in `~/.local/bin/cadrei`:
 
 ```bash
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/rafi-ramdhani/cadrei/main/install.sh | sh
 ```
 
-You need macOS or Linux, [Claude Code](https://claude.com/claude-code) (installed and logged in), tmux 3.2 or newer, and git. Homebrew installs tmux for you. `cadrei` checks all of this when it starts and tells you how to fix anything missing.
+You'll need macOS or Linux, [Claude Code](https://claude.com/claude-code) (installed and logged in), git, and tmux 3.2 or newer (tmux keeps your members running in the background). Homebrew brings tmux along. Missing something? `cadrei` checks when it starts and tells you how to fix it.
 
-The first `cadrei` asks for a name and a yes or two, then opens the orchestrator. Tell it which repo to work on and what to do:
+The first `cadrei` asks for a name and a yes or two, then opens the orchestrator. Tell it which repo you're on and what you want done:
 
 ```text
 work on github.com/you/app
 add CSV export
 ```
 
-## A first session
+## Your first run
 
-The first run, in a folder that is not a git repository:
+Here's the first run, in a folder that isn't a git repo:
 
 ```text
 $ cadrei
@@ -52,7 +52,9 @@ Your cadrei is ready. Tell me which repo to work on, for example: work on github
 The orchestrator: a new conversation.
 ```
 
-Run it inside a git repository and it also offers to add that folder as a project. Then Claude Code opens as the orchestrator, and you talk. Its words vary, but a first task goes something like this:
+The two yes/no questions: the first makes every Claude Code chat you open start as the orchestrator (handy, but optional). The second hooks up the cadrei skill, the instructions that teach Claude Code how to run your team, so say yes to that one. Run it inside a git repo and it also offers to add that folder as a project.
+
+Then Claude Code opens as the orchestrator and you just talk. It's Claude, so the wording changes every time, but a first task looks roughly like this:
 
 ```text
 > work on github.com/you/app
@@ -69,75 +71,77 @@ Run it inside a git repository and it also offers to add that folder as a projec
 
 ## Just ask
 
-Everything after `cadrei` is a request in plain words to the orchestrator. Some to start with:
+Anything past `cadrei` is just you talking to the orchestrator. A few to try:
 
 - "start the dev team on my-app"
 - "add a designer to the dev team"
 - "make a research team with a researcher, a skeptic, a writer and an editor"
 - "allow the members to run `npm test`"
-- "back up my cadrei to GitHub" (needs [gh](https://cli.github.com), signed in)
+- "back up my cadrei to GitHub" (you'll need GitHub's command-line tool, [gh](https://cli.github.com), signed in)
 - "what is running?"
 - "stop the dev team"
 
-On a new machine, run `cadrei` and choose "restore": it clones your cadrei from its GitHub backup, shows what it brings in, and clones its projects after your yes.
+New machine? Run `cadrei` and pick "restore". It downloads your cadrei from its GitHub backup, shows you what's coming in, and downloads your projects once you say yes.
 
-If you would rather type, `cadrei help` lists the few commands, such as `cadrei ls` (what runs, and your projects), `cadrei attach` (watch a team or talk to it) and `cadrei stop`.
+Rather type than talk? `cadrei help` lists the handful of commands, like `cadrei ls` (what's running, and your projects), `cadrei attach` (watch a team work, or jump in) and `cadrei stop`.
 
 ## How it works
 
-- **Your cadrei** is a folder and a git repository, `~/.cadrei/<name>`. It holds the members, the playbook the orchestrator follows, the list of projects and the grants members get. The orchestrator commits every change, and pushes when you have a backup.
-- **Members** are Markdown files, `members/<team>/<role>.md`. Each runs as a Claude Code session in tmux, one window per member, and resumes its conversation when started again.
-- **Projects stay where you keep them.** The cadrei records each project's repository, and each machine records where its folder is. A member started for a project works in its folder. A team without a project works in `teams/<team>/`, which is backed up with the cadrei.
-- **The orchestrator** is a Claude Code session with the cadrei skill, opened in your cadrei's folder. With the optional hook, every new Claude Code session starts as the orchestrator (`CADREI_OFF=1 claude` starts a plain one).
+- **Your cadrei** is a folder, `~/.cadrei/<name>`, kept in git. It holds your members, the playbook (your notes for the orchestrator on who handles what), your projects list, and the permissions you've given members. The orchestrator saves every change in git, and sends it to GitHub too once you've set up a backup.
+- **Members** are Markdown files in `members/<team>/<role>.md`. Each one runs in its own tmux window and picks its conversation back up when it starts again.
+- **Your projects stay put.** The cadrei remembers each project's repo, and each machine remembers where the folder lives. A member working on a project works in that folder. A team without a project works in `teams/<team>/`, which gets backed up with the cadrei.
+- **The orchestrator** is Claude Code plus cadrei's instructions, opened in your cadrei's folder. If you said yes to that first question, every new Claude Code chat starts as the orchestrator (`CADREI_OFF=1 claude` gets you a normal one).
 - **Project rules** go in each project's own `CLAUDE.md`, so every member working there follows them.
 
 ## Cost and safety
 
-**Every member is a full Claude Code session.** Three running members use roughly three times the usage of one. The orchestrator starts only the members a task needs and offers to stop idle ones.
+**Every member is its own Claude Code.** Three members running use roughly three times what one would. The orchestrator only starts the members a task needs, and offers to stop the ones sitting idle.
 
-**Permissions stay with you.** A message from the orchestrator never counts as your consent in a member. When you tell the orchestrator "allow the members to push to main in my-app", it records that one narrow rule, and every member starts with it. Blanket rules, and rules that reach cadrei's own files, are refused, and members cannot grant themselves anything.
+**You hold the keys.** Members ask you, not the orchestrator, before doing anything that needs your OK, and a message from the orchestrator never counts as your yes. Say "allow the members to push to main in my-app" and the orchestrator records that one specific permission, which every member then starts with. Catch-all permissions (like "run any command") and anything that would touch cadrei's own files get refused, and members can't give themselves permissions.
 
-**The permission mode is yours to pick.** Members and the orchestrator run in the mode set in your cadrei's `cadrei.conf` (default: `default`). Choose `auto` or another mode deliberately.
+**You pick how often Claude asks.** Members and the orchestrator use the Claude Code permission mode set in your cadrei's `cadrei.conf` (default: `default`, which asks before edits and commands). Switch to `auto` or another mode on purpose, not by accident.
 
-**Registered projects are trusted** in Claude Code, so members start there without the trust prompt. Trust also lets a repo's own `.claude/settings.json` take effect, so add only repos you trust (or ask for `--no-trust`).
+**Projects you add are marked as trusted** in Claude Code, so members don't get stuck on the "do you trust this folder?" question. That also means the repo's own `.claude/settings.json` gets applied, so only add repos you trust (or ask for `--no-trust`).
 
 ## Why not subagents or agent teams?
 
-Subagents work inside one session and end with it. Members are full, long-lived Claude Code sessions that you can open and talk to, and they keep working across days.
+Subagents (the helpers Claude Code spins up for one task) live inside one chat and end with it. Members are full copies of Claude Code that stick around: you can open one, talk to it, and come back tomorrow to find it still on the job.
 
-Claude Code's agent teams (experimental) belong to the session that made them and go away with it. A cadrei is a standing roster in files, kept across projects and restarts.
+Claude Code's agent teams (an experimental feature) belong to the chat that made them and go away with it. Your cadrei's team lives in files and sticks around across projects and restarts.
 
 ## Coming from 0.1.x
 
-0.2.0 is a breaking upgrade: Cadre is now Cadrei, one program instead of a git clone, and personas are now members. Install it, run `cadrei`, then tell the orchestrator "bring in my old cadre from <path>"; your old cadre is only read, never changed. The [CHANGELOG](CHANGELOG.md) has the full steps and every breaking change.
+Heads up, 0.2.0 doesn't upgrade your old setup in place: Cadre is now Cadrei, it's one program instead of a git clone, and personas are now members. Install it, run `cadrei`, then tell the orchestrator "bring in my old cadre from <path>". Your old cadre is only read, never changed. The [CHANGELOG](CHANGELOG.md) has the full steps and every change you need to know about.
 
 ## What cadrei changes on your machine
+
+No surprises, here's everything:
 
 | What | Where | `cadrei uninstall` |
 |---|---|---|
 | The `cadrei` program | Homebrew's `bin`, or `~/.local/bin/cadrei` | Kept: it prints the command that removes it |
-| Your cadreis (members, playbook, projects list, grants, `teams/`) | `~/.cadrei/<name>/`, each a git repository | Kept |
-| This machine's settings, and the skill and prompts the program writes out | `~/.cadrei/config/` and `~/.cadrei/framework/` | Removed |
-| A pre-push check that keeps credentials and large files out of backups | `~/.cadrei/<name>/.git/hooks/pre-push` | Removed |
-| The skill link (on your yes) | `~/.claude/skills/cadrei` | Removed, if it points at this program |
-| The orchestrator hook (optional, on your yes) | one SessionStart entry in `~/.claude/settings.json` | Removed, if it runs this program |
-| Trust for your projects | entries in `~/.claude.json` | Kept: shared with your own sessions |
+| Your cadreis (members, playbook, projects list, permissions, `teams/`) | `~/.cadrei/<name>/`, each one a git repo | Kept |
+| This machine's settings, and cadrei's instructions for Claude Code | `~/.cadrei/config/` and `~/.cadrei/framework/` | Removed |
+| A check that stops passwords, keys and huge files from going into your backup | `~/.cadrei/<name>/.git/hooks/pre-push` | Removed |
+| The link that gives Claude Code cadrei's instructions (on your yes) | `~/.claude/skills/cadrei` | Removed, if it points at this program |
+| "Start every chat as the orchestrator" (optional, on your yes) | one startup entry in `~/.claude/settings.json` | Removed, if it runs this program |
+| The "trusted folder" marks for your projects | entries in `~/.claude.json` | Kept: your own Claude Code uses them too |
 
-Before its first change to `~/.claude/settings.json` or `~/.claude.json`, cadrei saves a backup beside it (ending in `.bak-cadrei`) and never overwrites it. With `CLAUDE_CONFIG_DIR` set, that folder takes the place of `~/.claude`. The hooks name the `cadrei` program only when it sits in a folder only you can write, as Homebrew and `install.sh` put it.
+Before cadrei first touches `~/.claude/settings.json` or `~/.claude.json`, it saves a backup next to it (ending in `.bak-cadrei`) and never overwrites that backup. If you've moved Claude Code's settings folder with `CLAUDE_CONFIG_DIR`, read that folder wherever this says `~/.claude`. The backup check and the startup entry only run the `cadrei` program when it sits in a folder only you can write to, which is where Homebrew and `install.sh` put it.
 
 ## Uninstall
 
-`cadrei uninstall --dry-run` shows the plan, and `cadrei uninstall` shows it and asks first. It keeps every cadrei and project, and ends with the command that removes the program itself. To remove a cadrei too, delete its folder in `~/.cadrei`.
+`cadrei uninstall --dry-run` shows you the plan. `cadrei uninstall` shows it too, then asks before doing anything. Your cadreis and projects stay, and it finishes by printing the command that removes the program itself. Want a cadrei gone as well? Delete its folder in `~/.cadrei`.
 
 ## More
 
 - [docs/guide.md](docs/guide.md): writing members, the playbook, projects across machines, permissions, backup and restore, troubleshooting
-- [SECURITY.md](SECURITY.md): what members can and cannot do, and how to report a problem
+- [SECURITY.md](SECURITY.md): what members can and can't do, and how to report a problem
 - [CHANGELOG.md](CHANGELOG.md): every change, and how to upgrade
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and pull requests are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
@@ -145,4 +149,4 @@ Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 [![CI](https://github.com/rafi-ramdhani/cadrei/actions/workflows/ci.yml/badge.svg)](https://github.com/rafi-ramdhani/cadrei/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Cadrei (pronounced CAD-ray) is an independent project. It is not affiliated with or endorsed by Anthropic.
+Cadrei (say it CAD-ray) is an independent project. It's not affiliated with or endorsed by Anthropic.

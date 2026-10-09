@@ -234,11 +234,9 @@ func (e *env) runTerminal(c runtime.Command, lockPath string, release func()) in
 		return e.fail("could not start the orchestrator: %s", err)
 	}
 	tty, _ := os.Readlink("/dev/fd/0")
-	lock, err := orchestrator.WriteLock(lockPath, cmd.Process.Pid, orchestrator.Terminal, tty, "")
+	lock, lockErr := orchestrator.WriteLock(lockPath, cmd.Process.Pid, orchestrator.Terminal, tty, "")
 	release()
-	if err != nil {
-		fmt.Fprintf(e.stderr, "warning: could not record the open orchestrator: %s\n", err)
-	} else {
+	if lockErr == nil {
 		// Removed under the start guard, so a run starting now never
 		// loses the lock it just wrote.
 		defer func() {
@@ -257,7 +255,12 @@ func (e *env) runTerminal(c runtime.Command, lockPath string, release func()) in
 			cmd.Process.Signal(s)
 		}
 	}()
-	err = cmd.Wait()
+	err := cmd.Wait()
+	// Said once the orchestrator is gone: while it runs, the terminal is
+	// its own, and its output is still being copied.
+	if lockErr != nil {
+		fmt.Fprintf(e.stderr, "warning: could not record the open orchestrator: %s\n", lockErr)
+	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		return exit.ExitCode()

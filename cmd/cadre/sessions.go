@@ -103,7 +103,13 @@ func (e *env) picker(r *cadres.Resolved, mode string) func(string) (runtime.Runt
 		if err := session.EnsureBuild(got.BuildDir(r.Path)); err != nil {
 			return nil, "", err
 		}
-		p := got.Permissions().Prepare(r.Path, places(r))
+		pl := places(r)
+		// The session hook names this binary only when it is safely
+		// placed; without it, resume uses the id from the launch.
+		if e.hookPlaced(pl.Binary) != nil {
+			pl.Binary = ""
+		}
+		p := got.Permissions().Prepare(r.Path, pl)
 		for _, n := range p.Notes {
 			e.say("%s", n)
 		}

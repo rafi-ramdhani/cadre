@@ -77,6 +77,11 @@ func (e *env) findings(rt runtime.Runtime, full bool) []finding {
 				Fix: "brew upgrade tmux"}})
 		}
 	}
+	if err := e.hookPlaced(framework.Binary()); err != nil {
+		out = append(out, finding{Problem: runtime.Problem{
+			What: "members' conversations are resumed from their start only, not after /clear or /compact: the session hook needs cadre in a safe place, and " + err.Error(),
+			Fix:  "install cadre with Homebrew or install.sh and run it from there"}})
+	}
 	out = append(out, e.guardFindings()...)
 	out = append(out, skillFindings(rt)...)
 	out = append(out, e.hookFindings(rt)...)

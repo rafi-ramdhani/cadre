@@ -623,3 +623,32 @@ func TestRestoreStopsAskingAtTheEndOfInput(t *testing.T) {
 		t.Error("the cadre was not kept, or the orchestrator opened")
 	}
 }
+
+// The session hook writes only a member's record: never the orchestrator's,
+// which cadre writes at launch, and only for a team and role that exist.
+func TestHookSessionWritesOnlyMembersRecords(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	sessions := c + "/.claude/build/sessions/"
+	t.Setenv("CADRE_HOME", c)
+	input := `{"session_id": "99999999-2222-4333-8444-555555555555"}`
+	// The reviewer's command, and names of no team or role here.
+	for _, name := range []string{"work-orchestrator", "work-ops-sre", "work-dev-ghost", "work-dev", "other-dev-engineer"} {
+		t.Setenv("CADRE_MEMBER", name)
+		if code, out, errOut := callIn(input, "hook", "session"); code != 0 || out != "" || errOut != "" {
+			t.Errorf("%s: %d %q %q", name, code, out, errOut)
+		}
+		if _, err := os.Stat(sessions + name + ".json"); err == nil {
+			t.Errorf("a record was written for %s", name)
+		}
+	}
+	// A member, with or without a project.
+	for _, name := range []string{"work-dev-reviewer", "work-dev-app-engineer"} {
+		t.Setenv("CADRE_MEMBER", name)
+		callIn(input, "hook", "session")
+		if r := readFile(t, sessions+name+".json"); !strings.Contains(r, "99999999-2222-4333-8444-555555555555") {
+			t.Errorf("%s: record %q", name, r)
+		}
+	}
+}

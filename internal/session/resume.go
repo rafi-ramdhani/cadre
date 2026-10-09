@@ -90,7 +90,7 @@ func Plan(rt runtime.Runtime, record, dir string, fresh bool) Conversation {
 		c.Note = "a new conversation"
 	case paths.Real(r.Dir) != paths.Real(dir):
 		c.Note = "a new conversation: it works in another folder now"
-	case !ops.Exists(r.ID):
+	case !ops.Exists(r.ID, r.Dir):
 		c.Note = "a new conversation: the last one is gone"
 	default:
 		return Conversation{Resume: r.ID, Note: "resumed its conversation"}

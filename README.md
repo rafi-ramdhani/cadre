@@ -38,7 +38,7 @@ add CSV export
 
 ```text
 $ cadrei
-Welcome to cadrei: a team of Claude Code sessions you lead from one conversation.
+Welcome to cadrei: a team of Claude Code helpers you lead from one chat.
 Start a new cadrei, or restore one from GitHub? [new/restore] new
 Name for your cadrei? [you]
 Created your cadrei you, with a dev team (an engineer and a reviewer).

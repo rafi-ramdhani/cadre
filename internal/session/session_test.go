@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadre/internal/testguard"
 )
 
 // private gives a test its own tmux server, stopped at the end.
@@ -19,6 +20,7 @@ func private(t *testing.T) Tmux {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")
 	}
+	testguard.Check(t)
 	tm := Tmux{Socket: fmt.Sprintf("cadre-gotest-%d-%d", os.Getpid(), time.Now().UnixNano())}
 	t.Cleanup(func() { tm.command("kill-server").Run() })
 	return tm
@@ -304,7 +306,7 @@ func TestStartFolderIsNotAFormat(t *testing.T) {
 func TestRecordedValuesComeBackAsTheyAre(t *testing.T) {
 	tm := private(t)
 	dir := t.TempDir()
-	for _, v := range []string{"/a\nb", "/a\rb", "/a\tb", "/a\x1fb", "/a\x7fb", "/a\xffb", `/a\$HOME`, `/a\${x}`} {
+	for _, v := range []string{"/a\nb", "/a\rb", "/a\tb", "/a\x1fb", "/a\x7fb", "/a\xffb", `/a\$HOME`, `/a\${x}`, `/a\$é`} {
 		err := tm.Start(StartSpec{Session: "cadre-bad", Window: "w", Dir: dir, Argv: []string{"sleep", "30"},
 			SessionOptions: []Option{{"@cadre_home", v}}})
 		if err == nil || tm.Has("cadre-bad") {
@@ -361,7 +363,7 @@ func TestTheSeparatorSurvivesTmuxOutput(t *testing.T) {
 // tmux 3.4 writes "$" before a letter, "_" or "{" as "\$" (utf8_strvis);
 // later versions write it as it is. Both read back as the value.
 func TestDollarsReadBackFromEitherTmux(t *testing.T) {
-	for _, v := range []string{`$HOME/x`, `a$_b`, `${x}`, `$1 $ $`, `a\b`, `\$1`, `x$`, `\`} {
+	for _, v := range []string{`$HOME/x`, `a$_b`, `${x}`, `$1 $ $`, `a\b`, `\$1`, `x$`, `\`, `/a/$é`, `$日本`, `€$€`} {
 		if err := recordable("v", v); err != nil {
 			t.Fatalf("%q refused: %v", v, err)
 		}

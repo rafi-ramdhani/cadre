@@ -101,9 +101,9 @@ func init() {
 		{name: "team add", usage: "<team>", summary: "add a team", group: "Teams", run: runTeamAdd},
 		{name: "persona add", usage: "<team>/<role>", summary: "add a persona", group: "Teams", run: runPersonaAdd},
 
-		{name: "allow", usage: "[list]", summary: "the grants every persona gets", group: "Permissions", run: notBuilt("cadre allow")},
-		{name: "allow add", usage: "[--once] <rule> | [--once] --auto \"<text>\"", summary: "grant a rule or a plain-English allowance to personas", group: "Permissions", run: notBuilt("cadre allow add")},
-		{name: "allow remove", usage: "<rule|number|--once>", summary: "remove a grant, or every one-time grant", group: "Permissions", run: notBuilt("cadre allow remove")},
+		{name: "allow", usage: "[list]", summary: "the grants every persona gets", group: "Permissions", run: runAllowList},
+		{name: "allow add", usage: "[--once] <rule> | [--once] --auto \"<text>\"", summary: "grant a rule or a plain-English allowance to personas", group: "Permissions", run: runAllowAdd},
+		{name: "allow remove", usage: "<rule|number|--once>", summary: "remove a grant, or every one-time grant", group: "Permissions", run: runAllowRemove},
 
 		{name: "compact", usage: "<team/role> [project]", summary: "compact a persona's conversation", group: "Context", run: notBuilt("cadre compact")},
 

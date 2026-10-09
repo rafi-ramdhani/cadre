@@ -79,11 +79,6 @@ func (u Up) Start(out io.Writer) bool {
 			failed = true
 		}
 	}
-	key := Key(u.Team, u.Project)
-	if s := u.mine(key); s != "" {
-		// Recorded so the restart commands can name the exact target.
-		u.T.SetOption(s, "@cadre_target", u.Target)
-	}
 	return failed
 }
 
@@ -136,7 +131,9 @@ func (u Up) start(out io.Writer, role string) error {
 	// CADRE_HOME pins the persona to this cadre wherever it works.
 	env := append([]string{"CADRE_HOME=" + u.Path, "CADRE_PERSONA=" + name}, cmd.Env...)
 	err = u.T.Start(StartSpec{Session: session, Window: role, Dir: dir, Env: env, Argv: argv,
-		SessionOptions: []Option{{"@cadre_home", u.Path}, {"@cadre_team", u.Team}, {"@cadre_project", u.Project}},
+		// The target too, recorded with the rest, so a cadre up whose
+		// output pipe closes early (cadre up | head) still records it.
+		SessionOptions: []Option{{"@cadre_home", u.Path}, {"@cadre_team", u.Team}, {"@cadre_project", u.Project}, {"@cadre_target", u.Target}},
 		WindowOptions:  []Option{{"@cadre_persona", name}}})
 	if err != nil {
 		return fmt.Errorf("  %s not started: %s", name, err)

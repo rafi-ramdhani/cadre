@@ -6,11 +6,13 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // MessagingKind is how a runtime's sessions send each other messages.
@@ -57,6 +59,9 @@ type LaunchSpec struct {
 	Mode       string // cadre's PERMISSION_MODE
 	PromptFile string // instructions to add to the session's own
 	Grants     string // the runtime's grants artifact (from Permissions().Prepare), or ""
+	// ConfigDir is the runtime's own config folder for this session, for a
+	// cadre with its own account (section Q); "" for the user's own.
+	ConfigDir string
 }
 
 // Command is what cadre runs: in tmux for a persona, or as a child process.
@@ -99,8 +104,46 @@ type Prepared struct {
 	Warnings []string // printed on stderr
 }
 
+// Grant is one entry of a cadre's grants, as cadre allow list shows it.
+type Grant struct {
+	Kind  string // "rule", or "auto" for a plain-English allowance
+	Entry string
+	Once  bool      // a one-time grant, to be removed when its task is done
+	Added time.Time // when a one-time grant was added
+	Wide  bool      // the entry has a wildcard
+}
+
+// ErrGranted is returned when a grant is already there.
+var ErrGranted = errors.New("already granted")
+
+// ErrNoOnce is returned when there are no one-time grants to remove.
+var ErrNoOnce = errors.New("there are no one-time grants")
+
+// GrantStore is a cadre's grants, opened for reading and changing.
+type GrantStore interface {
+	List() []Grant
+	Stale() []string // one-time records whose grant is gone
+	HasOnce() bool
+	Add(kind, entry string, once bool) error
+	// Remove takes out a grant by entry or number, or every one-time grant
+	// for "--once". It returns what it removed and the stale records it
+	// dropped.
+	Remove(target string) (removed, stale []string, err error)
+	Files() []string // the files to commit, inside the cadre
+}
+
 // PermissionOps turn cadre's grants into what the runtime enforces.
 type PermissionOps interface {
+	// Open reads the cadre's grants, creating the file when create is set;
+	// an error says why the file cannot be used.
+	Open(cadre string, create bool) (GrantStore, error)
+	// Unchanged reports whether the grants file is as cadre last wrote it,
+	// recording it when it is what cadre last committed.
+	Unchanged(cadre string) bool
+	// Record remembers the grants file as cadre wrote it.
+	Record(cadre string)
+	// BuiltIn says what every persona gets that cadre allow list does not show.
+	BuiltIn() string
 	// Validate checks a grant before it is stored: a rule, or a
 	// plain-English entry when auto is set. It returns a warning, or an
 	// error saying why it is refused.

@@ -61,7 +61,11 @@ func (c Claude) Launch(s runtime.LaunchSpec) (runtime.Command, error) {
 	if s.Grants != "" {
 		argv = append(argv, "--settings", s.Grants)
 	}
-	return runtime.Command{Argv: argv, Dir: s.WorkDir}, nil
+	var env []string
+	if s.ConfigDir != "" {
+		env = append(env, "CLAUDE_CONFIG_DIR="+s.ConfigDir)
+	}
+	return runtime.Command{Argv: argv, Env: env, Dir: s.WorkDir}, nil
 }
 
 // BuildDir is <cadre>/.claude/build: inside a .claude folder, which Claude

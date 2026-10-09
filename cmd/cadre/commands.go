@@ -71,9 +71,9 @@ var renames = []renamed{
 func init() {
 	commands = []command{
 		// Visible (section M.2).
-		{name: "", summary: "open this cadre's orchestrator in this terminal", run: notBuilt("cadre")},
+		{name: "", summary: "open this cadre's orchestrator in this terminal", run: runPlain},
 		{name: "ls", usage: "[--all]", summary: "what runs, your projects and your other cadres", run: runLs},
-		{name: "attach", usage: "<team> [project]", summary: "watch or talk to a running team (tmux)", run: runAttach},
+		{name: "attach", usage: "[team] [project]", summary: "watch or talk to a running team, or the orchestrator in tmux", run: runAttach},
 		{name: "stop", usage: "[team[/role]] [project] [--all]", summary: "stop a team; with no team, every team of this cadre (asks first)", run: runStop},
 		{name: "help", usage: "[advanced]", summary: "these commands; advanced lists the rest", run: runHelp},
 		{name: "--version", summary: "the version and how cadre was installed", run: runVersion},
@@ -109,7 +109,8 @@ func init() {
 
 		{name: "update", usage: "[--check]", summary: "update cadre", group: "Framework", run: notBuilt("cadre update")},
 		{name: "--check", summary: "the full health check", group: "Framework", run: notBuilt("cadre --check")},
-		{name: "--tmux", usage: "[--detach]", summary: "open the orchestrator in tmux", group: "Framework", run: notBuilt("cadre --tmux")},
+		{name: "--tmux", usage: "[--detach]", summary: "open the orchestrator in tmux", group: "Framework", run: runTmux},
+		{name: "--no-tmux", summary: "open the orchestrator in this terminal when cadre.conf asks for tmux", group: "Framework", run: runNoTmux},
 
 		{name: "ls --json", summary: "the status screen's data, for the orchestrator", group: "Data", run: runLsJSON},
 
@@ -122,6 +123,17 @@ func init() {
 		{name: "hook state", hidden: true, run: notBuilt("cadre hook state")},
 		{name: "hook session", hidden: true, run: notBuilt("cadre hook session")},
 	}
+}
+
+// runTmux and runNoTmux are plain cadre with the flag their entry takes.
+func runTmux(e *env) int {
+	e.args = append([]string{"--tmux"}, e.args...)
+	return runPlain(e)
+}
+
+func runNoTmux(e *env) int {
+	e.args = append([]string{"--no-tmux"}, e.args...)
+	return runPlain(e)
 }
 
 // runLsJSON is cadre ls --json: the table's entry takes the flag.

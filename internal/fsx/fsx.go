@@ -109,14 +109,23 @@ func Acquire(path string, wait time.Duration) (*Lock, error) {
 // openLock opens (or creates) a lock file without following a symlink and
 // checks it is a plain file of this user's with one link.
 func openLock(path string) (*os.File, error) {
-	// O_NONBLOCK: a FIFO planted here would otherwise block the open, and
-	// every cadre command with it; this way the check below refuses it.
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0o600)
+	return openOwn(path, "lock", unix.O_CREAT)
+}
+
+// openOwn opens path for reading, refusing anything but a regular file of
+// the user's with one link; what names it in errors ("lock"). O_NONBLOCK:
+// a FIFO planted here would otherwise block the open, and every cadre
+// command with it; this way the check below refuses it.
+func openOwn(path, what string, flags int) (*os.File, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK|flags, 0o600)
 	if err != nil {
 		if errors.Is(err, unix.ELOOP) {
-			return nil, fmt.Errorf("lock %s is a symlink; remove it", path)
+			return nil, fmt.Errorf("%s %s is a symlink; remove it", what, path)
 		}
-		return nil, fmt.Errorf("lock %s: %w", path, err)
+		if errors.Is(err, unix.ENOENT) {
+			return nil, fmt.Errorf("%s %s: %w", what, path, fs.ErrNotExist)
+		}
+		return nil, fmt.Errorf("%s %s: %w", what, path, err)
 	}
 	var st unix.Stat_t
 	if err := unix.Fstat(fd, &st); err != nil {
@@ -125,17 +134,37 @@ func openLock(path string) (*os.File, error) {
 	}
 	switch {
 	case st.Mode&unix.S_IFMT != unix.S_IFREG:
-		err = fmt.Errorf("lock %s is not a plain file; remove it", path)
+		err = fmt.Errorf("%s %s is not a plain file; remove it", what, path)
 	case int(st.Uid) != os.Geteuid():
-		err = fmt.Errorf("lock %s belongs to another user; remove it", path)
+		err = fmt.Errorf("%s %s belongs to another user; remove it", what, path)
 	case st.Nlink != 1:
-		err = fmt.Errorf("lock %s has another hard link; remove it", path)
+		err = fmt.Errorf("%s %s has another hard link; remove it", what, path)
 	}
 	if err != nil {
 		unix.Close(fd)
 		return nil, err
 	}
 	return os.NewFile(uintptr(fd), path), nil
+}
+
+// ReadOwn reads a small file cadre wrote: never through a symlink, never
+// blocking on a FIFO, only a regular file of the user's with one link, and
+// at most max bytes. A missing file gives an error wrapping
+// fs.ErrNotExist.
+func ReadOwn(path string, max int64) ([]byte, error) {
+	f, err := openOwn(path, "file", 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("file %s is larger than %d bytes", path, max)
+	}
+	return data, nil
 }
 
 func unsupported(err error) bool {

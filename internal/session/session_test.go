@@ -285,6 +285,25 @@ func TestStartPassesEveryArgumentAsItIs(t *testing.T) {
 	}
 }
 
+func TestTeamSessionsCarryTheHint(t *testing.T) {
+	tm := private(t)
+	c, stub := cadreDir(t, "work")
+	up(tm, c, stub, "dev", "pm", "")
+	if got := tm.Option("cadre-work-dev", "status-right"); got != "Ctrl-b then d: back to your terminal" {
+		t.Errorf("status-right %q", got)
+	}
+	if out, _ := tm.run("show-hooks", "-t", "=cadre-work-dev:"); !strings.Contains(out, "client-attached") || !strings.Contains(out, "back to your terminal") {
+		t.Errorf("hooks %q", out)
+	}
+	if out, _ := tm.run("show-options", "-gv", "status-right"); strings.Contains(out, "back to your terminal") {
+		t.Error("the global status-right changed")
+	}
+	tm.run("set-option", "-g", "prefix", "C-a")
+	if tm.Hint() != "Ctrl-a then d: back to your terminal" {
+		t.Errorf("another prefix: %q", tm.Hint())
+	}
+}
+
 func TestStartFolderIsNotAFormat(t *testing.T) {
 	tm := private(t)
 	base, _ := filepath.EvalSymlinks(t.TempDir())

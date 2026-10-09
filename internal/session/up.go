@@ -130,10 +130,12 @@ func (u Up) start(out io.Writer, role string) error {
 	argv := cmd.Argv
 	// CADRE_HOME pins the persona to this cadre wherever it works.
 	env := append([]string{"CADRE_HOME=" + u.Path, "CADRE_PERSONA=" + name}, cmd.Env...)
+	hint, hooks := u.T.HintOptions()
 	err = u.T.Start(StartSpec{Session: session, Window: role, Dir: dir, Env: env, Argv: argv,
 		// The target too, recorded with the rest, so a cadre up whose
 		// output pipe closes early (cadre up | head) still records it.
-		SessionOptions: []Option{{"@cadre_home", u.Path}, {"@cadre_team", u.Team}, {"@cadre_project", u.Project}, {"@cadre_target", u.Target}},
+		SessionOptions: append([]Option{{"@cadre_home", u.Path}, {"@cadre_team", u.Team}, {"@cadre_project", u.Project}, {"@cadre_target", u.Target}}, hint...),
+		SessionHooks:   hooks,
 		WindowOptions:  []Option{{"@cadre_persona", name}}})
 	if err != nil {
 		return fmt.Errorf("  %s not started: %s", name, err)
@@ -147,7 +149,7 @@ func (u Up) start(out io.Writer, role string) error {
 	time.Sleep(wait)
 	if !u.T.HasWindow(session, role) || u.T.PaneDead(session, role) {
 		return fmt.Errorf("  %s failed to start: its command exited at once; run it by hand in %s to see why:\n    %s",
-			name, dir, shellLine(append(env, argv...)))
+			name, dir, Line(append(env, argv...)))
 	}
 	fmt.Fprintf(out, "  %s started in %s\n", name, dir)
 	return nil
@@ -190,9 +192,9 @@ func EnsureBuild(build string) error {
 	return fsx.WriteFile(ignore, []byte("*\n"), 0o644)
 }
 
-// shellLine writes words for a POSIX shell, each single-quoted when it
-// needs it, for a user to paste.
-func shellLine(words []string) string {
+// Line writes words for a POSIX shell, each single-quoted when it needs
+// it, for a user to paste.
+func Line(words []string) string {
 	out := make([]string, len(words))
 	for i, w := range words {
 		out[i] = Quote(w)

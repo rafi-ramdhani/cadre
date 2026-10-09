@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
 	"github.com/rafi-ramdhani/cadre/internal/conf"
+	"github.com/rafi-ramdhani/cadre/internal/orchestrator"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
 	"github.com/rafi-ramdhani/cadre/internal/session"
 )
@@ -63,14 +65,22 @@ type otherView struct {
 	Missing bool   `json:"missing,omitempty"`
 }
 
+type orchestratorView struct {
+	Running bool       `json:"running"`
+	Mode    string     `json:"mode,omitempty"`    // "terminal" or "tmux"
+	Session string     `json:"session,omitempty"` // its tmux session, in tmux mode
+	Since   *time.Time `json:"since,omitempty"`   // when cadre opened it
+}
+
 type cadreStatus struct {
-	Version  int                      `json:"version,omitempty"` // set on the top-level object
-	Cadre    cadreView                `json:"cadre"`
-	Running  []sessionView            `json:"running"`
-	Projects []projectView            `json:"projects"`
-	Teams    map[string][]personaView `json:"teams"` // every persona, running or not
-	Others   []otherView              `json:"other_cadres,omitempty"`
-	Problems []string                 `json:"problems"` // what keeps personas from starting
+	Version      int                      `json:"version,omitempty"` // set on the top-level object
+	Cadre        cadreView                `json:"cadre"`
+	Orchestrator orchestratorView         `json:"orchestrator"`
+	Running      []sessionView            `json:"running"`
+	Projects     []projectView            `json:"projects"`
+	Teams        map[string][]personaView `json:"teams"` // every persona, running or not
+	Others       []otherView              `json:"other_cadres,omitempty"`
+	Problems     []string                 `json:"problems"` // what keeps personas from starting
 }
 
 type allStatus struct {
@@ -109,6 +119,7 @@ func statusOf(c cadres.Cadre, def string, t session.Tmux) cadreStatus {
 	s := cadreStatus{Cadre: cadreView{Name: c.Name, Path: c.Path, Default: c.Name == def, Missing: !c.Present()},
 		Running: []sessionView{}, Projects: []projectView{}, Teams: map[string][]personaView{}, Problems: []string{}}
 	scope := session.Scope{Name: c.Name, Path: c.Path, Default: c.Name == def, T: t}
+	s.Orchestrator = orchestratorOf(c, t)
 	for _, i := range scope.Running() {
 		s.Running = append(s.Running, viewOf(t, i))
 	}
@@ -130,6 +141,22 @@ func statusOf(c cadres.Cadre, def string, t session.Tmux) cadreStatus {
 		}
 	}
 	return s
+}
+
+// orchestratorOf says whether a cadre's orchestrator is open: its lock
+// (plain cadre or cadre --tmux), or its tmux session.
+func orchestratorOf(c cadres.Cadre, t session.Tmux) orchestratorView {
+	if rt, err := runtime.Get(runtime.Default()); err == nil {
+		if l := openOrchestrator(t, c.Name, c.Path, orchestrator.LockPath(rt.BuildDir(c.Path))); l != nil {
+			since := l.Since
+			return orchestratorView{Running: true, Mode: l.Mode, Session: l.Session, Since: &since}
+		}
+	}
+	name := orchestrator.SessionName(c.Name)
+	if t.Has(name) && t.Option(name, "@cadre_role") == "orchestrator" && t.Option(name, "@cadre_home") == c.Path {
+		return orchestratorView{Running: true, Mode: orchestrator.Tmux, Session: name}
+	}
+	return orchestratorView{}
 }
 
 func runLs(e *env) int {
@@ -244,6 +271,14 @@ func (e *env) printStatus(s cadreStatus) {
 		where += ", default"
 	}
 	e.say("cadre %s  (%s)", s.Cadre.Name, where)
+	switch o := s.Orchestrator; {
+	case !o.Running:
+		e.say("orchestrator: not running")
+	case o.Mode == orchestrator.Terminal && o.Since != nil:
+		e.say("orchestrator: open in a terminal since %s", o.Since.Format("15:04"))
+	default:
+		e.say("orchestrator: running in tmux (%s)", o.Session)
+	}
 	if len(s.Running) == 0 {
 		e.say("running: nothing")
 	} else {

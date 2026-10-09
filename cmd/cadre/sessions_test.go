@@ -184,3 +184,29 @@ func TestTheRuntimeIsNotAChoice(t *testing.T) {
 		t.Errorf("CADRE_TEST_RUNTIME in a release build: %q", out)
 	}
 }
+
+// up starts only names that can be part of a session name: . and .. are no
+// teams, and a dot (allowed in 0.1.x, as in ml.ops) is refused with what
+// to rename. Nothing starts.
+func TestUpRefusesNamesItCannotStart(t *testing.T) {
+	home := sandbox(t)
+	socket := withTmux(t, home)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	os.MkdirAll(c+"/members/ml.ops", 0o755)
+	os.WriteFile(c+"/members/ml.ops/sre.md", []byte("# sre\n"), 0o644)
+	os.WriteFile(c+"/members/dev/qa.lead.md", []byte("# qa\n"), 0o644)
+	refused(t, "no team '..'", "up", "..")
+	refused(t, "no team '.'", "up", ".")
+	refused(t, "no team '..'", "up", "../dev")
+	refused(t, "cannot start team 'ml.ops': team and member names may use letters, digits, - and _; rename its folder, ~/.cadre/work/members/ml.ops", "up", "ml.ops")
+	refused(t, "cannot start member 'qa.lead': team and member names may use letters, digits, - and _; rename its file, ~/.cadre/work/members/dev/qa.lead.md", "up", "dev")
+	refused(t, "cannot start member 'qa.lead'", "up", "dev/qa.lead")
+	if out := tmuxIn(socket, "list-sessions", "-F", "#S"); strings.Contains(out, "cadre-work") {
+		t.Errorf("a session started: %s", out)
+	}
+	// The other members of the team still start one by one.
+	if out := must(t, "up", "dev/engineer"); !strings.Contains(out, "work-dev-engineer started") {
+		t.Errorf("up dev/engineer: %q", out)
+	}
+}

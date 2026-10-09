@@ -40,15 +40,28 @@ func (t Tmux) run(args ...string) (string, error) {
 	return strings.TrimRight(string(out), "\n"), err
 }
 
+// target names a session exactly. The colon ends the session part, so a
+// dot in the name (a project such as my.app) is not read as a pane.
+func target(session string) string { return "=" + session + ":" }
+
+// attachArgs attaches to session, or switches the client to it when this
+// process already runs inside tmux.
+func attachArgs(session string, inside bool) []string {
+	if inside {
+		return []string{"switch-client", "-t", target(session)}
+	}
+	return []string{"attach", "-t", target(session)}
+}
+
 // Has reports whether a session called name runs.
 func (t Tmux) Has(name string) bool {
-	_, err := t.run("has-session", "-t", "="+name)
+	_, err := t.run("has-session", "-t", target(name))
 	return err == nil
 }
 
 // Option reads a session's user option ("" when unset or no session).
 func (t Tmux) Option(session, name string) string {
-	out, err := t.run("show-options", "-qv", "-t", "="+session+":", name)
+	out, err := t.run("show-options", "-qv", "-t", target(session), name)
 	if err != nil {
 		return ""
 	}
@@ -110,7 +123,7 @@ func (t Tmux) SetOption(session, name, value string) error {
 	if err := recordable(name, value); err != nil {
 		return err
 	}
-	_, err := t.run("set-option", "-q", "-t", "="+session+":", name, value)
+	_, err := t.run("set-option", "-q", "-t", target(session), name, value)
 	return err
 }
 
@@ -119,13 +132,13 @@ func (t Tmux) SetWindowOption(session, window, name, value string) error {
 	if err := recordable(name, value); err != nil {
 		return err
 	}
-	_, err := t.run("set-option", "-w", "-q", "-t", "="+session+":="+window, name, value)
+	_, err := t.run("set-option", "-w", "-q", "-t", target(session)+"="+window, name, value)
 	return err
 }
 
 // Windows lists a session's window names.
 func (t Tmux) Windows(session string) []string {
-	out, err := t.run("list-windows", "-t", "="+session, "-F", "#W")
+	out, err := t.run("list-windows", "-t", target(session), "-F", "#W")
 	if err != nil || out == "" {
 		return nil
 	}
@@ -145,13 +158,13 @@ func (t Tmux) HasWindow(session, name string) bool {
 // PaneDead reports whether a window's command has ended (a dead pane is
 // kept when the user's tmux sets remain-on-exit).
 func (t Tmux) PaneDead(session, window string) bool {
-	out, err := t.run("list-panes", "-t", "="+session+":="+window, "-F", "#{pane_dead}")
+	out, err := t.run("list-panes", "-t", target(session)+"="+window, "-F", "#{pane_dead}")
 	return err == nil && strings.HasPrefix(out, "1")
 }
 
 // PanePID is the pid of the command running in a window.
 func (t Tmux) PanePID(session, window string) (int, error) {
-	out, err := t.run("display", "-p", "-t", "="+session+":="+window, "#{pane_pid}")
+	out, err := t.run("display", "-p", "-t", target(session)+"="+window, "#{pane_pid}")
 	if err != nil {
 		return 0, err
 	}
@@ -273,7 +286,7 @@ func (t Tmux) Start(s StartSpec) error {
 	if isNew {
 		add("new-session", "-d", "-s", s.Session, "-n", s.Window, "-c", startDir(s.Dir))
 	} else {
-		add("new-window", "-d", "-t", "="+s.Session+":", "-n", s.Window, "-c", startDir(s.Dir))
+		add("new-window", "-d", "-t", target(s.Session), "-n", s.Window, "-c", startDir(s.Dir))
 	}
 	for _, e := range s.Env {
 		add("-e", e)
@@ -286,15 +299,15 @@ func (t Tmux) Start(s StartSpec) error {
 	}
 	if isNew {
 		for _, o := range s.SessionOptions {
-			set("-q", "="+s.Session+":", o)
+			set("-q", target(s.Session), o)
 		}
 		for _, h := range s.SessionHooks {
 			args = append(args, ";")
-			add("set-hook", "-t", "="+s.Session+":", h.Name, h.Value)
+			add("set-hook", "-t", target(s.Session), h.Name, h.Value)
 		}
 	}
 	for _, o := range s.WindowOptions {
-		set("-wq", "="+s.Session+":="+s.Window, o)
+		set("-wq", target(s.Session)+"="+s.Window, o)
 	}
 	if bad != nil {
 		return bad
@@ -309,13 +322,13 @@ func (t Tmux) Start(s StartSpec) error {
 
 // KillSession stops a session.
 func (t Tmux) KillSession(name string) error {
-	_, err := t.run("kill-session", "-t", "="+name)
+	_, err := t.run("kill-session", "-t", target(name))
 	return err
 }
 
 // KillWindow stops one window of a session.
 func (t Tmux) KillWindow(session, window string) error {
-	_, err := t.run("kill-window", "-t", "="+session+":="+window)
+	_, err := t.run("kill-window", "-t", target(session)+"="+window)
 	return err
 }
 
@@ -369,10 +382,5 @@ func (t Tmux) Attach(session string) error {
 	if t.Socket != "" {
 		args = append(args, "-L", t.Socket)
 	}
-	if os.Getenv("TMUX") != "" {
-		args = append(args, "switch-client", "-t", "="+session)
-	} else {
-		args = append(args, "attach", "-t", "="+session)
-	}
-	return execProcess(path, args)
+	return execProcess(path, append(args, attachArgs(session, os.Getenv("TMUX") != "")...))
 }

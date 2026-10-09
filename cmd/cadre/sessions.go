@@ -43,10 +43,28 @@ func (e *env) tmuxReady() bool {
 // splitTarget reads team or team/role, and checks the team exists.
 func splitTarget(r *cadres.Resolved, target string) (team, role string, err error) {
 	team, role, _ = strings.Cut(target, "/")
-	if st, serr := os.Stat(filepath.Join(r.Path, "members", team)); team == "" || serr != nil || !st.IsDir() {
-		return "", "", fmt.Errorf("no team '%s' (see cadre help advanced: cadre team add)", team)
+	if st, serr := os.Stat(filepath.Join(r.Path, "members", team)); team == "" || team == "." || team == ".." || serr != nil || !st.IsDir() {
+		return "", "", fmt.Errorf("no team '%s'; ask the orchestrator to add it", team)
 	}
 	return team, role, nil
+}
+
+// startable refuses a team or member whose name cannot be part of a
+// session name (0.1.x allowed dots, as in ml.ops), naming what to rename.
+func startable(cadre, team, role string) error {
+	if !session.CheckName(team) {
+		return fmt.Errorf("cannot start team '%s': %s; rename its folder, %s", team, session.NameRule, display(filepath.Join(cadre, "members", team)))
+	}
+	roles := []string{role}
+	if role == "" {
+		roles = session.Roles(cadre, team)
+	}
+	for _, ro := range roles {
+		if !session.CheckName(ro) {
+			return fmt.Errorf("cannot start member '%s': %s; rename its file, %s", ro, session.NameRule, display(filepath.Join(cadre, "members", team, ro+".md")))
+		}
+	}
+	return nil
 }
 
 // mode is the permission mode sessions start with: CADRE_PERMISSION_MODE,
@@ -131,6 +149,9 @@ func runUp(e *env) int {
 	}
 	team, role, err := splitTarget(r, e.args[0])
 	if err != nil {
+		return e.fail("%s", err)
+	}
+	if err := startable(r.Path, team, role); err != nil {
 		return e.fail("%s", err)
 	}
 	u := session.Up{Scope: scope(r), Team: team, Role: role, Dir: session.DefaultDir(r.Path, team)}

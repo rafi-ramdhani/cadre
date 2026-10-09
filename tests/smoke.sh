@@ -443,6 +443,15 @@ check "a dead pane kept by remain-on-exit is a failed start" bash -c "test '$cod
 cadre up ops >/dev/null
 check "a team without a project runs in its team folder" bash -c "cadre ls | grep -q '^  ops *sre' && test \"\$(tm display -p -t =cadre-demo-ops:=sre '#{pane_current_path}')\" = '$C/teams/ops'"
 cadre stop ops >/dev/null
+git init -q "$HOME/src/my.app"
+cadre project add my.app --path "$HOME/src/my.app" --no-trust >/dev/null
+cadre up dev/engineer my.app >/dev/null
+check "a dotted project's team is found and stopped" bash -c "cadre up dev/engineer my.app | grep -q 'already running' && cadre stop dev my.app | grep -q 'cadre-demo-dev-my.app stopped' && ! tm has-session -t '=cadre-demo-dev-my.app:' 2>/dev/null"
+cadre project unlink my.app >/dev/null
+mkdir -p "$C/members/ml.ops"; echo '# sre' > "$C/members/ml.ops/sre.md"
+check "a team with a dot is refused, naming what to rename" bash -c "cadre up ml.ops 2>&1 | grep -q 'rename its folder, ~/.cadre/demo/members/ml.ops'"
+check "up .. is no team" bash -c "cadre up .. 2>&1 | grep -q 'no team'"
+rm -r "$C/members/ml.ops"
 check "attach needs a terminal" bash -c "cadre attach dev app </dev/null 2>&1 | grep -q 'is not running\|needs a terminal'"
 check "no git identity: the note says the change was left uncommitted" bash -c "GIT_CONFIG_GLOBAL=/dev/null cadre init noid | grep -q 'left uncommitted'"
 mv "$HOME/.cadre/noid" "$T/noid.away"

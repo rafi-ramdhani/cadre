@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 )
 
@@ -11,6 +12,17 @@ import (
 // member's Claude session name is <cadre>-<team>[-<project>]-<role>. Names
 // are addresses, never parsed: a session's cadre, team and project are its
 // tmux options.
+
+// partRule is a team or role name cadre starts. The name becomes part of
+// tmux and Claude session names and of a path under members/, so it may
+// use letters, digits, - and _; that keeps out . and .. too.
+var partRule = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
+// NameRule says what a team or role name may use.
+const NameRule = "team and member names may use letters, digits, - and _"
+
+// CheckName reports whether a team or role name can be started.
+func CheckName(name string) bool { return partRule.MatchString(name) }
 
 // Key is a team, or a team and its project.
 func Key(team, project string) string {

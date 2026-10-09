@@ -455,3 +455,34 @@ func TestPlan(t *testing.T) {
 		t.Error("Forget")
 	}
 }
+
+// tmux reads a dot in a target as the start of a pane, so a project such
+// as my.app is named with the colon that ends the session part: it can be
+// found, listed, attached to and stopped.
+func TestADottedProjectIsFoundStoppedAndAttached(t *testing.T) {
+	tm := private(t)
+	c, stub := cadreDir(t, "work")
+	if out, failed := up(tm, c, stub, "dev", "pm", "my.app"); failed {
+		t.Fatalf("up: %s", out)
+	}
+	name := "cadre-work-dev-my.app"
+	if !tm.Has(name) || tm.Has("cadre-work-dev-my") {
+		t.Fatalf("Has: %v", tm.Has(name))
+	}
+	if w := tm.Windows(name); len(w) != 1 || w[0] != "pm" {
+		t.Errorf("Windows: %q", w)
+	}
+	// Without a terminal, tmux finds the session and then cannot open the
+	// terminal; a target it cannot read fails before that.
+	out, _ := tm.command(attachArgs(name, false)...).CombinedOutput()
+	if !strings.Contains(string(out), "not a terminal") {
+		t.Errorf("attach: %s", out)
+	}
+	if args := attachArgs(name, true); args[0] != "switch-client" || args[2] != "="+name+":" {
+		t.Errorf("switch-client: %q", args)
+	}
+	s := Scope{Name: "work", Path: c, T: tm}
+	if line := s.StopTeam("dev-my.app"); line != "  "+name+" stopped" || tm.Has(name) {
+		t.Errorf("stop: %q", line)
+	}
+}

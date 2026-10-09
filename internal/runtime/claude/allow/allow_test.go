@@ -279,6 +279,9 @@ func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
 		"Bash(rm ..//../members/dev/engineer.md)",
 		"Bash(rm ../../../w/members/dev/engineer.md)",
 		"Bash(rm ../../../../.cadre/w/playbook.md)",
+		// Through a link (a, to the team folder) the kernel climbs twice.
+		"Bash(rm a/../../members/dev/engineer.md)",
+		"Bash(rm a/../../playbook.md)",
 	} {
 		if got, msg := check(c, "R", fill(rule, ph)); got != "refuse" || !strings.Contains(msg, "only the user changes") {
 			t.Errorf("%s: %s %q", rule, got, mask(msg, ph))
@@ -289,6 +292,7 @@ func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
 		"Bash(rm {CADRE}/teams/dev/old.md)", "Bash(cp a ../b/c.md)", "Bash(ls ~/.cadre-notes)", "Bash(cat members/dev/x.md)",
 		// A project's own subfolders, one .. up.
 		"Bash(cat ../.git/config)", "Bash(ls ../.claude)", "Bash(cat ../docs/playbook.md)",
+		"Bash(cat src/../README.md)", "Bash(cat ../x/../.git/config)",
 		"Bash(cat $PROJECT/src/main.go)", "Bash(echo $HOME)", "Bash(dd if=in.img of=out.img)",
 	} {
 		if got, msg := check(c, "R", fill(rule, ph)); got == "refuse" {

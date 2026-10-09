@@ -51,6 +51,15 @@ var (
 	sessionRule = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
+// CleanTTY returns a terminal device as a lock records it, or "" for
+// anything that is not a plain /dev/ path (a pipe, a socket).
+func CleanTTY(tty string) string {
+	if ttyRule.MatchString(tty) {
+		return tty
+	}
+	return ""
+}
+
 // read reads the lock file as it is, or nil for anything cadre would not
 // have written: a file that is not the user's own regular file (a
 // symlink, a FIFO), too large, not a lock, or with a mode, terminal or

@@ -37,6 +37,8 @@ var oldNames = []oldName{
 	{"add team", "ask the orchestrator to add the team"},
 	{"add persona", "ask the orchestrator to add the persona"},
 	{"version", "use cadre --version"},
+	{"trust", "use cadre project trust"},
+	{"update", "update cadre with brew upgrade cadre, or by running install.sh again"},
 }
 
 func init() {

@@ -1,3 +1,3 @@
-# One entry per project. Projects are their own git repos, cloned into
-# projects/<name> (set `path` to keep one elsewhere). `cadre sync` clones any
-# entry missing locally; `cadre add project` adds and clones a new one.
+# One entry per project: its repo, the team that handles it, and a short
+# about. Projects stay wherever you keep them. Ask the orchestrator to add,
+# clone or link a project.

@@ -148,3 +148,16 @@ func TestOldConfigIsMovedOnce(t *testing.T) {
 		t.Error("the move was announced twice")
 	}
 }
+
+func TestCutConfigKeysAreNamed(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("PERMISSION_MODE=default\nRUNTIME=codex\nORCHESTRATOR_TMUX=yes\n"), 0o644)
+	_, _, errOut := call("ls")
+	for _, want := range []string{"cadre.conf sets RUNTIME, which cadre no longer reads: there is one runtime",
+		"cadre.conf sets ORCHESTRATOR_TMUX, which cadre no longer reads: open the orchestrator in tmux with cadre --tmux"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("no %q in %q", want, errOut)
+		}
+	}
+}

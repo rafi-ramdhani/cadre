@@ -402,11 +402,11 @@ cadre up dev/engineer "$T/it's a dir" >/dev/null
 check "a quote in a path: the persona runs there" bash -c "tm list-panes -a -F '#{pane_current_path}' | grep -qxF \"$T/it's a dir\""
 cadre stop --yes >/dev/null
 mv "$T/bin/claude" "$T/claude.saved"; printf '#!/bin/sh\nexit 1\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
-code=0; out=$(cadre up ops 2>&1) || code=$?
+code=0; out=$(CADRE_TEST_UP_WAIT=3s cadre up ops 2>&1) || code=$?
 check "a failed start exits non-zero, and says so" bash -c "test '$code' != 0 && grep -q 'demo-ops-sre failed to start' <<<'$out'"
 tm new-session -d -s keepalive "sleep 300"
 tm set-option -g remain-on-exit on
-code=0; out=$(cadre up ops 2>&1) || code=$?
+code=0; out=$(CADRE_TEST_UP_WAIT=3s cadre up ops 2>&1) || code=$?
 tm set-option -g remain-on-exit off
 mv "$T/claude.saved" "$T/bin/claude"
 cadre stop ops >/dev/null

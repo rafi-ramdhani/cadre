@@ -15,12 +15,27 @@ import (
 	_ "github.com/rafi-ramdhani/cadre/internal/runtime/claude"
 )
 
-// conf reads the cadre's cadre.conf, warning about lines it ignores.
+// cutKeys are cadre.conf keys that 0.2.0 no longer reads, and what to do
+// instead.
+var cutKeys = []struct{ key, why string }{
+	{"RUNTIME", "there is one runtime, with no choice to make"},
+	{"ORCHESTRATOR_RUNTIME", "there is one runtime, with no choice to make"},
+	{"ORCHESTRATOR_TMUX", "open the orchestrator in tmux with cadre --tmux"},
+	{"ORCHESTRATOR_PERMISSION_MODE", "PERMISSION_MODE sets the orchestrator's mode too"},
+}
+
+// conf reads the cadre's cadre.conf, warning about lines it ignores and
+// keys it no longer reads.
 func (e *env) conf(r *cadres.Resolved) map[string]string {
 	raw, _ := os.ReadFile(filepath.Join(r.Path, "cadre.conf"))
 	values, warnings := conf.Parse(string(raw))
 	for _, w := range warnings {
 		fmt.Fprintln(e.stderr, "warning: "+w)
+	}
+	for _, k := range cutKeys {
+		if _, set := values[k.key]; set {
+			fmt.Fprintf(e.stderr, "warning: cadre.conf sets %s, which cadre no longer reads: %s\n", k.key, k.why)
+		}
 	}
 	return values
 }

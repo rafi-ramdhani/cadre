@@ -143,6 +143,7 @@ func runUp(e *env) int {
 	values := e.conf(r)
 	u.Mode = e.mode(values)
 	u.Pick = e.picker(r, u.Mode)
+	u.Wait = upWait()
 	protocol, _ := cadre.Assets.ReadFile("protocol.md")
 	u.Protocol = protocol
 	if u.Start(e.stdout) {

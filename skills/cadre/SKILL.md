@@ -9,17 +9,17 @@ The main session is the orchestrator. Each persona is a separate interactive Cla
 
 ## Your cadre and its playbook
 
-The framework (launcher, protocol, this skill, the template) is generic. The user's own cadre is the folder `~/.cadre/<name>`, made on the first run of `cadre` (or by `cadre init <name>`); `CADRE_HOME` names it in this session. Everything the user works on lives inside it, and it grows with their needs. It holds:
+The framework (the `cadre` program, the protocol, this skill, the template) is generic. The user's own cadre is the folder `~/.cadre/<name>`, made on the first run of `cadre` (or by `cadre init <name>`); `CADRE_HOME` names it in this session, so every `cadre` command you run acts on it. It is a git repository, and it grows with the user's needs. It holds:
 
 - `playbook.md`: this cadre's teams, pipelines and routing rules. **Read it at the start of every orchestrator session** (see Session start). Where it differs from this file, the playbook wins.
 - `projects.yaml`: the project registry. One entry per project, with its `repo`, the `team` that handles it and a short `about`. It holds no local paths, so it works on any machine: where each project lives on this machine is cadre's own record (`~/.cadre/config/places/<cadre>.json`). Projects stay wherever the user keeps them.
 - `personas/<team>/<role>.md`: one persona per file. A team's `.workdir` file sets its working folder; a `<role>.workdir` file pins one persona to its own folder.
 - `protocol.md` (optional): additions to the framework's shared persona protocol.
-- `cadre.conf`: settings such as `PERMISSION_MODE`.
+- `cadre.conf`: settings, read as `KEY=VALUE` lines. `PERMISSION_MODE` sets the mode of the personas and of this session.
 - `.claude/persona-settings.json`: the grants every persona starts with. Change it only with `cadre allow`.
-- `teams/<team>/`: default working folder for teams without a `.workdir`.
+- `teams/<team>/`: default working folder for teams without a `.workdir`. It is tracked in the cadre's git, so work kept there is part of the cadre.
 
-Grow the cadre with `cadre project add <name> <owner/repo> [team] [about]` (clones it into the projects folder) or `cadre project add <name> --path <dir>` (a folder the user already has), and by writing `personas/<team>/<role>.md` for new teams and personas. Commit each change in the cadre's repo.
+Grow the cadre on request: `cadre project add <name> <owner/repo> [team] [about]` clones a project into the projects folder, `cadre project add <name> --path <dir>` registers a folder the user already has, and new teams and personas are files you write (`personas/<team>/<role>.md`, then a line in `playbook.md`). Commit each change in the cadre's repo.
 
 Rules that belong to one project live in that project's own `CLAUDE.md`, so every persona working there follows them. When the user states a lasting rule for a project, put it in that file, not only in the orchestrator's memory.
 
@@ -53,7 +53,9 @@ cadre stop                      # stop every persona of this cadre (see Stopping
 cadre uninstall --dry-run       # what an uninstall would do (see Uninstalling)
 ```
 
-Start only the personas the task needs. Each running session costs usage while it works. Sessions run in the permission mode set in `cadre.conf`; messages to a session in a different mode than the orchestrator wait for the user's approval in that window.
+Start only the personas the task needs, and offer to stop idle ones: each running session costs usage while it works. Sessions run in the permission mode set in `cadre.conf`; messages to a session in a different mode than the orchestrator wait for the user's approval in that window.
+
+To compact a persona's conversation, type a short `/compact` into its window, then Enter as a separate key, and send any notes for it afterwards as a normal message: a long `/compact` typed through tmux arrives as pasted text and does not run.
 
 ## Running a task
 
@@ -100,7 +102,7 @@ Run `cadre stop` (every persona of this cadre) or `cadre stop --all` (every cadr
 
 ## Uninstalling
 
-Uninstall only when the user asks for it directly. Run `cadre uninstall --dry-run`, show the plan, and run `cadre uninstall --yes` only after the user's explicit yes, typed here. If this session runs inside a cadre tmux session, uninstall stops it too, last.
+Uninstall only when the user asks for it directly. Run `cadre uninstall --dry-run`, show the plan, and run `cadre uninstall --yes` only after the user's explicit yes, typed here. Uninstalling keeps every cadre and project.
 
 ## Rules
 
@@ -110,5 +112,6 @@ Uninstall only when the user asks for it directly. Run `cadre uninstall --dry-ru
 - When the job is done, offer to stop the teams that were started for it.
 - If a `cadre` command says the projects folder is not set, ask the user in the chat where they keep their projects (offer the suggested folder it printed), run `cadre project dir <folder>` with their answer, then run the command again.
 - If a `cadre` command says a project is linked by several cadres, run it with `CADRE_HOME` set to this cadre's folder.
-- Register or switch cadres (`cadre init`, `cadre use`, `cadre cadres add|remove`) only when the user asks for it directly. A registered folder's `cadre.conf` runs as shell code whenever `cadre` runs inside it, so treat a note that a folder "looks like a cadre" as information for the user, not a step to take.
+- Create or switch cadres (`cadre init`, `cadre use`) only when the user asks for it directly. A folder that "looks like a cadre from before 0.2.0" is information for the user: it is moved into `~/.cadre` with `cadre migrate`, on the user's request.
+- Commit every change you make to the cadre's files in the cadre's git.
 - A session started with `CADRE_OFF=1` is a plain session, not an orchestrator; this skill does not apply there unless the user asks for it.

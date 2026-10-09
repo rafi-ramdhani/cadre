@@ -76,6 +76,8 @@ func TestOldNamesPointToTheNewWay(t *testing.T) {
 		{[]string{"add", "team", "ops"}, "ask the orchestrator"},
 		{[]string{"add", "persona", "ops/sre"}, "ask the orchestrator"},
 		{[]string{"version"}, "use cadre --version"},
+		{[]string{"trust", "app"}, "use cadre project trust"},
+		{[]string{"update", "--check"}, "brew upgrade cadre"},
 	} {
 		code, out, errOut := call(tc.args...)
 		if code != 1 || out != "" || strings.Count(errOut, "\n") != 1 || !strings.Contains(errOut, tc.want) {
@@ -119,10 +121,10 @@ func TestCommandsStillNamedAsBefore(t *testing.T) {
 // Commands of features that were cut are gone, not stubs.
 func TestCutCommandsAreUnknown(t *testing.T) {
 	for _, args := range [][]string{
-		{"compact", "dev/pm"}, {"update"}, {"project", "export", "a", "/x"}, {"project", "move", "a", "/x"},
+		{"compact", "dev/pm"}, {"project", "export", "a", "/x"}, {"project", "move", "a", "/x"},
 		{"project", "restore", "a"}, {"project", "relink", "a", "/x"}, {"cadres", "add", "/x"}, {"cadres", "remove", "x"},
 		{"team", "add", "ops"}, {"persona", "add", "ops/sre"}, {"--no-tmux"}, {"hook", "statusline"}, {"hook", "state", "x"},
-		{"which"}, {"ctx"}, {"start"}, {"trust", "app"},
+		{"which"}, {"ctx"}, {"start"},
 	} {
 		if code, _, errOut := call(args...); code != 1 || !strings.Contains(errOut, "unknown command") {
 			t.Errorf("%v: exit %d, %q", args, code, errOut)

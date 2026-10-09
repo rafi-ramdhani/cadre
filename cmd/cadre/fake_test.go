@@ -150,7 +150,7 @@ func TestTheOrchestratorResumes(t *testing.T) {
 	home := fakeCadre(t)
 	// It exits at once: with an error when asked to resume, as a runtime
 	// that lost the conversation does.
-	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\ncase \"$*\" in *'--fake-resume fake-session'*) echo 'no conversation found' >&2; exit 1 ;; esac\nexit 0\n"), 0o755)
+	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\ncase \"$*\" in *'--fake-resume fake-session'*) exit 1 ;; esac\nexit 0\n"), 0o755)
 	out := must(t)
 	if !strings.Contains(out, "The orchestrator: a new conversation.") {
 		t.Errorf("first: %q", out)
@@ -162,9 +162,11 @@ func TestTheOrchestratorResumes(t *testing.T) {
 	if runs := readFile(t, home+"/orch-runs"); strings.Count(runs, "--fake-name work-orchestrator") != 3 {
 		t.Errorf("runs:\n%s", runs)
 	}
-	// A resumed orchestrator that quits at once for another reason ends
-	// there, with its status: no new conversation opens.
-	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\nexit 3\n"), 0o755)
+	// A resumed orchestrator that got going (it wrote to its conversation)
+	// and then quit at once ends there, with its status: no new
+	// conversation opens.
+	transcripts := home + "/.cadre/work/.fake-transcripts"
+	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\nmkdir -p '"+transcripts+"' && touch '"+transcripts+"/fake-session'\nexit 3\n"), 0o755)
 	code, out, _ := call()
 	if code != 3 || strings.Contains(out, "resuming failed") {
 		t.Errorf("a quick quit: %d %q", code, out)

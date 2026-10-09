@@ -80,10 +80,12 @@ func recordable(name, value string) error {
 // format: "##" is a literal "#", so a folder holding "#{" stays itself.
 func startDir(dir string) string { return strings.ReplaceAll(dir, "#", "##") }
 
-// dollarEscaped reports whether tmux 3.4 writes "$" followed by c as "\$"
-// in command output (utf8_strvis); later versions may not.
+// dollarEscaped reports whether tmux 3.4 may write "$" followed by c as
+// "\$" in command output (utf8_strvis); later versions may not. tmux tests
+// c with the locale's isalpha, which in a UTF-8 locale on macOS is true for
+// the lead bytes of multibyte characters, so every byte from 0x80 counts.
 func dollarEscaped(c byte) bool {
-	return c == '_' || c == '{' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+	return c == '_' || c == '{' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80
 }
 
 // unescape undoes that: it drops a backslash right before such a "$".

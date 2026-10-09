@@ -24,7 +24,7 @@ var (
 // prose are the only string literals outside the adapter that may name
 // Claude Code: text about the product, not its command or files.
 var prose = map[string]bool{
-	"cadrei: a team of Claude Code sessions you lead from one conversation": true,
+	"cadrei: a team of Claude Code helpers you lead from one chat": true,
 }
 
 // TestNoClaudeOutsideTheAdapter scans the string literals of every Go

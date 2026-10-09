@@ -2,7 +2,7 @@
 # installs the release binary for the machine (no build, no bottles). The
 # release step copies it into the rafi-ramdhani/homebrew-cadrei tap.
 class Cadrei < Formula
-  desc "Plug-and-play orchestration for Claude Code"
+  desc "Team of Claude Code helpers you lead from one chat"
   homepage "https://github.com/rafi-ramdhani/cadrei"
   version "@VERSION@"
   license "MIT"

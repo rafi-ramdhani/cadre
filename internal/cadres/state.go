@@ -17,6 +17,12 @@ const (
 	// HookKept is "<program> -> <binary>": the user kept the orchestrator
 	// hook on program when asked to switch it to binary.
 	HookKept = "hook_kept"
+	// SkillKept is the skill link's state the user kept when asked to link
+	// it to this cadre: its target, or "missing".
+	SkillKept = "skill_kept"
+	// LastFindings identifies the fast health findings of the last run, so
+	// the full check runs again only when one is new.
+	LastFindings = "last_findings"
 )
 
 // GetState returns a remembered value, or "".

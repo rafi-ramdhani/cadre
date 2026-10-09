@@ -128,24 +128,28 @@ func TestProjectPath(t *testing.T) {
 	}
 }
 
-func TestOldConfigIsMovedOnce(t *testing.T) {
+// A 0.1.x ~/.config/cadre is never changed, and a command without a
+// terminal creates nothing before asking.
+func TestTheOldConfigIsLeftAlone(t *testing.T) {
 	home := sandbox(t)
+	os.RemoveAll(home + "/.cadre") // the sandbox's own state, not cadre's
 	os.MkdirAll(home+"/Documents/demo/personas", 0o755)
 	os.MkdirAll(home+"/.config/cadre", 0o755)
 	os.WriteFile(home+"/.config/cadre/home", []byte(home+"/Documents/demo\n"), 0o644)
-	code, _, errOut := call("ls", "--all")
-	if code != 0 || !strings.Contains(errOut, "moved cadre's settings") {
-		t.Errorf("first command: %d %q", code, errOut)
+	os.WriteFile(home+"/.config/cadre/persona-settings.sha256", []byte("abc x\n"), 0o600)
+	before, _ := exec.Command("ls", "-lnR", home+"/.config").Output()
+	if code, _, _ := call(); code != 1 {
+		t.Errorf("plain cadre with no cadre and no terminal exited %d", code)
 	}
-	if _, err := os.Stat(home + "/.config/cadre"); err == nil {
-		t.Error("~/.config/cadre is still there")
+	if _, err := os.Stat(home + "/.cadre"); err == nil {
+		t.Error("~/.cadre was created before asking")
 	}
-	if _, err := os.Stat(home + "/.config/cadre.moved-to-0.2.0/home"); err != nil {
-		t.Error("the old folder was not kept aside")
+	for _, args := range [][]string{{"ls", "--all"}, {"--check"}, {"init", "work"}, {"ls"}} {
+		call(args...)
 	}
-	_, _, errOut = call("ls", "--all")
-	if strings.Contains(errOut, "moved") {
-		t.Error("the move was announced twice")
+	after, _ := exec.Command("ls", "-lnR", home+"/.config").Output()
+	if string(after) != string(before) || readFile(t, home+"/.config/cadre/home") != home+"/Documents/demo\n" {
+		t.Errorf("~/.config/cadre changed:\n%s\n%s", before, after)
 	}
 }
 

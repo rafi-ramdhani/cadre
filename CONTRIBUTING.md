@@ -20,8 +20,9 @@ Thanks for helping. Cadre is small on purpose: one program that starts and stops
    go test -race ./...
    go test -race -tags cadretest ./...
    tests/smoke.sh
+   tests/bridge.sh
    ```
-   The tests and the smoke test run in a throwaway HOME with a stub `claude` and a private tmux server, so they need no Claude account and never touch your own setup. The `cadretest` build tag holds the parts only tests use (a fake runtime and test switches); release binaries leave them out.
+   The tests and the smoke test run in a throwaway HOME with a stub `claude` and a private tmux server, so they need no Claude account and never touch your own setup. The `cadretest` build tag holds the parts only tests use (a fake runtime and test switches); release binaries leave them out. `tests/bridge.sh` installs cadre 0.1.1 from the `v0.1.1` tag and checks that a `git pull` to your last commit keeps that install quiet (see below); it needs `jq` and `python3`, as 0.1.1 did, and tests your last commit, so commit first.
 5. Update `CHANGELOG.md` under "Unreleased", and the docs if behaviour changes.
 6. Open a pull request describing the problem and the change.
 
@@ -38,8 +39,19 @@ Thanks for helping. Cadre is small on purpose: one program that starts and stops
 | How the orchestrator behaves | `skills/cadre/SKILL.md`, and `orchestrator.md` for its opening prompt |
 | What a new cadre starts with | `template/` |
 | Installation | `install.sh`, `packaging/homebrew` |
+| The bridge for 0.1.x installs | `bin/cadre`, `bin/orchestrator-hook.sh` (see below) |
 
 Personal workflows, project-specific members and house rules belong in a user's own cadre, not here.
+
+## The bridge for 0.1.x installs
+
+Cadre 0.1.x installed itself as a clone of this repository: its `cadre` command and orchestrator skill are links into the clone, and its SessionStart hook runs `bash <clone>/bin/orchestrator-hook.sh` in every Claude Code session. So `main` keeps three things at those paths through 0.x:
+
+- `bin/orchestrator-hook.sh` always exits 0 and prints nothing, so a `git pull` never breaks anyone's Claude Code sessions;
+- `bin/cadre` prints one line, the install command for the new program, and exits 1;
+- `skills/cadre/` stays where it is (it is also the skill the program embeds).
+
+Keep them that way: no pass-through to the new program and no install offer. `tests/bridge.sh` checks them.
 
 ## Writing style
 

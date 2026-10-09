@@ -42,8 +42,7 @@ func Create(name string, tmpl fs.FS) (c Cadre, note string, err error) {
 }
 
 // writeTemplate copies template/ into dest, putting the cadre's name into
-// its Markdown files. A cadre has no projects/ folder, so the .gitignore
-// lines for it are left out.
+// its Markdown files.
 func writeTemplate(tmpl fs.FS, dest, name string) error {
 	return fs.WalkDir(tmpl, "template", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -61,24 +60,8 @@ func writeTemplate(tmpl fs.FS, dest, name string) error {
 		if strings.HasSuffix(p, ".md") {
 			data = bytes.ReplaceAll(data, []byte("{{name}}"), []byte(name))
 		}
-		if rel == ".gitignore" {
-			data = withoutProjects(data)
-		}
 		return os.WriteFile(to, data, 0o644)
 	})
-}
-
-// withoutProjects drops the projects/ lines of the template's .gitignore,
-// and the comment that explains them.
-func withoutProjects(data []byte) []byte {
-	var kept []string
-	for _, l := range strings.Split(string(data), "\n") {
-		if strings.Contains(l, "/projects/") || strings.Contains(l, "Project repos live here") {
-			continue
-		}
-		kept = append(kept, l)
-	}
-	return []byte(strings.Join(kept, "\n"))
 }
 
 func git(dir string, args ...string) (string, error) {

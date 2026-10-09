@@ -25,6 +25,9 @@ export HOME="$T/home" CADRE_TMUX_SOCKET="cadre-test-$$"
 TMUX_TMPDIR=$(mktemp -d /tmp/cadre-smoke.XXXXXX)
 export TMUX_TMPDIR
 unset TMUX TMUX_PANE CADRE_HOME CADRE_PERSONA CADRE_OFF CADRE_ORCHESTRATOR CLAUDE_CONFIG_DIR XDG_CACHE_HOME
+# The hooks name this test build, which lives in a temporary folder: a
+# release build refuses that (checked with $T/rel/cadre).
+export CADRE_TEST_HOOK_ANYWHERE=1
 export GIT_CONFIG_GLOBAL="$T/gitconfig"
 git config --global user.name "Cadre Test"
 git config --global user.email "test@example.com"
@@ -95,6 +98,8 @@ check "the orchestrator text names the leftover-grant check" grep -q "cadre allo
 check "skill: leftover one-time grants at session start" grep -q "Run \`cadre allow list\`" "$SK"
 check "skill: stopping everything only on request" grep -q "or \`cadre stop --all\` (every cadre's) only when the user asks for it directly" "$SK"
 check "skill: uninstall only on request, after the dry run" grep -q "Run \`cadre uninstall --dry-run\`, show the plan" "$SK"
+check "skill: a backup repository only after a yes, and private" grep -q "Create it only after the user's explicit yes, typed here: \`gh repo create cadre-<name> --private" "$SK"
+check "skill: never credentials in the cadre" grep -q "never add credentials to the cadre" "$SK"
 check "protocol: report blocked actions" grep -q "If an action is blocked or denied by a permission check, stop" "$ROOT/protocol.md"
 check "no em dashes" py '
 import os, sys
@@ -111,9 +116,7 @@ check "without a terminal it says what to run" grep -q "run cadre in a terminal 
 check "and creates nothing" test ! -e "$HOME/.cadre"
 check "Ctrl-D at the first question changes nothing" bash -c "printf '' | CADRE_TEST_TTY=1 cadre 2>&1 | grep -q 'input ended; nothing was changed' && test ! -e '$HOME/.cadre'"
 mkdir -p "$T/start" && cd "$T/start"
-# The hook names this test build, which lives in a temporary folder: a
-# release build refuses that.
-out=$(printf 'new\nfirst\ny\ny\n' | CADRE_TEST_TTY=1 CADRE_TEST_HOOK_ANYWHERE=1 cadre 2>&1)
+out=$(printf 'new\nfirst\ny\ny\n' | CADRE_TEST_TTY=1 cadre 2>&1)
 check "a new cadre with the starter team" bash -c "test -f '$HOME/.cadre/first/personas/dev/engineer.md' -a -f '$HOME/.cadre/first/personas/dev/reviewer.md' && test \"\$(ls '$HOME/.cadre/first/personas')\" = dev"
 check "it is the default" grep -qx first "$HOME/.cadre/config/default"
 check "the skill is written out and linked, after a yes" test "$(readlink "$HOME/.claude/skills/cadre")" = "$HOME/.cadre/framework/skills/cadre" -a -f "$HOME/.cadre/framework/skills/cadre/SKILL.md"
@@ -126,8 +129,18 @@ check "--check: everything in order" bash -c "cadre --check | grep -q 'everythin
 ln -sfn "$T/elsewhere-skill" "$HOME/.claude/skills/cadre"
 check "--check names a wrong skill link, with its fix" bash -c "cadre --check </dev/null 2>&1 | grep -q 'the cadre skill links to' && cadre --check </dev/null 2>&1 | grep -q 'fix:'"
 ln -sfn "$HOME/.cadre/framework/skills/cadre" "$HOME/.claude/skills/cadre"
-# The rest of the suite starts from a machine with no cadre yet.
+check "the new cadre has the pre-push guard" grep -q "hook pre-push" "$HOME/.cadre/first/.git/hooks/pre-push"
+# The same cadre restored from its backup on a new machine.
+git clone -q --bare "$HOME/.cadre/first" "$T/cadre-first.git"
 mv "$HOME/.cadre/first" "$T/first.away"; rm "$HOME/.cadre/config/default"; rm -f "$T/orch-ran"
+out=$(printf 'restore\n%s\n\n' "$T/cadre-first.git" | CADRE_TEST_TTY=1 cadre 2>&1)
+check "restore clones the backup into ~/.cadre, named from the repository" bash -c "grep -q 'Restored your cadre first.' <<<'$out' && test -f '$HOME/.cadre/first/personas/dev/engineer.md'"
+check "and makes it the default, with the guard, then opens the orchestrator" bash -c "grep -qx first '$HOME/.cadre/config/default' && grep -q 'hook pre-push' '$HOME/.cadre/first/.git/hooks/pre-push' && grep -qx first-orchestrator '$T/orch-ran'"
+mkdir -p "$T/notacadre" && git -C "$T/notacadre" init -q && git -C "$T/notacadre" commit -q --allow-empty -m x
+rm -rf "$HOME/.cadre/first"; rm "$HOME/.cadre/config/default"
+check "restore refuses a repository that is not a cadre, and keeps nothing" bash -c "printf 'restore\n%s\nx\n' '$T/notacadre' | CADRE_TEST_TTY=1 cadre 2>&1 | grep -q 'is not a cadre' && test ! -e '$HOME/.cadre/x'"
+# The rest of the suite starts from a machine with no cadre yet.
+rm -f "$T/orch-ran"
 cd "$T"
 
 echo "layout (N.1)"
@@ -308,6 +321,19 @@ printf '../.vim/pack/x/start/evil:\n  repo: %s\nsub/dir:\n  repo: %s\n' "$T/remo
 out=$(CADRE_PERSONA=x cadre project sync --no-trust 2>&1)
 check "a registry name that climbs out or nests is skipped, with a warning" bash -c "grep -q 'entry named \"../.vim/pack/x/start/evil\", which is not a project name' <<<'$out' && test ! -e '$HOME/.vim' && test ! -e '$HOME/Developer/sub'"
 cp "$T/registry.saved" "$C/projects.yaml"
+
+echo "backup"
+git init -q --bare "$T/backup.git"
+git -C "$C" remote add origin "$T/backup.git"
+check "a clean push passes the guard" git -C "$C" push -q origin main
+mkdir -p "$C/teams/ops"
+printf 'ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz\n' > "$C/teams/ops/.env"
+check "the cadre's .gitignore keeps .env files out" git -C "$C" check-ignore -q teams/ops/.env
+git -C "$C" add -f teams && git -C "$C" commit -qm "ops notes"
+out=$(git -C "$C" push origin main 2>&1 || true)
+check "a push carrying a credential is stopped, naming the file" bash -c "grep -q 'teams/ops/.env: looks like an environment file' <<<'$out' && test \"\$(git -C '$T/backup.git' rev-parse main)\" != \"\$(git -C '$C' rev-parse main)\""
+git -C "$C" reset -q --hard HEAD~1
+git -C "$C" remote remove origin
 
 echo "resolution (N.3)"
 cd "$T"

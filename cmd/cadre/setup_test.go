@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rafi-ramdhani/cadre/internal/backup"
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
 	"github.com/rafi-ramdhani/cadre/internal/framework"
 )
@@ -102,17 +103,6 @@ func TestFirstRunAsksBeforeEachChange(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "problem: the cadre skill is not linked") {
 		t.Errorf("the missing link was not reported:\n%s", errOut)
-	}
-}
-
-func TestFirstRunRestoreIsNotBuiltYet(t *testing.T) {
-	firstMachine(t)
-	code, _, errOut := callIn("restore\n")
-	if code != 1 || !strings.Contains(errOut, "not built yet") {
-		t.Errorf("exit %d, %q", code, errOut)
-	}
-	if list, _ := cadres.List(); len(list) != 0 {
-		t.Error("restore created a cadre")
 	}
 }
 
@@ -234,6 +224,118 @@ func TestHookOrchestrator(t *testing.T) {
 	}
 }
 
+// backupOf makes the backup repository of a cadre called name, as a
+// machine that backed it up would have pushed it: personas, a registry
+// with a project that has a repo and one that has none, and no places.
+func backupOf(t *testing.T, name, appRepo string, extra ...func(src string)) string {
+	t.Helper()
+	src := filepath.Join(t.TempDir(), name)
+	os.MkdirAll(src+"/personas/dev", 0o755)
+	os.WriteFile(src+"/personas/dev/engineer.md", []byte("# engineer\n"), 0o644)
+	os.WriteFile(src+"/projects.yaml", []byte("app:\n  repo: "+appRepo+"\n  team: dev\nnotes:\n  team: dev\n"), 0o644)
+	for _, f := range extra {
+		f(src)
+	}
+	bare := filepath.Join(t.TempDir(), "cadre-"+name+".git")
+	for _, args := range [][]string{{"-C", src, "init", "-q", "-b", "main"}, {"-C", src, "add", "-A"},
+		{"-C", src, "commit", "-qm", "backup"}, {"clone", "-q", "--bare", src, bare}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	return bare
+}
+
+func TestFirstRunRestore(t *testing.T) {
+	home := firstMachine(t)
+	app := bareRepo(t, "app")
+	backup := backupOf(t, "work", app)
+	os.WriteFile(home+"/.claude.json", []byte("{}\n"), 0o600)
+	// restore, the repository, its name as suggested, yes to its
+	// projects, where projects go, no hook, the skill link.
+	code, out, errOut := callIn("restore\n" + backup + "\n\ny\n~/Code\nn\ny\n")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errOut)
+	}
+	c := home + "/.cadre/work"
+	if cadres.Default() != "work" || !strings.Contains(out, "Restored your cadre work.") {
+		t.Errorf("default %q\n%s", cadres.Default(), out)
+	}
+	if !strings.Contains(out, "Its projects:\n  app                  "+app+"\n") || !strings.Contains(errOut, "Clone this project and trust it in Claude Code? [y/N]") {
+		t.Errorf("the projects were not shown before the question:\n%s%s", out, errOut)
+	}
+	if _, err := os.Stat(home + "/Code/app/.git"); err != nil {
+		t.Errorf("app was not cloned:\n%s", out)
+	}
+	if cadres.Place(cadres.Cadre{Name: "work", Path: c}, "app") != home+"/Code/app" {
+		t.Error("app's place was not recorded")
+	}
+	if !strings.Contains(out, "app: trusted in Claude Code") || !strings.Contains(out, "notes: not on this machine, and no repo to clone") {
+		t.Errorf("sync:\n%s", out)
+	}
+	if !strings.Contains(readFile(t, c+"/.git/hooks/pre-push"), "hook pre-push") {
+		t.Error("the pre-push guard was not installed")
+	}
+	if ran := readFile(t, home+"/orch-ran"); !strings.Contains(ran, "--name\nwork-orchestrator\n") {
+		t.Errorf("the orchestrator did not open:\n%s", ran)
+	}
+}
+
+func TestRestoreRefusesARepositoryThatIsNotACadre(t *testing.T) {
+	home := firstMachine(t)
+	notACadre := bareRepo(t, "app")
+	code, _, errOut := callIn("restore\n" + notACadre + "\nwork\n")
+	if code != 1 || !strings.Contains(errOut, "is not a cadre (it has no personas/ folder); nothing was kept") {
+		t.Errorf("exit %d, %q", code, errOut)
+	}
+	if _, err := os.Stat(home + "/.cadre/work"); err == nil {
+		t.Error("the clone was kept")
+	}
+	if code, _, errOut := callIn("restore\n-oops\n\n\n"); code != 1 || !strings.Contains(errOut, "cannot start with -") {
+		t.Errorf("an option as a repository: %d %q", code, errOut)
+	}
+	if code, _, errOut := callIn("restore\n" + notACadre + "\n"); code != 1 || !strings.Contains(errOut, "input ended; nothing was changed") {
+		t.Errorf("the end of input at the name: %d %q", code, errOut)
+	}
+	if list, _ := cadres.List(); len(list) != 0 {
+		t.Error("the end of input restored a cadre")
+	}
+}
+
+func TestPrePushGuard(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	if !strings.Contains(readFile(t, c+"/.git/hooks/pre-push"), framework.Binary()+"' hook pre-push") {
+		t.Fatal("init did not install the guard")
+	}
+	os.MkdirAll(c+"/teams/dev", 0o755)
+	os.WriteFile(c+"/teams/dev/.env", []byte("TOKEN=x\n"), 0o644)
+	os.WriteFile(c+"/teams/dev/notes.md", []byte("ok\n"), 0o644)
+	exec.Command("git", "-C", c, "add", "-A").Run()
+	// The cadre's .gitignore keeps .env out; a forced add gets past it.
+	exec.Command("git", "-C", c, "add", "-f", "teams/dev/.env").Run()
+	exec.Command("git", "-C", c, "commit", "-qm", "work").Run()
+	head, _ := exec.Command("git", "-C", c, "rev-parse", "HEAD").Output()
+	t.Chdir(c)
+	code, _, errOut := callIn("refs/heads/main "+strings.TrimSpace(string(head))+" refs/heads/main 0000000000000000000000000000000000000000\n", "hook", "pre-push", "origin", "url")
+	if code != 1 || !strings.Contains(errOut, "teams/dev/.env: looks like an environment file") || strings.Contains(errOut, "notes.md") {
+		t.Errorf("exit %d, %q", code, errOut)
+	}
+	exec.Command("git", "-C", c, "rm", "-q", "--cached", "teams/dev/.env").Run()
+	exec.Command("git", "-C", c, "commit", "-q", "--amend", "-m", "work").Run()
+	head, _ = exec.Command("git", "-C", c, "rev-parse", "HEAD").Output()
+	if code, _, errOut := callIn("refs/heads/main "+strings.TrimSpace(string(head))+" refs/heads/main 0000000000000000000000000000000000000000\n", "hook", "pre-push", "origin", "url"); code != 0 {
+		t.Errorf("a clean push: %d %q", code, errOut)
+	}
+	// A hook of the user's own is left alone and reported.
+	os.WriteFile(c+"/.git/hooks/pre-push", []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	_, _, errOut = call("--check")
+	if !strings.Contains(errOut, "has a pre-push git hook of its own") || readFile(t, c+"/.git/hooks/pre-push") != "#!/bin/sh\nexit 0\n" {
+		t.Errorf("a hook of the user's: %q", errOut)
+	}
+}
+
 // The end of the input is never a yes: before anything is made, the first
 // run stops with nothing changed; after, it stops before the orchestrator.
 func TestFirstRunStopsAtTheEndOfInput(t *testing.T) {
@@ -337,5 +439,123 @@ func TestALastingFindingDoesNotSlowEveryStart(t *testing.T) {
 	callIn("n\n")
 	if _, _, errOut := callIn(""); strings.Contains(errOut, "Link the cadre skill") {
 		t.Errorf("a declined skill link was asked about again: %q", errOut)
+	}
+}
+
+// The pre-push hook names this binary only when it is safely placed, like
+// the orchestrator hook; a cadre left without one is reported.
+func TestThePrePushHookNamesOnlyASafelyPlacedBinary(t *testing.T) {
+	home := sandbox(t)
+	hookAnywhereForTests = false
+	code, _, errOut := call("init", "work")
+	if code != 0 || !strings.Contains(errOut, "check for credentials before a push is not installed") || !strings.Contains(errOut, "temporary folder") {
+		t.Errorf("init: %d %q", code, errOut)
+	}
+	if backup.Installed(home + "/.cadre/work") {
+		t.Fatal("the hook names a binary in a temporary folder")
+	}
+	_, out, errOut := call("--check")
+	if !strings.Contains(out+errOut, "the cadre work has no check for credentials before a backup push") {
+		t.Errorf("--check: %q %q", out, errOut)
+	}
+	if backup.Installed(home + "/.cadre/work") {
+		t.Error("the health check installed it")
+	}
+}
+
+// A new cadre's .gitignore keeps cadre's generated files and environment
+// files out of the backup, and keeps a team's own build folder in it.
+func TestTheCadreGitignore(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	for p, ignored := range map[string]bool{
+		".claude/build/x.md": true, "teams/dev/.env": true, "teams/dev/.env.local": true, "teams/dev/node_modules/x": true,
+		"teams/dev/.env.example": false, "teams/dev/build/report.md": false, "teams/dev/notes.md": false, ".claude/persona-settings.json": false,
+	} {
+		err := exec.Command("git", "-C", c, "check-ignore", "-q", p).Run()
+		if (err == nil) != ignored {
+			t.Errorf("%s: ignored %v, want %v", p, err == nil, ignored)
+		}
+	}
+}
+
+// A restore clones and trusts the backup's projects only on a yes; on a
+// no, or when the input ends, they stay not on this machine.
+func TestRestoreAsksBeforeCloningProjects(t *testing.T) {
+	for _, input := range []string{"\n\nn\nn\nn\n", "\n\n"} {
+		home := firstMachine(t)
+		backup := backupOf(t, "work", bareRepo(t, "app"))
+		os.WriteFile(home+"/.claude.json", []byte("{}\n"), 0o600)
+		// When the input ends, cadre stops before the orchestrator, as at
+		// any question.
+		code, out, errOut := callIn("restore\n" + backup + input)
+		if (code != 0) != (input == "\n\n") || !strings.Contains(out, "Restored your cadre work.") {
+			t.Fatalf("exit %d on %q\n%s%s", code, input, out, errOut)
+		}
+		if _, err := os.Stat(home + "/Developer/app"); err == nil {
+			t.Errorf("app was cloned on %q", input)
+		}
+		if cadres.Place(cadres.Cadre{Name: "work", Path: home + "/.cadre/work"}, "app") != "" || strings.Contains(readFile(t, home+"/.claude.json"), "hasTrustDialogAccepted") {
+			t.Errorf("app was placed or trusted on %q", input)
+		}
+		if !strings.Contains(out, "They stay not on this machine") {
+			t.Errorf("no note on %q:\n%s", input, out)
+		}
+	}
+}
+
+// What a restored cadre brings into the orchestrator (here a plain
+// settings file and instructions) is listed, and the orchestrator opens
+// only on a yes.
+func TestRestoreShowsWhatTheOrchestratorWouldLoad(t *testing.T) {
+	withFiles := func(src string) {
+		os.MkdirAll(src+"/.claude", 0o755)
+		os.WriteFile(src+"/.claude/settings.json", []byte(`{"theme":"dark"}`+"\n"), 0o644)
+		os.WriteFile(src+"/CLAUDE.md", []byte("# Notes\n"), 0o644)
+	}
+	home := firstMachine(t)
+	backup := backupOf(t, "work", bareRepo(t, "app"), withFiles)
+	code, out, errOut := callIn("restore\n" + backup + "\n\nn\n")
+	for _, want := range []string{"loads into the orchestrator once you trust the cadre's folder", "  ~/.cadre/work/.claude/settings.json\n  ~/.cadre/work/CLAUDE.md\n",
+		"The orchestrator was not opened. Look at these files", "Open the orchestrator with them? [y/N]"} {
+		if !strings.Contains(out+errOut, want) {
+			t.Errorf("lacks %q:\n%s%s", want, out, errOut)
+		}
+	}
+	if code == 0 || readFile(t, home+"/orch-ran") != "" {
+		t.Error("the orchestrator opened after a no")
+	}
+	if _, err := os.Stat(home + "/.cadre/work/CLAUDE.md"); err != nil {
+		t.Error("the restored cadre was not kept")
+	}
+
+	home = firstMachine(t)
+	backup = backupOf(t, "work", bareRepo(t, "app"), withFiles)
+	// yes to open, no to its projects, no hook, the skill link.
+	if code, out, errOut := callIn("restore\n" + backup + "\n\ny\nn\nn\ny\n"); code != 0 || !strings.Contains(readFile(t, home+"/orch-ran"), "work-orchestrator") {
+		t.Errorf("a yes did not open it: %d\n%s%s", code, out, errOut)
+	}
+}
+
+// A backup with a committed link where cadre reads its files or runs
+// sessions (here teams/dev pointing at a scratch folder) is not kept.
+func TestRestoreRefusesCommittedLinks(t *testing.T) {
+	home := firstMachine(t)
+	scratch := t.TempDir()
+	os.WriteFile(scratch+"/keep.txt", []byte("scratch\n"), 0o644)
+	backup := backupOf(t, "work", bareRepo(t, "app"), func(src string) {
+		os.MkdirAll(src+"/teams", 0o755)
+		os.Symlink(scratch, src+"/teams/dev")
+	})
+	code, _, errOut := callIn("restore\n" + backup + "\n\n")
+	if code == 0 || !strings.Contains(errOut, "has links where cadre reads its files or runs sessions (teams/dev), so nothing was kept") {
+		t.Errorf("exit %d %q", code, errOut)
+	}
+	if _, err := os.Lstat(home + "/.cadre/work"); err == nil {
+		t.Error("the cadre was kept")
+	}
+	if readFile(t, scratch+"/keep.txt") != "scratch\n" {
+		t.Error("the scratch folder was touched")
 	}
 }

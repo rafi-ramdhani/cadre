@@ -346,3 +346,21 @@ func TestRegistryNamesNeverLeaveTheProjectsFolder(t *testing.T) {
 	refused(t, "", "project", "path", "../.vim/pack/x/start/evil")
 	refused(t, "", "project", "link", "a/b", home+"/Code/good")
 }
+
+// A folder whose origin only seems to name the project's host is not a
+// clone of it: git reads the host as evil.example in each of these.
+func TestLinkRefusesAnOriginThatHidesItsHost(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte("tool:\n  repo: acme/tool\n"), 0o644)
+	for i, origin := range []string{"https://evil.example#@github.com/acme/tool", "https://evil.example?@github.com/acme/tool", `https://evil.example\@github.com/acme/tool`} {
+		dir := filepath.Join(home, "src", "tool"+string(rune('a'+i)))
+		os.MkdirAll(dir, 0o755)
+		exec.Command("git", "-C", dir, "init", "-q").Run()
+		exec.Command("git", "-C", dir, "remote", "add", "origin", origin).Run()
+		refused(t, "is a clone of", "project", "link", "tool", dir, "--no-trust")
+	}
+	if places := readFile(t, home+"/.cadre/config/places/work.json"); strings.Contains(places, "tool") {
+		t.Errorf("a place was recorded:\n%s", places)
+	}
+}

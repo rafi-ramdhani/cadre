@@ -13,7 +13,9 @@ import (
 	"golang.org/x/term"
 
 	cadre "github.com/rafi-ramdhani/cadre"
+	"github.com/rafi-ramdhani/cadre/internal/backup"
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
+	"github.com/rafi-ramdhani/cadre/internal/framework"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/registry"
 )
@@ -95,6 +97,7 @@ func runInit(e *env) int {
 	if note != "" {
 		e.say("%s", note)
 	}
+	e.guard(c)
 	def := cadres.Default()
 	if d, ok := cadres.Find(def); def == "" || !ok || !d.Present() {
 		if err := cadres.SetDefault(c.Name); err != nil {
@@ -174,4 +177,15 @@ func runProjectPath(e *env) int {
 	}
 	e.say("%s", d)
 	return 0
+}
+
+// guard installs cadre's pre-push guard in a cadre repository.
+func (e *env) guard(c cadres.Cadre) {
+	if err := e.hookPlaced(framework.Binary()); err != nil {
+		fmt.Fprintf(e.stderr, "warning: cadre's check for credentials before a push is not installed: %s\n", err)
+		return
+	}
+	if _, err := backup.Install(c.Path, framework.Binary()); err != nil {
+		fmt.Fprintf(e.stderr, "warning: cadre's check for credentials before a push is not installed: %s\n", err)
+	}
 }

@@ -3,9 +3,11 @@ package project
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
@@ -64,10 +66,12 @@ func SameRepo(a, b string) bool {
 }
 
 // repoID is what SameRepo compares: "<host>/<path>" in lower case, or
-// "local:<path>" for a repository on disk, or "" when there is none.
+// "local:<path>" for a repository on disk, or "" when there is none. A
+// network spelling with \, # or ? is refused (""): git reads its host
+// differently from a simple split (https://evil.example#@github.com/x/y
+// is on evil.example), so it never matches anything.
 func repoID(repo string) string {
 	r := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(repo), "/"), ".git")
-	var host, rest string
 	switch {
 	case r == "":
 		return ""
@@ -75,17 +79,24 @@ func repoID(repo string) string {
 		return "local:" + filepath.Clean(r[len("file://"):])
 	case strings.HasPrefix(r, "/") || strings.HasPrefix(r, ".") || strings.HasPrefix(r, "~"):
 		return "local:" + filepath.Clean(r)
+	case strings.ContainsAny(r, `\#?`):
+		return ""
+	}
+	var host, rest string
+	switch {
 	case strings.Contains(r, "://"):
-		r = r[strings.Index(r, "://")+3:]
-		host, rest, _ = strings.Cut(r, "/")
-		if at := strings.LastIndex(host, "@"); at >= 0 {
-			host = host[at+1:]
+		u, err := url.Parse(r)
+		if err != nil || u.Opaque != "" || !plainUser(u.User) {
+			return ""
 		}
-		host, _, _ = strings.Cut(host, ":")
+		host, rest = u.Hostname(), u.Path
 	case strings.Contains(r, ":") && !strings.Contains(r[:strings.Index(r, ":")], "/"):
 		// scp-like: [user@]host:owner/repo
 		host, rest, _ = strings.Cut(r, ":")
 		if at := strings.LastIndex(host, "@"); at >= 0 {
+			if !userRule.MatchString(host[:at]) {
+				return ""
+			}
 			host = host[at+1:]
 		}
 	case strings.Count(r, "/") == 1:
@@ -94,10 +105,22 @@ func repoID(repo string) string {
 		host, rest, _ = strings.Cut(r, "/")
 	}
 	rest = strings.Trim(rest, "/")
-	if host == "" || rest == "" {
+	if host == "" || rest == "" || strings.Contains(host, "@") {
 		return ""
 	}
 	return strings.ToLower(host + "/" + rest)
+}
+
+// userRule is the user part SameRepo accepts in a URL (git@, me@): a
+// plain name, with no password and nothing that could hide a host.
+var userRule = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+func plainUser(u *url.Userinfo) bool {
+	if u == nil {
+		return true
+	}
+	_, hasPassword := u.Password()
+	return !hasPassword && userRule.MatchString(u.Username())
 }
 
 // OwnerRepo reduces a repository spelling (owner/repo, an https or ssh URL,

@@ -15,6 +15,7 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/framework"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/project"
+	"github.com/rafi-ramdhani/cadre/internal/registry"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
 )
 
@@ -219,14 +220,73 @@ func (e *env) restoreCadre(rt runtime.Runtime) bool {
 		e.fail("%s is not a cadre (it has no personas/ folder); nothing was kept", repo)
 		return false
 	}
+	// Git checks out a committed link as a link, which cadre would follow
+	// out of the cadre when it reads members or the playbook, writes its
+	// generated files, or starts a team in its folder.
+	rtDir, _ := filepath.Rel(c.Path, filepath.Dir(rt.BuildDir(c.Path)))
+	links, err := cadres.CommittedLinks(c.Path, rtDir)
+	if err != nil || len(links) > 0 {
+		os.RemoveAll(c.Path)
+		if err != nil {
+			e.fail("%s; nothing was kept", err)
+		} else {
+			e.fail("%s has links where cadre reads its files or runs sessions (%s), so nothing was kept; put the files themselves in the backup, then restore again", repo, strings.Join(links, ", "))
+		}
+		return false
+	}
 	e.guard(c)
 	if err := cadres.SetDefault(c.Name); err != nil {
 		e.fail("%s", err)
 		return false
 	}
 	e.say("Restored your cadre %s.", c.Name)
+	// What the backup brings into the orchestrator once its folder is
+	// trusted is shown, and the orchestrator opens only on a yes.
+	if loaded := rt.Trust().Loaded(c.Path); len(loaded) > 0 {
+		e.say("It holds files that %s loads into the orchestrator once you trust the cadre's folder (settings and hooks, commands, instructions):", rt.Title())
+		for _, f := range loaded {
+			e.say("  %s", cadres.Tilde(filepath.Join(c.Path, f)))
+		}
+		if !e.yes("Open the orchestrator with them?", false) {
+			e.say("The orchestrator was not opened. Look at these files and remove any you did not put there (git -C %s rm <file>, then commit), then run cadre.", cadres.Tilde(c.Path))
+			return false
+		}
+	}
+	e.offerProjects(rt, c)
+	return true
+}
+
+// offerProjects lists the restored cadre's projects that can be cloned,
+// with their repositories, and clones and trusts them only on the user's
+// yes. Otherwise they stay "not on this machine" for the orchestrator to
+// offer later.
+func (e *env) offerProjects(rt runtime.Runtime, c cadres.Cadre) {
+	reg, err := registry.Load(c.Registry())
+	if err != nil {
+		return
+	}
+	var lines []string
+	for _, entry := range reg.Entries() {
+		if entry.Get("repo") != "" && cadres.Where(cadres.ProjectDir(c, entry)) != "present" {
+			lines = append(lines, fmt.Sprintf("  %-20s %s", entry.Name, entry.Get("repo")))
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	e.say("Its projects:")
+	for _, l := range lines {
+		e.say("%s", l)
+	}
+	question := fmt.Sprintf("Clone these %d projects and trust them in %s?", len(lines), rt.Title())
+	if len(lines) == 1 {
+		question = fmt.Sprintf("Clone this project and trust it in %s?", rt.Title())
+	}
+	if !e.yes(question, false) {
+		e.say("They stay not on this machine; ask the orchestrator to clone them when you want them.")
+		return
+	}
 	sub := &env{stdin: e.stdin, stdout: e.stdout, stderr: e.stderr, lines: e.lines}
 	runProjectSync(sub)
 	e.lines = sub.lines
-	return true
 }

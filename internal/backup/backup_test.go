@@ -87,7 +87,7 @@ func TestScan(t *testing.T) {
 		"teams/dev/gh.txt":       "token ghp_" + strings.Repeat("a", 36) + "\n",
 		"teams/dev/key.txt":      "-----BEGIN OPENSSH PRIVATE KEY-----\n",
 	})
-	got, err := Scan(dir, []Update{{"refs/heads/main", head, "refs/heads/main", "0000"}})
+	got, err := Scan(dir, "origin", []Update{{"refs/heads/main", head, "refs/heads/main", "0000"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestScan(t *testing.T) {
 		}
 	}
 	// Deleting a branch carries nothing.
-	if got, _ := Scan(dir, []Update{{"(delete)", "0000000000000000000000000000000000000000", "refs/heads/x", head}}); len(got) != 0 {
+	if got, _ := Scan(dir, "origin", []Update{{"(delete)", "0000000000000000000000000000000000000000", "refs/heads/x", head}}); len(got) != 0 {
 		t.Errorf("a delete: %+v", got)
 	}
 }
@@ -113,5 +113,101 @@ func TestReadUpdates(t *testing.T) {
 	u := ReadUpdates(strings.NewReader("refs/heads/main abc refs/heads/main def\nbad line\n"))
 	if len(u) != 1 || u[0].LocalSHA != "abc" || u[0].RemoteSHA != "def" {
 		t.Errorf("%+v", u)
+	}
+}
+
+// findingPaths runs Scan for a push of HEAD to remote and returns the
+// paths it stops on.
+func findingPaths(t *testing.T, dir, remote string) []string {
+	t.Helper()
+	head := git(t, dir, "rev-parse", "HEAD")
+	got, err := Scan(dir, remote, []Update{{"refs/heads/main", head, "refs/heads/main", "0000"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ps []string
+	for _, f := range got {
+		ps = append(ps, f.Path)
+	}
+	return ps
+}
+
+// Every name a file has in the pushed commits is checked, not only the
+// first one git meets: a file renamed later, and a file with an identical
+// copy elsewhere, are both stopped.
+func TestScanChecksEveryNameOfAFile(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, map[string]string{"playbook.md": "# Playbook\n", ".env": "SETTING=fake\n"})
+	os.MkdirAll(filepath.Join(dir, "teams"), 0o755)
+	git(t, dir, "mv", ".env", "teams/notes.txt")
+	git(t, dir, "commit", "-qm", "rename")
+	if got := strings.Join(findingPaths(t, dir, "origin"), " "); got != ".env" {
+		t.Errorf("renamed: %q", got)
+	}
+
+	dir = repo(t)
+	commit(t, dir, map[string]string{"teams/.env": "SETTING=fake\n", "a/copy.txt": "SETTING=fake\n",
+		"teams/id_ed25519": "not a real key\n", "-notes": "not a real key\n"})
+	if got := strings.Join(findingPaths(t, dir, "origin"), " "); got != "teams/.env teams/id_ed25519" {
+		t.Errorf("copies: %q", got)
+	}
+}
+
+// Only what the remote being pushed to has is left out: a commit another
+// remote already has is still checked.
+func TestScanLeavesOutOnlyThisRemotesCommits(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, map[string]string{"playbook.md": "# Playbook\n"})
+	for _, r := range []string{"backup", "other"} {
+		bare := t.TempDir()
+		git(t, bare, "init", "-q", "--bare")
+		git(t, dir, "remote", "add", r, bare)
+	}
+	git(t, dir, "push", "-q", "backup", "main")
+	commit(t, dir, map[string]string{"teams/dev/.env.local": "SETTING=fake\n"})
+	git(t, dir, "push", "-q", "--no-verify", "other", "main")
+	if got := strings.Join(findingPaths(t, dir, "backup"), " "); got != "teams/dev/.env.local" {
+		t.Errorf("push to backup: %q", got)
+	}
+	if got := findingPaths(t, dir, "other"); len(got) != 0 {
+		t.Errorf("push to other, which has it: %q", got)
+	}
+	// A push to a URL leaves nothing out.
+	if got := strings.Join(findingPaths(t, dir, "https://example.com/x.git"), " "); got != "teams/dev/.env.local" {
+		t.Errorf("push to a URL: %q", got)
+	}
+}
+
+func TestMoreCredentialNamesAndTokens(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, map[string]string{
+		"teams/ops/credentials":         "fake\n",
+		"teams/ops/.git-credentials":    "fake\n",
+		"teams/ops/.aws/config":         "fake\n",
+		"teams/ops/.kube/config":        "fake\n",
+		"teams/ops/.docker/config.json": "{}\n",
+		"teams/ops/aws.txt":             "id AKIA" + strings.Repeat("X", 16) + "\n",
+		"teams/ops/slack.txt":           "token xoxb-" + strings.Repeat("0", 12) + "\n",
+		"teams/ops/notes.md":            "AKIA is a prefix; xoxb- alone is too\n",
+	})
+	want := "teams/ops/.aws/config teams/ops/.docker/config.json teams/ops/.git-credentials teams/ops/.kube/config teams/ops/aws.txt teams/ops/credentials teams/ops/slack.txt"
+	if got := strings.Join(findingPaths(t, dir, "origin"), " "); got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+// With the cadre program gone, the hook stops the push and says why.
+func TestTheHookStopsAPushWhenCadreIsGone(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, map[string]string{"playbook.md": "# Playbook\n"})
+	bare := t.TempDir()
+	git(t, bare, "init", "-q", "--bare")
+	git(t, dir, "remote", "add", "backup", bare)
+	if _, err := Install(dir, filepath.Join(t.TempDir(), "gone", "cadre")); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("git", "-C", dir, "push", "-q", "backup", "main").CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "the check for credentials could not run, since") || !strings.Contains(string(out), "gone/cadre is missing") {
+		t.Errorf("push: %v %s", err, out)
 	}
 }

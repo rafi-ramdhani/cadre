@@ -24,7 +24,7 @@ Thanks for helping. Cadre is small on purpose: a bash launcher, a protocol, a sk
 
 Cadre 0.2.0 is being rewritten in Go on the `rewrite/0.2.0` branch (spec section O). Until it reaches parity, the bash launcher stays next to it.
 
-- **Go version:** `go.mod` declares Go 1.26.0, one minor behind the latest stable release when the module was created (Go 1.27.2, October 2026). CI tests with both, and releases build with the latest stable.
+- **Go version:** `go.mod` declares Go 1.26.0, one minor behind the latest stable release when the module was created (Go 1.27.2, October 2026). CI tests with both, and releases build with the go.mod version (`.github/workflows/release.yml`).
 - **Dependencies:** the standard library, plus `golang.org/x/term`, `golang.org/x/sys` and `golang.org/x/text` (Unicode normalization for `cadre allow`). Nothing else without an issue first.
 - **Checks:**
   ```bash

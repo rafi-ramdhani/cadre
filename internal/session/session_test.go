@@ -466,8 +466,9 @@ func TestADottedProjectIsFoundStoppedAndAttached(t *testing.T) {
 	if out, failed := up(tm, c, stub, "dev", "pm", "my.app"); failed {
 		t.Fatalf("up: %s", out)
 	}
-	name := "cadre-work-dev-my.app"
-	if !tm.Has(name) || tm.Has("cadre-work-dev-my") {
+	// tmux 3.4 turns the dot into "_"; cadre names it so on every version.
+	name := "cadre-work-dev-my_app"
+	if !tm.Has(name) || tm.Has("cadre-work-dev-my") || SessionName("work", "dev-my.app") != name {
 		t.Fatalf("Has: %v", tm.Has(name))
 	}
 	if w := tm.Windows(name); len(w) != 1 || w[0] != "pm" {

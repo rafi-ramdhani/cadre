@@ -7,22 +7,31 @@ import (
 
 // StopTeam stops the session that runs key for this cadre (its own, else
 // a legacy one) and returns the line to print.
-func (s Scope) StopTeam(key string) string {
-	if live := s.Live(key); live != "" && s.T.KillSession(live) == nil {
+func (s Scope) StopTeam(team, project string) string {
+	if live := s.Live(team, project); live != "" && s.T.KillSession(live) == nil {
 		return "  " + live + " stopped"
 	}
-	return "  " + SessionName(s.Name, key) + " not running"
+	return "  " + SessionName(s.Name, Key(team, project)) + " not running" + s.insteadNote(team, project)
+}
+
+// insteadNote names the team that runs under the session name instead.
+func (s Scope) insteadNote(team, project string) string {
+	if other := s.Instead(team, project); other != "" {
+		return " (" + other + " runs under that name, and was left as it is)"
+	}
+	return ""
 }
 
 // StopRole stops one member: its window in this cadre's session, or in a
 // legacy one.
-func (s Scope) StopRole(key, role string) string {
-	for _, session := range []string{s.mine(key), s.legacy(key)} {
+func (s Scope) StopRole(team, project, role string) string {
+	key := Key(team, project)
+	for _, session := range []string{s.mine(team, project), s.legacy(key)} {
 		if session != "" && s.T.KillWindow(session, role) == nil {
 			return "  " + session[len("cadre-"):] + "-" + role + " stopped"
 		}
 	}
-	return "  " + MemberName(s.Name, key, role) + " not running"
+	return "  " + MemberName(s.Name, key, role) + " not running" + s.insteadNote(team, project)
 }
 
 // Stopping stops a list of sessions, leaving the one this command runs in

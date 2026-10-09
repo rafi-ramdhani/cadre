@@ -173,15 +173,16 @@ func runPlain(e *env) int {
 		return e.startTmux(r, cmd, lockPath, detach, release, renew)
 	}
 	start := time.Now()
-	var before time.Time
+	var mod0 time.Time
+	var size0 int64
 	if renew != nil {
-		before = rt.Sessions().LastWrite(conv.Resume, r.Path)
+		mod0, size0, _ = rt.Sessions().Transcript(conv.Resume, r.Path)
 	}
 	code := e.runTerminal(cmd, lockPath, release)
 	// The run keeps the real terminal, so its output is not read: a resume
 	// failed when the run ended at once, with an error, and wrote nothing
 	// to the conversation. A quick quit after it got going is not that.
-	if renew != nil && code != 0 && time.Since(start) < 5*time.Second && !rt.Sessions().LastWrite(conv.Resume, r.Path).After(before) {
+	if renew != nil && code != 0 && time.Since(start) < 5*time.Second && untouched(rt, conv.Resume, r.Path, mod0, size0) {
 		// Under the start guard again, so no other cadre run opens a
 		// second orchestrator meanwhile.
 		g, err := orchestrator.Guard(build)
@@ -456,4 +457,13 @@ func upWaitOr(d time.Duration) time.Duration {
 		return w
 	}
 	return d
+}
+
+// untouched reports whether a conversation's transcript is missing, or
+// has the time and size it had before the run: the size too, since on
+// filesystems with 1 or 2 second times a write in the same tick keeps
+// the time.
+func untouched(rt runtime.Runtime, id, dir string, mod0 time.Time, size0 int64) bool {
+	mod, size, ok := rt.Sessions().Transcript(id, dir)
+	return !ok || (mod.Equal(mod0) && size == size0)
 }

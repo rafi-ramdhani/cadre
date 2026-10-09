@@ -231,3 +231,52 @@ func TestUpWritesNothingThroughALinkedBuildFolder(t *testing.T) {
 		t.Errorf("a session started: %s", out)
 	}
 }
+
+// my.app and my_app share a tmux session name: stop and attach act only on
+// the one asked for, and name the other when it is the one running.
+func TestStopAndAttachMatchTheProject(t *testing.T) {
+	home := sandbox(t)
+	socket := withTmux(t, home)
+	must(t, "init", "work")
+	for _, p := range []string{"my.app", "my_app"} {
+		exec.Command("git", "init", "-q", home+"/src/"+p).Run()
+		must(t, "project", "add", p, "--path", home+"/src/"+p, "--no-trust")
+	}
+	must(t, "up", "dev/engineer", "my.app")
+	session := "cadre-work-dev-my_app"
+	if out := must(t, "stop", "dev", "my_app"); !strings.Contains(out, session+" not running (dev my.app runs under that name, and was left as it is)") {
+		t.Errorf("stop the other project: %q", out)
+	}
+	if out := must(t, "stop", "dev/engineer", "my_app"); !strings.Contains(out, "not running (dev my.app runs under that name") {
+		t.Errorf("stop a role of the other project: %q", out)
+	}
+	refused(t, "dev my_app is not running; dev my.app runs under that session name", "attach", "dev", "my_app")
+	if tmuxIn(socket, "has-session", "-t", "="+session+":") != "" {
+		t.Fatal("my.app's members were stopped")
+	}
+	if out := must(t, "stop", "dev", "my.app"); !strings.Contains(out, session+" stopped") {
+		t.Errorf("stop the project that runs: %q", out)
+	}
+}
+
+// ls names the teams and members that cannot start, so the orchestrator
+// does not offer them.
+func TestLsNamesWhatCannotStart(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	os.MkdirAll(c+"/members/ml.ops", 0o755)
+	os.WriteFile(c+"/members/ml.ops/sre.md", []byte("# sre\n"), 0o644)
+	os.WriteFile(c+"/members/dev/qa.lead.md", []byte("# qa\n"), 0o644)
+	var st cadreStatus
+	if err := json.Unmarshal([]byte(must(t, "ls", "--json")), &st); err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(st.Problems, "\n")
+	for _, want := range []string{"team ml.ops cannot start: team and member names may use letters, digits, - and _; rename its folder, members/ml.ops",
+		"member qa.lead of team dev cannot start: team and member names may use letters, digits, - and _; rename its file, members/dev/qa.lead.md"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("problems lack %q:\n%s", want, all)
+		}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -93,11 +94,48 @@ func Load(path string) (*File, error) {
 	return Parse(string(raw)), nil
 }
 
-// Entries returns the projects, in file order.
-func (f *File) Entries() []*Entry { return f.entries }
+// nameRule is a project's name. A name becomes a folder in the projects
+// folder and part of session names, and a registry can come from another
+// machine or a shared backup, so a name can never climb (..) or nest (/).
+var nameRule = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// Get returns the project called name, or nil.
+// ValidName reports whether name can be a project's name: letters,
+// digits, ., - and _, starting with a letter or digit, and no "..".
+func ValidName(name string) bool {
+	return nameRule.MatchString(name) && !strings.Contains(name, "..")
+}
+
+// Entries returns the projects, in file order. Entries whose name is not
+// a valid project name are left out (Skipped lists them), so no caller
+// ever builds a path from one.
+func (f *File) Entries() []*Entry {
+	var out []*Entry
+	for _, e := range f.entries {
+		if ValidName(e.Name) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// Skipped lists the names of entries left out because they are not valid
+// project names, in file order.
+func (f *File) Skipped() []string {
+	var out []string
+	for _, e := range f.entries {
+		if !ValidName(e.Name) {
+			out = append(out, e.Name)
+		}
+	}
+	return out
+}
+
+// Get returns the project called name, or nil (also for a name that is not
+// a valid project name).
 func (f *File) Get(name string) *Entry {
+	if !ValidName(name) {
+		return nil
+	}
 	for _, e := range f.entries {
 		if e.Name == name {
 			return e

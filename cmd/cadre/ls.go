@@ -14,6 +14,7 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
 	"github.com/rafi-ramdhani/cadre/internal/conf"
 	"github.com/rafi-ramdhani/cadre/internal/orchestrator"
+	"github.com/rafi-ramdhani/cadre/internal/registry"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
 	"github.com/rafi-ramdhani/cadre/internal/session"
 )
@@ -85,7 +86,7 @@ type cadreStatus struct {
 	Projects     []projectView            `json:"projects"`
 	Teams        map[string][]personaView `json:"teams"` // every persona, running or not
 	Others       []otherView              `json:"other_cadres,omitempty"`
-	Problems     []string                 `json:"problems"` // what keeps personas from starting
+	Problems     []string                 `json:"problems"` // what keeps personas from starting, and registry entries left out
 }
 
 type allStatus struct {
@@ -98,19 +99,35 @@ type allStatus struct {
 // problemsOf says what keeps every persona of a cadre from starting: the
 // runtime is missing, or cannot run the cadre's permission mode.
 func problemsOf(c cadres.Cadre) []string {
+	out := append([]string{}, skippedEntries(c)...)
 	rt, err := runtime.Get(runtimeName())
 	if err != nil {
-		return []string{err.Error()}
+		return append(out, err.Error())
 	}
 	if _, err := rt.Detect(); err != nil {
-		return []string{err.Error()}
+		return append(out, err.Error())
 	}
 	raw, _ := os.ReadFile(filepath.Join(c.Path, "cadre.conf"))
 	values, _ := conf.Parse(string(raw))
 	if err := runtime.Usable(rt, modeOf(values)); err != nil {
-		return []string{err.Error()}
+		return append(out, err.Error())
 	}
-	return []string{}
+	return out
+}
+
+// skippedEntries names the registry entries cadre leaves out because
+// their name is not a project name (one that climbs out of the projects
+// folder, such as ../x, or nests, such as a/b).
+func skippedEntries(c cadres.Cadre) []string {
+	reg, err := registry.Load(c.Registry())
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, name := range reg.Skipped() {
+		out = append(out, fmt.Sprintf("projects.yaml has an entry named %q, which is not a project name (letters, digits, ., - and _); it is left out until it is renamed or removed", name))
+	}
+	return out
 }
 
 func viewOf(t session.Tmux, i session.Info) sessionView {

@@ -113,3 +113,22 @@ func TestParseExoticWhitespace(t *testing.T) {
 		t.Errorf("entries %+v", f.Entries())
 	}
 }
+
+// A name that is not a project name never reaches a caller, so no path is
+// built from it; the file itself keeps it, as the user wrote it.
+func TestBadNamesAreLeftOut(t *testing.T) {
+	text := "../.vim/pack/x/start/evil:\n  repo: r\na/b:\n  repo: r\n/abs:\n  repo: r\n.hidden:\n  repo: r\n-x:\n  repo: r\nx..y:\n  repo: r\nok.app:\n  repo: r\n"
+	f := Parse(text)
+	if e := f.Entries(); len(e) != 1 || e[0].Name != "ok.app" {
+		t.Errorf("entries %+v", e)
+	}
+	if got := strings.Join(f.Skipped(), " "); got != "../.vim/pack/x/start/evil a/b /abs .hidden -x x..y" {
+		t.Errorf("skipped %q", got)
+	}
+	if f.Get("../.vim/pack/x/start/evil") != nil || f.Get("a/b") != nil || f.Get("ok.app") == nil {
+		t.Error("Get returned a bad name")
+	}
+	if string(f.Bytes()) != text {
+		t.Error("the file was changed")
+	}
+}

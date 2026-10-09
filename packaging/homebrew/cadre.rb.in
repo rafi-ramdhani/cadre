@@ -1,0 +1,54 @@
+# Homebrew formula for cadre, filled in from a release by formula.sh. It
+# installs the release binary for the machine (no build, no bottles). The
+# release step copies it into the rafi-ramdhani/homebrew-cadre tap.
+class Cadre < Formula
+  desc "Plug-and-play orchestration for Claude Code"
+  homepage "https://github.com/rafi-ramdhani/cadre"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/rafi-ramdhani/cadre/releases/download/v@VERSION@/cadre_@VERSION@_darwin_arm64.tar.gz"
+      sha256 "@SHA256_darwin_arm64@"
+    end
+    on_intel do
+      url "https://github.com/rafi-ramdhani/cadre/releases/download/v@VERSION@/cadre_@VERSION@_darwin_amd64.tar.gz"
+      sha256 "@SHA256_darwin_amd64@"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/rafi-ramdhani/cadre/releases/download/v@VERSION@/cadre_@VERSION@_linux_arm64.tar.gz"
+      sha256 "@SHA256_linux_arm64@"
+    end
+    on_intel do
+      url "https://github.com/rafi-ramdhani/cadre/releases/download/v@VERSION@/cadre_@VERSION@_linux_amd64.tar.gz"
+      sha256 "@SHA256_linux_amd64@"
+    end
+    depends_on "git"
+  end
+
+  depends_on "tmux"
+
+  def install
+    bin.install "cadre"
+  end
+
+  def caveats
+    <<~EOS
+      cadre runs Claude Code, which a formula cannot depend on. Install it with:
+        brew install --cask claude-code
+      Then run: cadre
+      To remove cadre later: cadre uninstall, then brew uninstall cadre
+    EOS
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/cadre --version")
+    ENV["HOME"] = testpath
+    system bin/"cadre", "init", "demo"
+    assert_path_exists testpath/".cadre/demo/playbook.md"
+  end
+end

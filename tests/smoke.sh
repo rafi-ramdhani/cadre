@@ -665,11 +665,42 @@ rm "$HOME/.cadre/linked"
 mkdir -p "$T/old0/personas"; touch "$T/old0/projects.yaml"
 check "a 0.1.x cadre gets the bring-in hint" bash -c "cd '$T/old0' && cadre </dev/null 2>/dev/null | grep -q 'looks like a cadre from 0.1.x. To bring it in, tell the orchestrator: bring in my old cadre from'"
 
+echo "install.sh"
+case $(uname -s) in Darwin) os=darwin ;; *) os=linux ;; esac
+case $(uname -m) in x86_64 | amd64) arch=amd64 ;; *) arch=arm64 ;; esac
+mkdir -p "$T/release/pkg" "$T/inst"
+cp "$T/rel/cadre" "$T/release/pkg/cadre"
+archive="cadre_9.9.9_${os}_${arch}.tar.gz"
+tar -czf "$T/release/$archive" -C "$T/release/pkg" cadre
+if command -v sha256sum >/dev/null; then sum=$(sha256sum "$T/release/$archive"); else sum=$(shasum -a 256 "$T/release/$archive"); fi
+echo "${sum%% *}  $archive" > "$T/release/checksums.txt"
+inst() { CADRE_VERSION=9.9.9 CADRE_DOWNLOAD_URL="file://$T/release" CADRE_INSTALL_DIR="$T/inst" sh "$ROOT/install.sh"; }
+export -f inst
+export ROOT
+out=$(inst 2>&1)
+check "install.sh installs the release binary" bash -c "test -x '$T/inst/cadre' && cmp -s '$T/inst/cadre' '$T/rel/cadre' && grep -q 'Run: cadre' <<<'$out'"
+check "and says to put its folder on PATH" grep -q "Add $T/inst to your PATH" <<<"$out"
+cp "$T/release/$archive" "$T/archive.good"; echo tampered >> "$T/release/$archive"
+check "a download that does not match its checksum is refused, and nothing changes" bash -c "! inst >/dev/null 2>&1; inst 2>&1 | grep -q 'does not match its checksum; nothing was installed' && cmp -s '$T/inst/cadre' '$T/rel/cadre'"
+cp "$T/archive.good" "$T/release/$archive"
+check "running it again upgrades in place" bash -c "inst >/dev/null 2>&1 && cmp -s '$T/inst/cadre' '$T/rel/cadre' && test ! -e '$T/inst/.cadre.new'"
+
 echo "help"
 check "help lists the visible commands" bash -c "cadre help | grep -q 'cadre stop' && ! cadre help | grep -q 'cadre allow'"
 check "help advanced lists the rest" bash -c "cadre help advanced | grep -q 'cadre allow add'"
 check "cut commands are unknown" bash -c "cadre which 2>&1 | grep -q 'unknown command' && cadre --no-tmux 2>&1 | grep -q 'unknown command'"
 check "old names point to the new way, and exit 1" bash -c "! cadre down dev 2>/dev/null && cadre down dev 2>&1 | grep -qx 'cadre: down is not a command since cadre 0.2.0; use cadre stop' && cadre path app 2>&1 | grep -q 'use cadre project path'"
 check "-h and -v still work" bash -c "cadre -h | grep -q 'cadre help advanced' && cadre -v | grep -q '^cadre '"
+
+echo "uninstall"
+cd "$T"
+check "members cannot uninstall" bash -c "CADRE_MEMBER=x cadre uninstall --yes 2>&1 | grep -q 'refused for members'"
+out=$(cadre uninstall --dry-run)
+check "the plan says what goes" grep -q 'remove ~/.cadre/config' <<<"$out"
+check "and what stays" grep -q 'every cadre (.*demo.*, in ~/.cadre) and every project' <<<"$out"
+check "without a terminal it asks for --yes and changes nothing" bash -c "! cadre uninstall </dev/null 2>/dev/null && test -d '$HOME/.cadre/config'"
+cadre uninstall --yes >/dev/null
+check "uninstall removes cadre's own files and keeps the cadres" bash -c "test ! -e '$HOME/.cadre/config' -a ! -e '$HOME/.cadre/framework' -a ! -e '$HOME/.claude/skills/cadre' -a -f '$C/members/dev/engineer.md'"
+check "and each cadre's pre-push check" test ! -e "$C/.git/hooks/pre-push"
 
 echo "$pass checks passed"

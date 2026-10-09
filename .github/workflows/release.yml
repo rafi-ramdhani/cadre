@@ -1,0 +1,41 @@
+name: Release
+
+# A v* tag builds the release with goreleaser (binaries for macOS and
+# Linux, amd64 and arm64, and checksums.txt), then attaches the Homebrew
+# formula made from those checksums. The tap (rafi-ramdhani/homebrew-cadre)
+# is updated by hand from that formula; this workflow never writes to it.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: No test hooks in release binaries
+        run: |
+          for b in dist/*/cadre; do
+            if grep -a -q CADRE_TEST_ "$b"; then echo "$b holds a CADRE_TEST_ hook"; exit 1; fi
+          done
+      - name: Attach the Homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          packaging/homebrew/formula.sh "$GITHUB_REF_NAME" dist/checksums.txt > cadre.rb
+          ruby -c cadre.rb
+          gh release upload "$GITHUB_REF_NAME" cadre.rb

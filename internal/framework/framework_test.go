@@ -66,6 +66,9 @@ func TestCellarPathBecomesOpt(t *testing.T) {
 	if cellar.MatchString("/usr/local/bin/cadre") {
 		t.Error("a plain path matched")
 	}
+	if Kind("dev") != "dev" || Kind("0.2.0-3-gabc") != "dev" || Kind("0.2.0") != "release" {
+		t.Error("Kind")
+	}
 }
 
 func TestPlaced(t *testing.T) {

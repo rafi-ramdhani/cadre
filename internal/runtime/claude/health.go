@@ -160,6 +160,20 @@ func (i instructions) Link(dir string) error {
 	return nil
 }
 
+func (i instructions) Unlink(dir string) (bool, error) {
+	target, err := i.Target()
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	if paths.Real(target) != paths.Real(dir) {
+		return false, nil
+	}
+	return true, os.Remove(i.Path())
+}
+
 type hooks struct{}
 
 func (hooks) File() string { return filepath.Join(ConfigDir(), "settings.json") }
@@ -238,6 +252,30 @@ func (h hooks) Set(binary string) (bool, error) {
 		return false, fmt.Errorf("could not write next to %s, so it was left unchanged", file)
 	}
 	return false, fmt.Errorf("%s is not a file cadre can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user), so it was left unchanged", file)
+}
+
+func (h hooks) Remove(binary string) (bool, error) {
+	file := h.File()
+	if _, err := os.Lstat(file); errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	bin := paths.Real(binary)
+	isOurs := func(c string) bool {
+		prog, ok := OrchestratorHook(c)
+		return ok && paths.Real(prog) == bin
+	}
+	code, _ := jsonx.Edit(file, jsonx.Options{Backup: file + ".bak-cadre"}, Unhook(isOurs, isOrchestratorHook))
+	switch code {
+	case jsonx.Changed:
+		return true, nil
+	case jsonx.Unchanged, jsonx.Missing:
+		return false, nil
+	case jsonx.KeptChanged:
+		return false, fmt.Errorf("%s kept changing (a running Claude Code session?), so it was left unchanged; try again", file)
+	case jsonx.WriteFailed:
+		return false, fmt.Errorf("could not write next to %s, so it was left unchanged", file)
+	}
+	return false, fmt.Errorf("%s is not a file cadre can safely edit, so it was left unchanged", file)
 }
 
 // Output is a SessionStart hook's answer: text added to the new session's

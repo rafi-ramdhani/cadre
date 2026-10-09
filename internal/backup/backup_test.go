@@ -116,6 +116,25 @@ func TestReadUpdates(t *testing.T) {
 	}
 }
 
+func TestRemove(t *testing.T) {
+	dir := repo(t)
+	Install(dir, "/opt/cadre/bin/cadre")
+	if removed, err := Remove(dir); !removed || err != nil {
+		t.Errorf("remove: %v %v", removed, err)
+	}
+	hook := filepath.Join(dir, ".git", "hooks", "pre-push")
+	if _, err := os.Stat(hook); err == nil {
+		t.Error("cadre's hook is still there")
+	}
+	os.WriteFile(hook, []byte("#!/bin/sh\nmine\n"), 0o755)
+	if removed, _ := Remove(dir); removed {
+		t.Error("the user's hook was removed")
+	}
+	if removed, _ := Remove(t.TempDir()); removed {
+		t.Error("a folder that is not a repository")
+	}
+}
+
 // findingPaths runs Scan for a push of HEAD to remote and returns the
 // paths it stops on.
 func findingPaths(t *testing.T, dir, remote string) []string {

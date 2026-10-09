@@ -166,6 +166,21 @@ func owned(p string) error {
 	}
 }
 
+// Kind says how this binary was installed: "homebrew" (in a Homebrew
+// keg), "dev" (built from source: version dev, or one with a commit or
+// -dirty suffix), or "release" (a release binary, from install.sh or by
+// hand).
+func Kind(version string) string {
+	exe, _ := os.Executable()
+	switch {
+	case cellar.MatchString(paths.Real(exe)):
+		return "homebrew"
+	case version == "dev" || strings.Contains(version, "-"):
+		return "dev"
+	}
+	return "release"
+}
+
 // placeOf says why a file or folder with this mode, owner and group lets
 // another user replace what it holds, or "". It must belong to the user or
 // root, and be writable by no one else; a group may write it only when its

@@ -321,6 +321,21 @@ func Scan(repo, remote string, updates []Update) ([]Finding, error) {
 	return findings, nil
 }
 
+// Remove takes out cadre's pre-push hook from a cadre repository: only a
+// hook cadre wrote (its marker line), never one of the user's. It reports
+// whether it removed one.
+func Remove(repo string) (bool, error) {
+	file, err := hookFile(repo)
+	if err != nil {
+		return false, nil
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil || !bytes.Contains(raw, []byte(marker)) {
+		return false, nil
+	}
+	return true, os.Remove(file)
+}
+
 // Installed reports whether a cadre repository has cadre's pre-push hook.
 func Installed(repo string) bool {
 	file, err := hookFile(repo)

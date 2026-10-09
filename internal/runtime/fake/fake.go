@@ -94,6 +94,13 @@ func (i instructions) Target() (string, error) {
 	return os.Readlink(i.Path())
 }
 
+func (i instructions) Unlink(dir string) (bool, error) {
+	if t, err := i.Target(); err != nil || t != dir {
+		return false, nil
+	}
+	return true, os.Remove(i.Path())
+}
+
 func (i instructions) Link(dir string) error {
 	os.MkdirAll(filepath.Dir(i.Path()), 0o755)
 	os.Remove(i.Path())
@@ -106,6 +113,7 @@ type hooks struct{}
 func (hooks) File() string                      { return filepath.Join(os.Getenv("HOME"), ".fake", "settings.json") }
 func (hooks) Find() ([]string, error)           { return nil, nil }
 func (hooks) Set(string) (bool, error)          { return false, errors.New("the fake runtime has no hooks") }
+func (hooks) Remove(string) (bool, error)       { return false, nil }
 func (hooks) Output(text string) []byte         { return []byte(text + "\n") }
 func (Fake) Permissions() runtime.PermissionOps { return permissions{} }
 func (Fake) Trust() runtime.TrustOps            { return trust{} }

@@ -145,7 +145,7 @@ func TestUnknownCommand(t *testing.T) {
 func TestVersion(t *testing.T) {
 	for _, a := range []string{"--version", "-v"} {
 		code, out, _ := call(a)
-		if code != 0 || out != "cadre dev\n" {
+		if code != 0 || out != "cadre dev (dev)\n" {
 			t.Errorf("%s: exit %d, %q", a, code, out)
 		}
 	}

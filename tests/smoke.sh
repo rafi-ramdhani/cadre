@@ -317,7 +317,7 @@ rm -rf "$HOME/Developer"; mv "$T/Developer.saved" "$HOME/Developer"; mv "$T/plac
 # A registry from elsewhere may hold names that climb out or nest.
 cp "$C/projects.yaml" "$T/registry.saved"
 printf '../.vim/pack/x/start/evil:\n  repo: %s\nsub/dir:\n  repo: %s\n' "$T/remote.git" "$T/remote.git" >> "$C/projects.yaml"
-out=$(CADRE_PERSONA=x cadre project sync --no-trust 2>&1)
+out=$(CADRE_MEMBER=x cadre project sync --no-trust 2>&1)
 check "a registry name that climbs out or nests is skipped, with a warning" bash -c "grep -q 'entry named \"../.vim/pack/x/start/evil\", which is not a project name' <<<'$out' && test ! -e '$HOME/.vim' && test ! -e '$HOME/Developer/sub'"
 cp "$T/registry.saved" "$C/projects.yaml"
 

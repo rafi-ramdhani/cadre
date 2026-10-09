@@ -323,7 +323,7 @@ func TestRegistryNamesNeverLeaveTheProjectsFolder(t *testing.T) {
 	}
 	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte(text+"good:\n  repo: "+app+"\n"), 0o644)
 	for _, member := range []string{"work-dev-engineer", ""} {
-		t.Setenv("CADRE_PERSONA", member)
+		t.Setenv("CADRE_MEMBER", member)
 		code, out, errOut := call("project", "sync", "--no-trust")
 		if code != 0 || !strings.Contains(out, "good: ") || strings.Contains(out, "evil") || strings.Contains(out, "a/b") {
 			t.Errorf("sync (member %q): %d\n%s%s", member, code, out, errOut)

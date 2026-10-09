@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: An idea for the framework
+about: An idea for cadre
 labels: enhancement
 ---
 

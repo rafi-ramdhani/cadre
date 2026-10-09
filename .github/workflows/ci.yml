@@ -18,19 +18,21 @@ jobs:
           fetch-depth: 0
       - name: Install tools (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck tmux
       - name: Install tools (macOS)
         if: runner.os == 'macOS'
-        run: brew install shellcheck
+        run: brew install shellcheck tmux
       - name: Configure git
         run: |
           git config --global user.name "CI"
           git config --global user.email "ci@example.com"
           git config --global init.defaultBranch main
-      # The bash line is frozen; its suite retired. Its scripts stay linted
-      # until O-T9 replaces them with the bridge files.
       - name: Lint
-        run: shellcheck -x bin/cadre bin/orchestrator-hook.sh install.sh packaging/homebrew/formula.sh tests/smoke-bash.sh tests/smoke.sh
+        run: shellcheck -x bin/cadre bin/orchestrator-hook.sh install.sh packaging/homebrew/formula.sh tests/smoke.sh tests/bridge.sh
+      # 0.1.x installs point into a clone of this repository; a pull must
+      # leave them quiet and pointing to the new install.
+      - name: The bridge for 0.1.x installs
+        run: tests/bridge.sh
 
   go:
     strategy:

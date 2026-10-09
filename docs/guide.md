@@ -128,7 +128,7 @@ Project names may use letters, digits, `.`, `-` and `_`. One project may belong 
 | `cadre stop [--all] [--yes]` | with no team, every member of this cadre (`--all`: of every cadre), after a confirmation; never the orchestrator |
 | `cadre ls [--all] [--json]` | the cadre, the orchestrator, running teams, projects (missing ones marked) and other cadres |
 
-**Names.** A team runs in tmux session `cadre-<cadre>-<team>` (or `cadre-<cadre>-<team>-<project>`), one window per role. Each member's Claude Code session is named `<cadre>-<team>[-<project>]-<role>`, which is the address the orchestrator sends work to. `cadre up` refuses when another cadre already uses the name. Cadre sessions show the key that takes you back to your terminal in their status line (your tmux prefix, then `d`).
+**Names.** A team runs in tmux session `cadre-<cadre>-<team>` (or `cadre-<cadre>-<team>-<project>`), one window per role. Each member's Claude Code session is named `<cadre>-<team>[-<project>]-<role>`, which is the address the orchestrator sends work to. In tmux session names a `.` becomes `_`, as older tmux versions do it themselves: project `my.app` runs in `cadre-w-dev-my_app`, while its members keep the dot (`w-dev-my.app-engineer`). `cadre up` refuses when another cadre already uses the name. Cadre sessions show the key that takes you back to your terminal in their status line (your tmux prefix, then `d`).
 
 **One orchestrator per cadre.** `cadre` records the orchestrator in `.claude/build/orchestrator.lock`. When it is already open in another terminal, `cadre` says so and exits; when it runs in tmux, `cadre` attaches to it. A lock left by a session that ended is cleared. An orchestrator you started by hand (through the hook) is not detected.
 
@@ -138,7 +138,7 @@ Project names may use letters, digits, `.`, `-` and `_`. One project may belong 
 
 ## The orchestrator hook
 
-The first run offers a SessionStart hook in `~/.claude/settings.json` that makes every new Claude Code session the orchestrator of your default cadre. It runs `<cadre program> hook orchestrator`, and stays silent in member sessions, in an orchestrator `cadre` opened, and in sessions started with `CADRE_OFF=1 claude`. Without the hook, run `cadre`, or ask any session to use the cadre skill.
+The first run offers a SessionStart hook in `~/.claude/settings.json` that makes every new Claude Code session an orchestrator. Its `cadre` commands act on the cadre for its folder (your default cadre outside every cadre and project). It runs `<cadre program> hook orchestrator`, and stays silent in member sessions, in an orchestrator `cadre` opened, and in sessions started with `CADRE_OFF=1 claude`. Without the hook, run `cadre`, or ask any session to use the cadre skill.
 
 The hook is added with a backup of the file (`settings.json.bak-cadre`), keeping every other setting. `cadre uninstall` removes it.
 
@@ -157,7 +157,7 @@ cadre allow remove --once                              # every one-time grant
 
 - A rule is a Claude Code permission rule: a tool name with an optional specifier, such as `Bash(npm test)`, `Read(./docs/**)` or `mcp__github__create_issue`.
 - `--auto` adds a sentence (one line, at most 300 characters, plain ASCII letters) to the auto-mode classifier's allow list, after `"$defaults"`, so the built-in rules stay. Describe the work that is expected; a sentence about permissions, settings or grants, or one claiming your approval, is refused.
-- **Refused**: blanket rules (`*`, a bare `Bash`, `Edit`, `Write`, `Read`, `WebFetch`, `NotebookEdit` or `PowerShell`, a specifier that is only a wildcard), whole MCP servers, wildcards in the program name, shells, interpreters and wrappers with a wildcard, programs that run whatever follows a subcommand (`docker run`, `npm exec`, `go run` and the like) with a wildcard, chained or backgrounded commands, commands built with shell syntax, `WebFetch` for every domain, `Edit` and `Read` paths that climb with `..`, startup files and files that run code outside a session (shell and git config, `~/.ssh`, launch agents, `~/.local/bin` and the like), and anything that reaches cadre's own files: the grants file, `cadre allow`, `cadre.conf`, `~/.cadre/config`. Paths are read the way Claude Code reads them, so glob classes, escapes and braces cannot hide a refused file. The full tables are in `internal/runtime/claude/allow`.
+- **Refused**: blanket rules (`*`, a bare `Bash`, `Edit`, `Write`, `Read`, `WebFetch`, `NotebookEdit` or `PowerShell`, a specifier that is only a wildcard), whole MCP servers, wildcards in the program name, shells, interpreters and wrappers with a wildcard, programs that run whatever follows a subcommand (`docker run`, `npm exec`, `go run` and the like) with a wildcard, chained or backgrounded commands, commands built with shell syntax, `WebFetch` for every domain, `Edit` and `Read` paths that climb with `..`, startup files and files that run code outside a session (shell and git config, `~/.ssh`, launch agents, `~/.local/bin` and the like), and anything that reaches cadre's own files: the grants file, `cadre allow`, `cadre.conf`, `~/.cadre/config`. For `Edit` and `Read` rules, paths are read the way Claude Code reads them, so glob classes, escapes and braces cannot hide a refused file. `Bash` rules are checked word by word: cadre reads the paths, variables such as `$CADRE_HOME` and `..` climbs in them, but it cannot see where a link on disk leads, so a shell rule is a weaker guard than an `Edit` rule. The full tables are in `internal/runtime/claude/allow`.
 - **Warned**: other wildcards, `git` with a wildcard (it can run other programs), `make`, `npm run`, `pip install` and `./script` with a wildcard (they run code from files a member can change), and `Read` rules that reach secrets such as `~/.ssh` or `~/.aws`. Accepted wildcards are marked in `list`.
 - Every change is committed in your cadre (`git log -- .claude/` is the record) and travels with it. One-time grants are listed in `.claude/member-settings.once` with the time they were added.
 - Members cannot add or remove grants.
@@ -227,7 +227,7 @@ Every `cadre` checks the setup and stays silent unless something is wrong. Quick
 `cadre uninstall --dry-run` prints the plan. `cadre uninstall` prints it, asks, then:
 
 1. stops every cadre member session, and the orchestrator sessions in tmux last;
-2. removes the skill link and the orchestrator hook, only where they point at this program (other hooks and settings stay, with a fresh backup of the settings file);
+2. removes the skill link and the orchestrator hook, only where they point at this program (other hooks and settings stay; the backup made before cadre first changed the settings file, `settings.json.bak-cadre`, is kept, and no new one is written);
 3. removes each cadre's pre-push hook;
 4. removes `~/.cadre/config` and `~/.cadre/framework`.
 

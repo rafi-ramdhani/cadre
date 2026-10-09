@@ -2,7 +2,7 @@
 
 **A team of Claude Code helpers you lead from one chat.**
 
-Run `cadrei` and you get one Claude Code chat to talk to: the **orchestrator**. It hands your work to **members**, other copies of Claude Code that each do one job. Members remember where they left off. Each one is just a Markdown file, so you can build any team you can describe:
+Run `cadrei` and you get one Claude Code chat to talk to: the **orchestrator**. It hands your work to **members**, other copies of Claude Code that each do one job. Members remember where they left off. Each one is just a short text file (Markdown), so you can build any team you can describe:
 
 - **Dev**, one team per project: a PM, an engineer, a reviewer and a designer build a feature on a branch and review it.
 - **Research**: a researcher, a skeptic, a writer and an editor answer your question, with sources.
@@ -10,7 +10,7 @@ Run `cadrei` and you get one Claude Code chat to talk to: the **orchestrator**. 
 - **Study**: a tutor per track that keeps tabs on your progress (and your mistakes).
 - **Ops**: one member that looks after your server.
 
-You start with an engineer and a reviewer. Want more? Just ask.
+Your members, projects and settings together are your **cadrei**. You start with an engineer and a reviewer. Want more? Just ask.
 
 ## Install
 
@@ -25,7 +25,7 @@ No Homebrew? Use this instead:
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/rafi-ramdhani/cadrei/main/install.sh | sh
 ```
 
-You'll need macOS or Linux, [Claude Code](https://claude.com/claude-code) (logged in), git, and tmux 3.2 or newer. Homebrew installs tmux for you.
+You'll need macOS or Linux, [Claude Code](https://claude.com/claude-code) (logged in), git, and tmux 3.2 or newer (a terminal tool that keeps your members running in the background). Homebrew installs tmux for you.
 
 The first `cadrei` asks a few quick questions, then opens the orchestrator. Tell it your repo and what you want:
 
@@ -68,19 +68,20 @@ Everything after `cadrei` is a chat with the orchestrator. Try:
 
 New machine? Run `cadrei` and pick "restore".
 
-Rather type? `cadrei help` lists the few commands there are.
+Want to watch a member, or answer a question it's asking you? `cadrei attach <team> <project>` opens the team's windows, like `cadrei attach dev app`. `cadrei ls` shows what's running, and `cadrei help` lists the few other commands.
 
 ## How it works
 
 - **Your cadrei** is a folder, `~/.cadrei/<name>`, kept in git. It holds your members, your projects list and the permissions you've given.
 - **Members** run in tmux, one window each, and pick up where they left off.
 - **Your projects stay where they are.** Members work right in their folders.
+- **Outside that folder**, cadrei adds a link in `~/.claude/skills` so Claude Code can find its instructions. If you say yes on the first run, every new Claude Code chat also starts as the orchestrator (`CADREI_OFF=1 claude` gets you a plain one). [Here's everything it touches](docs/guide.md#where-things-live).
 
 ## Cost and safety
 
-- **Each member is its own Claude Code**, so three members use about three times as much. The orchestrator only starts the ones a task needs.
+- **Each member is its own Claude Code**, so three members use about three times as much of your Claude plan as one. The orchestrator only starts the ones a task needs.
 - **You stay in charge.** Members ask you before doing anything risky. To let them do something, tell the orchestrator. It refuses catch-all permissions.
-- **Projects you add are trusted** in Claude Code, so only add repos you trust.
+- **Projects you add are marked as trusted** in Claude Code, so members skip the "do you trust this folder?" question. It also means the repo's own Claude Code settings and hooks run, so only add repos you trust.
 
 ## Why not subagents?
 
@@ -88,7 +89,7 @@ Subagents live inside one chat and end with it. Members stick around: open one, 
 
 ## Coming from 0.1.x
 
-0.2.0 is a fresh start: Cadre is now Cadrei, and personas are now members. Install it, run `cadrei`, then say "bring in my old cadre from <path>". Your old setup is only read, never changed. See the [CHANGELOG](CHANGELOG.md) for details.
+0.2.0 is a fresh start: Cadre is now Cadrei, and personas are now members. Install it, run `cadrei`, then say "bring in my old cadre from <path>". Your old cadre folder is only read, never changed. See the [CHANGELOG](CHANGELOG.md) for details.
 
 ## Uninstall
 
@@ -96,7 +97,7 @@ Subagents live inside one chat and end with it. Members stick around: open one, 
 
 ## More
 
-- [Guide](docs/guide.md): members, projects, permissions, backups and troubleshooting
+- [Guide](docs/guide.md): members, projects, permissions, backups, troubleshooting, and everything cadrei puts on your machine
 - [Security](SECURITY.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)

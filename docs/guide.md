@@ -38,6 +38,30 @@ You can use cadrei without reading this: run `cadrei`, then talk to the orchestr
 
 `config` and `framework` are reserved names; a cadrei's name may use letters, digits, `-` and `_`.
 
+### Everything cadrei puts on your machine
+
+Here's the full list, and what `cadrei uninstall` does with each. If you've set `CLAUDE_CONFIG_DIR`, read that folder wherever this says `~/.claude` (it holds `.claude.json` too, then).
+
+| What | Where | Added when | `cadrei uninstall` |
+|---|---|---|---|
+| The `cadrei` program | Homebrew's `bin`, or `~/.local/bin/cadrei` | you install it | Kept: it prints the command that removes it |
+| Your cadreis: members, playbook, projects list, `cadrei.conf`, permissions and `teams/` | `~/.cadrei/<name>/`, each one a git repo | the first run, or when you ask the orchestrator | Kept |
+| Files made for each start: prompts, settings copies, conversation records, locks | `~/.cadrei/<name>/.claude/build/`, left out of git | every start | Kept, with the cadrei |
+| A check that stops passwords, keys and files over 50 MB from going into your backup (a git pre-push hook) | `~/.cadrei/<name>/.git/hooks/pre-push` | the first run, and put back by every `cadrei` | Removed |
+| This machine's settings: the default cadrei, the projects folder, where each project lives, the permissions fingerprint, the health check's notes | `~/.cadrei/config/` | `cadrei` | Removed |
+| cadrei's instructions for Claude Code (the cadrei skill) and its prompts | `~/.cadrei/framework/`, rewritten when they don't match the program | every `cadrei` | Removed |
+| A link so Claude Code can find those instructions | `~/.claude/skills/cadrei`, pointing at `~/.cadrei/framework/skills/cadrei` | the first run, on your yes | Removed, if it points at this program |
+| Optional: every new Claude Code chat starts as the orchestrator (a SessionStart hook) | one entry in `~/.claude/settings.json` | the first run, on your yes | Removed, if it runs this program (your other hooks stay) |
+| "Trusted folder" marks for your projects | entries in `~/.claude.json` | adding, linking or downloading a project | Kept: your own Claude Code uses them too |
+| Your projects | wherever you keep them; new downloads go in your projects folder | you, or the orchestrator | Kept |
+| Members' conversations | Claude Code's own folder | Claude Code | Kept |
+
+Want a plain Claude Code chat while the hook is on? Start it with `CADREI_OFF=1 claude`. [The orchestrator hook](#the-orchestrator-hook) has the rest.
+
+Before cadrei first changes `~/.claude/settings.json` or `~/.claude.json`, it saves a copy next to it (`settings.json.bak-cadrei`, `.claude.json.bak-cadrei`) and never overwrites that copy.
+
+The backup check, the orchestrator hook and the hook in each member's settings only run the `cadrei` program when it sits in a folder only you can write to, which is where Homebrew and `install.sh` put it. Run it from a temporary folder and it sets none of them up; the health check tells you so.
+
 ## Writing a member
 
 Ask the orchestrator ("add an SRE to an ops team"), or write the file yourself. A good member file is short and concrete:

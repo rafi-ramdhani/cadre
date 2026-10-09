@@ -275,6 +275,20 @@ func runLs(e *env) int {
 		}
 		e.say("other cadreis: %s", strings.Join(parts, ", "))
 	}
+	// Sessions without markers belong to no cadrei, so only ls --all lists
+	// them; this screen points there.
+	unmarked := 0
+	for _, i := range session.All(t, nil) {
+		if i.Home == "" && !i.Legacy() {
+			unmarked++
+		}
+	}
+	switch {
+	case unmarked == 1:
+		e.say("1 session without cadrei's markers; see cadrei ls --all")
+	case unmarked > 1:
+		e.say("%d sessions without cadrei's markers; see cadrei ls --all", unmarked)
+	}
 	return 0
 }
 

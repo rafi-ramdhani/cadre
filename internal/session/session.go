@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -146,30 +147,41 @@ func (s Scope) Live(team, project string) string {
 	return s.legacy(Key(team, project))
 }
 
+// Unmarked says that the session name team and project would get is held
+// by a session without cadrei's markers, and how to stop it, or "". One
+// without a home was made by hand (0.1.x sessions are named cadre-<key>);
+// one with this cadrei's home but no team is a start that died before its
+// options were set, or one made by hand, which cadrei stop --yes stops.
+// Neither is one that up, stop or attach use.
+func (s Scope) Unmarked(team, project string) string {
+	name := SessionName(s.Name, Key(team, project))
+	if !s.T.Has(name) {
+		return ""
+	}
+	switch home := s.T.Option(name, "@cadrei_home"); {
+	case home == "":
+		return fmt.Sprintf("a session named %s exists without cadrei's markers; stop it with tmux kill-session -t %s", name, name)
+	case home == s.Path && s.T.Option(name, "@cadrei_team") == "":
+		return fmt.Sprintf("a session named %s exists without cadrei's markers; stop it with tmux kill-session -t %s, or cadrei stop --yes", name, name)
+	}
+	return ""
+}
+
 // CheckSession refuses when this cadrei's session name for team and project
-// is taken by another cadrei, a legacy session, or another team and
-// project whose names join to the same key.
+// is taken by another cadrei, a session without cadrei's markers, or another
+// team and project whose names join to the same key.
 func (s Scope) CheckSession(team, project string) error {
 	name := SessionName(s.Name, Key(team, project))
 	if !s.T.Has(name) {
 		return nil
 	}
-	home := s.T.Option(name, "@cadrei_home")
-	switch {
-	case home == "":
-		// 0.1.x sessions are named cadre-<key>, so one without a home here
-		// was made by hand.
-		return fmt.Errorf("a session named %s exists without cadrei's markers; stop it with tmux kill-session -t %s", name, name)
-	case home != s.Path:
+	if m := s.Unmarked(team, project); m != "" {
+		return errors.New(m)
+	}
+	if home := s.T.Option(name, "@cadrei_home"); home != s.Path {
 		return fmt.Errorf("tmux session %s belongs to cadrei %s (%s), not cadrei %s (%s); rename a team or one of the cadrei folders", name, filepath.Base(home), home, s.Name, s.Path)
 	}
 	t, p := s.T.Option(name, "@cadrei_team"), s.T.Option(name, "@cadrei_project")
-	// A session with this cadrei's home but no team (a start that died
-	// before its options were set, or one made by hand) is not one stop
-	// and attach match, so up does not start members in it either.
-	if t == "" {
-		return fmt.Errorf("a session named %s exists without cadrei's markers; stop it with tmux kill-session -t %s, or cadrei stop --yes", name, name)
-	}
 	if t != team || p != project {
 		held := t
 		if p != "" {

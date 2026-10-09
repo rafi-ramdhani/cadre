@@ -6,10 +6,14 @@ import (
 )
 
 // StopTeam stops the session that runs key for this cadrei (its own, else
-// a legacy one) and returns the line to print.
+// a legacy one) and returns the line to print, which says so when a session
+// without cadrei's markers holds the name.
 func (s Scope) StopTeam(team, project string) string {
 	if live := s.Live(team, project); live != "" && s.T.KillSession(live) == nil {
 		return "  " + live + " stopped"
+	}
+	if m := s.Unmarked(team, project); m != "" {
+		return "  " + m
 	}
 	return "  " + SessionName(s.Name, Key(team, project)) + " not running" + s.insteadNote(team, project)
 }
@@ -30,6 +34,9 @@ func (s Scope) StopRole(team, project, role string) string {
 		if session != "" && s.T.KillWindow(session, role) == nil {
 			return "  " + Bare(session) + "-" + role + " stopped"
 		}
+	}
+	if m := s.Unmarked(team, project); m != "" {
+		return "  " + m
 	}
 	return "  " + MemberName(s.Name, key, role) + " not running" + s.insteadNote(team, project)
 }

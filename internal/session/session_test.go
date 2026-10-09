@@ -518,8 +518,8 @@ func TestEnsureBuildRefusesALink(t *testing.T) {
 }
 
 // A session with this cadrei's home but no team or project markers is not
-// a team session: up refuses to start members in it, as stop and attach
-// do not match it.
+// a team session: up refuses to start members in it, and stop leaves it,
+// each saying how to stop it.
 func TestUpRefusesASessionWithoutMarkers(t *testing.T) {
 	tm := private(t)
 	c, _ := cadreiDir(t, "work")
@@ -530,7 +530,14 @@ func TestUpRefusesASessionWithoutMarkers(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "a session named cadrei-work-dev exists without cadrei's markers; stop it with tmux kill-session -t cadrei-work-dev, or cadrei stop --yes") {
 		t.Errorf("CheckSession: %v", err)
 	}
-	if line := s.StopTeam("dev", ""); !strings.Contains(line, "not running") {
+	want := "  a session named cadrei-work-dev exists without cadrei's markers; stop it with tmux kill-session -t cadrei-work-dev, or cadrei stop --yes"
+	if line := s.StopTeam("dev", ""); line != want {
 		t.Errorf("stop: %q", line)
+	}
+	if line := s.StopRole("dev", "", "x"); line != want {
+		t.Errorf("stop a role: %q", line)
+	}
+	if !tm.Has("cadrei-work-dev") || !tm.HasWindow("cadrei-work-dev", "x") {
+		t.Error("stop stopped it")
 	}
 }

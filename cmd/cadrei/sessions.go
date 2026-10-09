@@ -373,6 +373,9 @@ func runAttach(e *env) int {
 	s := scope(r)
 	live := s.Live(e.args[0], proj)
 	if live == "" {
+		if m := s.Unmarked(e.args[0], proj); m != "" {
+			return e.fail("%s", m)
+		}
 		if other := s.Instead(e.args[0], proj); other != "" {
 			return e.fail("%s is not running; %s runs under that session name", strings.TrimSpace(e.args[0]+" "+proj), other)
 		}

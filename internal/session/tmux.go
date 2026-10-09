@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Tmux runs tmux on the user's server, or on a private one when
@@ -23,11 +24,14 @@ type Tmux struct{ Socket string }
 // Default is the tmux cadre uses.
 func Default() Tmux { return Tmux{Socket: os.Getenv("CADRE_TMUX_SOCKET")} }
 
+// command runs a tmux client for cadre to read. -u marks the client as
+// UTF-8 whatever the locale, so tmux does not turn non-ASCII characters in
+// names and paths into "_" (a C locale, as on CI machines).
 func (t Tmux) command(args ...string) *exec.Cmd {
 	if t.Socket != "" {
 		args = append([]string{"-L", t.Socket}, args...)
 	}
-	return exec.Command("tmux", args...)
+	return exec.Command("tmux", append([]string{"-u"}, args...)...)
 }
 
 // run runs tmux and returns its output, trimmed.
@@ -48,17 +52,73 @@ func (t Tmux) Option(session, name string) string {
 	if err != nil {
 		return ""
 	}
-	return out
+	return unescape(out)
+}
+
+// recordable refuses an option value that tmux could not give back as it
+// is: Sessions and Personas read one line per session with fields split by
+// sep, and tmux escapes control characters and bytes that are not UTF-8 in
+// its output.
+func recordable(name, value string) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("cannot record %s in tmux: %q is not valid UTF-8", name, value)
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("cannot record %s in tmux: %q holds a tab, a line break or another control character", name, value)
+		}
+	}
+	for i := 0; i+2 < len(value); i++ {
+		if value[i] == '\\' && value[i+1] == '$' && dollarEscaped(value[i+2]) {
+			return fmt.Errorf("cannot record %s in tmux: %q holds a backslash before $, which tmux would not give back as it is", name, value)
+		}
+	}
+	return nil
+}
+
+// startDir passes a start folder to tmux's -c, which tmux expands as a
+// format: "##" is a literal "#", so a folder holding "#{" stays itself.
+func startDir(dir string) string { return strings.ReplaceAll(dir, "#", "##") }
+
+// dollarEscaped reports whether tmux 3.4 may write "$" followed by c as
+// "\$" in command output (utf8_strvis); later versions may not. tmux tests
+// c with the locale's isalpha, which in a UTF-8 locale on macOS is true for
+// the lead bytes of multibyte characters, so every byte from 0x80 counts.
+func dollarEscaped(c byte) bool {
+	return c == '_' || c == '{' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80
+}
+
+// unescape undoes that: it drops a backslash right before such a "$".
+// recordable refuses values that hold one, so this is exact for a tmux that
+// escapes and for one that does not.
+func unescape(s string) string {
+	if !strings.Contains(s, `\$`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+2 < len(s) && s[i+1] == '$' && dollarEscaped(s[i+2]) {
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // SetOption sets a session's user option.
 func (t Tmux) SetOption(session, name, value string) error {
+	if err := recordable(name, value); err != nil {
+		return err
+	}
 	_, err := t.run("set-option", "-q", "-t", "="+session+":", name, value)
 	return err
 }
 
 // SetWindowOption sets a window's user option.
 func (t Tmux) SetWindowOption(session, window, name, value string) error {
+	if err := recordable(name, value); err != nil {
+		return err
+	}
 	_, err := t.run("set-option", "-w", "-q", "-t", "="+session+":="+window, name, value)
 	return err
 }
@@ -108,7 +168,12 @@ type Info struct {
 	Target  string // @cadre_target: the project or folder it was started for
 }
 
-const sep = "\x1f" // a separator no name or path holds
+// sep splits the fields of tmux's -F output. tmux writes command output
+// through vis(3) with VIS_OCTAL|VIS_CSTYLE (3.4 does; later versions may
+// not), which turns control characters into escapes such as \037, except
+// tab and newline. So the separator is a tab, and recordable refuses tabs,
+// line breaks and every other control character in recorded values.
+const sep = "\t"
 
 // Sessions lists the cadre sessions on the server, with their options.
 func (t Tmux) Sessions() []Info {
@@ -123,7 +188,7 @@ func (t Tmux) Sessions() []Info {
 		if len(f) != 6 || !strings.HasPrefix(f[0], "cadre-") {
 			continue
 		}
-		list = append(list, Info{Name: f[0], Home: f[1], Team: f[2], Project: f[3], Role: f[4], Target: f[5]})
+		list = append(list, Info{Name: f[0], Home: unescape(f[1]), Team: unescape(f[2]), Project: unescape(f[3]), Role: unescape(f[4]), Target: unescape(f[5])})
 	}
 	return list
 }
@@ -142,7 +207,7 @@ func (t Tmux) Personas() []Persona {
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, sep)
 		if len(f) == 3 && strings.HasPrefix(f[0], "cadre-") {
-			list = append(list, Persona{f[0], f[1], f[2]})
+			list = append(list, Persona{f[0], f[1], unescape(f[2])})
 		}
 	}
 	return list
@@ -186,6 +251,11 @@ func (t Tmux) Start(s StartSpec) error {
 		// With one argument, tmux hands it to a shell.
 		return fmt.Errorf("tmux: a command needs at least two arguments to run without a shell")
 	}
+	for _, o := range append(append([]Option{}, s.SessionOptions...), s.WindowOptions...) {
+		if err := recordable(o.Name, o.Value); err != nil {
+			return err
+		}
+	}
 	var args []string
 	var bad error
 	// add escapes each word as it goes in; only the separators added below
@@ -201,9 +271,9 @@ func (t Tmux) Start(s StartSpec) error {
 	}
 	isNew := !t.Has(s.Session)
 	if isNew {
-		add("new-session", "-d", "-s", s.Session, "-n", s.Window, "-c", s.Dir)
+		add("new-session", "-d", "-s", s.Session, "-n", s.Window, "-c", startDir(s.Dir))
 	} else {
-		add("new-window", "-d", "-t", "="+s.Session+":", "-n", s.Window, "-c", s.Dir)
+		add("new-window", "-d", "-t", "="+s.Session+":", "-n", s.Window, "-c", startDir(s.Dir))
 	}
 	for _, e := range s.Env {
 		add("-e", e)

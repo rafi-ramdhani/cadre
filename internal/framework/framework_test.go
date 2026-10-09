@@ -3,6 +3,8 @@ package framework
 import (
 	"os"
 	"path/filepath"
+	goruntime "runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -85,5 +87,69 @@ func TestPlaced(t *testing.T) {
 	os.Chmod(filepath.Join(dir, "cadre"), 0o757)
 	if err := owned(filepath.Join(dir, "cadre")); err == nil || !strings.Contains(err.Error(), "other users can change") {
 		t.Errorf("a binary others can write: %v", err)
+	}
+}
+
+// Homebrew's prefix: Cellar, bin and opt are 775, the user's, group admin
+// (on macOS), and kegs are 755. Such a folder counts as the user's.
+func TestPlaceOf(t *testing.T) {
+	me := uint32(os.Getuid())
+	admin := uint32(80)
+	if goruntime.GOOS != "darwin" {
+		admin = uint32(os.Getgid())
+		dir := t.TempDir()
+		groupFile, passwdFile = filepath.Join(dir, "group"), filepath.Join(dir, "passwd")
+		defer func() { groupFile, passwdFile = "/etc/group", "/etc/passwd" }()
+		g := strconv.Itoa(os.Getgid())
+		os.WriteFile(passwdFile, []byte("me:x:"+strconv.Itoa(os.Getuid())+":"+g+"::/home/me:/bin/sh\n"), 0o644)
+		os.WriteFile(groupFile, []byte("me:x:"+g+":\n"), 0o644)
+	}
+	for _, tc := range []struct {
+		name         string
+		mode         os.FileMode
+		owner, group uint32
+		ok           bool
+	}{
+		{"a 775 Cellar of the user's, group admin", 0o775, me, admin, true},
+		{"a 755 keg", 0o755, me, admin, true},
+		{"root's 755 /opt", 0o755, 0, 0, true},
+		{"a world-writable folder", 0o777, me, admin, false},
+		{"a 775 folder of another group", 0o775, me, 12345, false},
+		{"another user's folder", 0o755, me + 1, admin, false},
+	} {
+		why := placeOf("/x", tc.mode, tc.owner, tc.group, me)
+		if (why == "") != tc.ok {
+			t.Errorf("%s: %q", tc.name, why)
+		}
+	}
+	if goruntime.GOOS != "darwin" {
+		// The user's group with another member is not the user's alone.
+		g := strconv.Itoa(os.Getgid())
+		os.WriteFile(groupFile, []byte("me:x:"+g+":someone\n"), 0o644)
+		if placeOf("/x", 0o775, me, uint32(os.Getgid()), me) == "" {
+			t.Error("a group with another member counted as the user's")
+		}
+	}
+}
+
+// The same with real folders: a Cellar of mode 775, group admin.
+func TestOwnedAcceptsHomebrewsPrefix(t *testing.T) {
+	if goruntime.GOOS != "darwin" {
+		t.Skip("the admin group is macOS's")
+	}
+	cellar, _ := filepath.EvalSymlinks(t.TempDir())
+	keg := filepath.Join(cellar, "cadre", "0.2.0", "bin")
+	os.MkdirAll(keg, 0o755)
+	os.WriteFile(filepath.Join(keg, "cadre"), []byte("x"), 0o755)
+	if err := os.Chown(cellar, -1, 80); err != nil {
+		t.Skip("cannot give a folder the admin group here:", err)
+	}
+	os.Chmod(cellar, 0o775)
+	if err := owned(filepath.Join(keg, "cadre")); err != nil {
+		t.Errorf("Homebrew's layout was refused: %v", err)
+	}
+	os.Chmod(cellar, 0o777)
+	if err := owned(filepath.Join(keg, "cadre")); err == nil {
+		t.Error("a world-writable Cellar was accepted")
 	}
 }

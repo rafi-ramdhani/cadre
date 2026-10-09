@@ -360,6 +360,12 @@ Open in the last bash PR (#11) when it was frozen; the Go code must get them rig
 
 ## Open points
 
+- **Staticcheck and Go 1.27 (2026-10-09)**: CI runs staticcheck 2026.2.1 on
+  the go.mod Go version only, since it cannot read the export data of Go
+  1.27.2, which the stable leg installs (releases build with stable). When a
+  staticcheck release supports Go 1.27, move the pin in
+  `.github/workflows/ci.yml` and drop the step's `if:`.
+
 - N.7 lists `Write(...)` deny entries; this design leaves them out (see
   Persona settings). The PM should confirm.
 - Whether hooks and the status line run as `cadre hook ...` (O), and how the

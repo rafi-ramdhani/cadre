@@ -32,7 +32,7 @@ func (e *env) firstRun(rt runtime.Runtime) bool {
 		e.fail("no cadrei yet; run cadrei in a terminal to set one up, or create one with cadrei init <name>")
 		return false
 	}
-	e.say("Welcome to cadrei: a team of %s sessions you lead from one conversation.", rt.Title())
+	e.say("Welcome to cadrei: a team of %s helpers you lead from one chat.", rt.Title())
 	choice, ok := e.answer("Start a new cadrei, or restore one from GitHub? [new/restore] ")
 	if !ok {
 		e.fail("input ended; nothing was changed")

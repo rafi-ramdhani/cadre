@@ -171,7 +171,7 @@ func runVersion(e *env) int {
 func runHelp(e *env) int {
 	switch {
 	case len(e.args) == 0:
-		e.say("cadrei: a team of Claude Code sessions you lead from one conversation\n")
+		e.say("cadrei: a team of Claude Code helpers you lead from one chat\n")
 		for _, c := range commands {
 			if c.group == "" && !c.hidden {
 				line(e, c)

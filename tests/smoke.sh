@@ -710,6 +710,15 @@ cp "$T/release/$archive" "$T/archive.good"; echo tampered >> "$T/release/$archiv
 check "a download that does not match its checksum is refused, and nothing changes" bash -c "! inst >/dev/null 2>&1; inst 2>&1 | grep -q 'does not match its checksum; nothing was installed' && cmp -s '$T/inst/cadre' '$T/rel/cadre'"
 cp "$T/archive.good" "$T/release/$archive"
 check "running it again upgrades in place" bash -c "inst >/dev/null 2>&1 && cmp -s '$T/inst/cadre' '$T/rel/cadre' && test ! -e '$T/inst/.cadre.new'"
+echo keep > "$T/planted"; ln -s "$T/planted" "$T/inst/.cadre.new"
+check "a link planted in the install folder is not written through" bash -c "inst >/dev/null 2>&1 && test \"\$(cat '$T/planted')\" = keep && cmp -s '$T/inst/cadre' '$T/rel/cadre' && test ! -L '$T/inst/cadre'"
+rm -f "$T/inst/.cadre.new"
+mkdir -p "$T/nosha"
+for t in sh curl tar awk mktemp uname mkdir cp chmod mv rm cat; do ln -sf "$(command -v "$t")" "$T/nosha/$t"; done
+check "without sha256sum or shasum it says so" bash -c "! PATH='$T/nosha' inst >/dev/null 2>&1; PATH='$T/nosha' inst 2>&1 | grep -q 'sha256sum or shasum is needed'"
+sed '$d' "$ROOT/install.sh" > "$T/install-cut.sh"
+check "a script that arrived in part does nothing" bash -c "test -z \"\$(CADRE_VERSION=9.9.9 CADRE_DOWNLOAD_URL='file://$T/release' CADRE_INSTALL_DIR='$T/inst-cut' sh '$T/install-cut.sh' 2>&1)\" && test ! -e '$T/inst-cut'"
+check "a download URL that is not https is refused" bash -c "CADRE_VERSION=9.9.9 CADRE_DOWNLOAD_URL=http://example.com CADRE_INSTALL_DIR='$T/inst-http' sh '$ROOT/install.sh' 2>&1 | grep -q 'must be an https:// or file:// URL' && test ! -e '$T/inst-http'"
 
 echo "help"
 check "help lists the visible commands" bash -c "cadre help | grep -q 'cadre stop' && ! cadre help | grep -q 'cadre allow'"

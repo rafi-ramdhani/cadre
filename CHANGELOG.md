@@ -51,7 +51,7 @@ Cadre is now one program, written in Go, that you install with Homebrew or a sma
 Nothing is migrated by code, and your old cadre is only read.
 
 1. **Stop your teams.** In 0.1.x: `cadre down --all`. Or after the upgrade: `cadre stop`, which also stops sessions 0.1.x started.
-2. **Install 0.2.0**: `brew install rafi-ramdhani/cadre/cadre`, or `curl -fsSL https://raw.githubusercontent.com/rafi-ramdhani/cadre/main/install.sh | sh`. If the new `cadre` is not the one your shell runs, the health check says which `cadre` comes first on your `PATH`.
+2. **Install 0.2.0**: `brew install rafi-ramdhani/cadre/cadre`, or `curl -fsSL --proto '=https' https://raw.githubusercontent.com/rafi-ramdhani/cadre/main/install.sh | sh`. If the new `cadre` is not the one your shell runs, the health check says which `cadre` comes first on your `PATH`.
 3. **Run `cadre`.** It creates a new cadre with the starter team and offers to point the skill link and the orchestrator hook at the new program. When it finds your 0.1.x cadre, it prints its path.
 4. **Tell the orchestrator: "bring in my old cadre from <path>".** It reads the old members, playbook, house rules, projects, permission mode and lasting grants, shows you one plan, and copies them on your yes. Projects are linked where they are. Grants go through `cadre allow`, so a rule it refuses is reported, not forced. One-time grants are not carried over.
 5. **Start teams again** as you need them. Members start new conversations under the new names.

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
 )
@@ -84,8 +85,14 @@ type sessions struct{}
 
 func (sessions) NewID() string              { return "fake-session" }
 func (sessions) Exists(id, dir string) bool { return os.Getenv("CADRE_FAKE_GONE") != id }
-func (sessions) ResumeFailed(output string) bool {
-	return strings.Contains(output, "no conversation found")
+
+// Transcript reads the fake's transcript, <dir>/.fake-transcripts/<id>,
+// which a test's stub agent writes to say it got going.
+func (sessions) Transcript(id, dir string) (time.Time, int64, bool) {
+	if st, err := os.Stat(filepath.Join(dir, ".fake-transcripts", id)); err == nil {
+		return st.ModTime(), st.Size(), true
+	}
+	return time.Time{}, 0, false
 }
 func (sessions) FromHook(input io.Reader) string {
 	line, _ := bufio.NewReader(input).ReadString('\n')

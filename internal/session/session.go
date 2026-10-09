@@ -3,7 +3,9 @@ package session
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 )
 
 // Names (section I.3): a team's tmux session is cadre-<cadre>-<team>, or
@@ -11,6 +13,17 @@ import (
 // member's Claude session name is <cadre>-<team>[-<project>]-<role>. Names
 // are addresses, never parsed: a session's cadre, team and project are its
 // tmux options.
+
+// partRule is a team or role name cadre starts. The name becomes part of
+// tmux and Claude session names and of a path under members/, so it may
+// use letters, digits, - and _; that keeps out . and .. too.
+var partRule = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
+// NameRule says what a team or role name may use.
+const NameRule = "team and member names may use letters, digits, - and _"
+
+// CheckName reports whether a team or role name can be started.
+func CheckName(name string) bool { return partRule.MatchString(name) }
 
 // Key is a team, or a team and its project.
 func Key(team, project string) string {
@@ -21,13 +34,19 @@ func Key(team, project string) string {
 }
 
 // SessionName is a team's tmux session.
-func SessionName(cadre, key string) string { return "cadre-" + cadre + "-" + key }
+func SessionName(cadre, key string) string { return tmuxName("cadre-" + cadre + "-" + key) }
+
+// tmuxName is a session name as tmux keeps it: tmux 3.4 and earlier turn
+// a "." into "_" (a project such as my.app), later ones keep it, so cadre
+// writes "_" for every version. Two projects whose names differ only
+// there are told apart by the session's @cadre_project.
+func tmuxName(name string) string { return strings.ReplaceAll(name, ".", "_") }
 
 // MemberName is a member's Claude session name.
 func MemberName(cadre, key, role string) string { return cadre + "-" + key + "-" + role }
 
 // LegacyName is the tmux session 0.1.x gave a team: no cadre in it.
-func LegacyName(key string) string { return "cadre-" + key }
+func LegacyName(key string) string { return tmuxName("cadre-" + key) }
 
 // Scope is the cadre a command acts on.
 type Scope struct {
@@ -54,32 +73,55 @@ func (s Scope) Running() []Info {
 	return out
 }
 
-// mine returns this cadre's own session for key, when it runs.
-func (s Scope) mine(key string) string {
-	name := SessionName(s.Name, key)
-	if s.T.Has(name) && s.T.Option(name, "@cadre_home") == s.Path {
+// mine returns this cadre's own session for team and project, when it
+// runs. The session name alone is not enough: my.app and my_app share
+// one, so the session's team and project must match too.
+func (s Scope) mine(team, project string) string {
+	name := SessionName(s.Name, Key(team, project))
+	if s.T.Has(name) && s.T.Option(name, "@cadre_home") == s.Path &&
+		s.T.Option(name, "@cadre_team") == team && s.T.Option(name, "@cadre_project") == project {
 		return name
 	}
 	return ""
 }
 
+// Instead says which of this cadre's teams runs under the session name
+// that team and project would have, when it is another one ("dev my.app"
+// for dev my_app), or "".
+func (s Scope) Instead(team, project string) string {
+	name := SessionName(s.Name, Key(team, project))
+	if !s.T.Has(name) || s.T.Option(name, "@cadre_home") != s.Path {
+		return ""
+	}
+	t, p := s.T.Option(name, "@cadre_team"), s.T.Option(name, "@cadre_project")
+	if t == team && p == project {
+		return ""
+	}
+	return strings.TrimSpace(t + " " + p)
+}
+
 // legacy returns, in the default cadre, the legacy session for key, when it
 // runs.
 func (s Scope) legacy(key string) string {
-	name := LegacyName(key)
-	if s.Default && s.T.Has(name) && s.T.Option(name, "@cadre_home") == "" {
-		return name
+	if !s.Default {
+		return ""
+	}
+	// tmux 3.5 and later kept a dot in a 0.1.x session's name.
+	for _, name := range []string{LegacyName(key), "cadre-" + key} {
+		if s.T.Has(name) && s.T.Option(name, "@cadre_home") == "" {
+			return name
+		}
 	}
 	return ""
 }
 
 // Live returns the session that runs key for this cadre: its own, else a
 // legacy one.
-func (s Scope) Live(key string) string {
-	if m := s.mine(key); m != "" {
+func (s Scope) Live(team, project string) string {
+	if m := s.mine(team, project); m != "" {
 		return m
 	}
-	return s.legacy(key)
+	return s.legacy(Key(team, project))
 }
 
 // CheckSession refuses when this cadre's session name for team and project

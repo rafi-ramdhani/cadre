@@ -111,7 +111,7 @@ When the user asks to "bring in my old cadre from <path>" (cadre points them her
 - `PERMISSION_MODE` into `cadre.conf`, and nothing else from it;
 - each lasting grant with `cadre allow add`, so its refusals and warnings apply: report a refused rule, never force it. One-time grants are not carried over.
 
-An old team with the same name as one here (the starter `dev` team) replaces it; say so in the plan.
+An old team with the same name as one here (the starter `dev` team) replaces it; say so in the plan. Team and member names may use letters, digits, `-` and `_`: an old name with a dot (such as `ml.ops`) cannot be started, so propose a new name for it in the plan (for example `ml-ops`), and change the playbook's mentions to match.
 
 **How**:
 1. Ask the user to stop any 0.1.x sessions still running (`cadre stop` covers them; they show as legacy in `cadre ls`). They start again under the new names.

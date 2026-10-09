@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rafi-ramdhani/cadre/internal/runtime"
 	"github.com/rafi-ramdhani/cadre/internal/runtime/fake"
 )
 
@@ -150,7 +151,7 @@ func TestTheOrchestratorResumes(t *testing.T) {
 	home := fakeCadre(t)
 	// It exits at once: with an error when asked to resume, as a runtime
 	// that lost the conversation does.
-	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\ncase \"$*\" in *'--fake-resume fake-session'*) echo 'no conversation found' >&2; exit 1 ;; esac\nexit 0\n"), 0o755)
+	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\ncase \"$*\" in *'--fake-resume fake-session'*) exit 1 ;; esac\nexit 0\n"), 0o755)
 	out := must(t)
 	if !strings.Contains(out, "The orchestrator: a new conversation.") {
 		t.Errorf("first: %q", out)
@@ -162,9 +163,11 @@ func TestTheOrchestratorResumes(t *testing.T) {
 	if runs := readFile(t, home+"/orch-runs"); strings.Count(runs, "--fake-name work-orchestrator") != 3 {
 		t.Errorf("runs:\n%s", runs)
 	}
-	// A resumed orchestrator that quits at once for another reason ends
-	// there, with its status: no new conversation opens.
-	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\nexit 3\n"), 0o755)
+	// A resumed orchestrator that got going (it wrote to its conversation)
+	// and then quit at once ends there, with its status: no new
+	// conversation opens.
+	transcripts := home + "/.cadre/work/.fake-transcripts"
+	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\nmkdir -p '"+transcripts+"' && touch '"+transcripts+"/fake-session'\nexit 3\n"), 0o755)
 	code, out, _ := call()
 	if code != 3 || strings.Contains(out, "resuming failed") {
 		t.Errorf("a quick quit: %d %q", code, out)
@@ -200,5 +203,33 @@ func TestTheOrchestratorResumesOnlyWhatCadreIssued(t *testing.T) {
 	// The one cadre issued is resumed.
 	if out := must(t); !strings.Contains(out, "The orchestrator: resumed its conversation.") {
 		t.Errorf("issued: %q", out)
+	}
+}
+
+// A transcript counts as written when its size changed, even when its time
+// did not (filesystems with 1 or 2 second times).
+func TestUntouchedReadsTheSizeToo(t *testing.T) {
+	fakeCadre(t)
+	rt, err := runtime.Get("fake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, ".fake-transcripts", "id")
+	if !untouched(rt, "id", dir, time.Time{}, 0) {
+		t.Error("a missing transcript was written")
+	}
+	os.MkdirAll(filepath.Dir(f), 0o755)
+	os.WriteFile(f, []byte("{}\n"), 0o600)
+	when := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	os.Chtimes(f, when, when)
+	mod, size, _ := rt.Sessions().Transcript("id", dir)
+	if !untouched(rt, "id", dir, mod, size) {
+		t.Error("an unchanged transcript was written")
+	}
+	os.WriteFile(f, []byte("{}\n{}\n"), 0o600)
+	os.Chtimes(f, when, when)
+	if untouched(rt, "id", dir, mod, size) {
+		t.Error("a transcript that grew in the same tick reads as untouched")
 	}
 }

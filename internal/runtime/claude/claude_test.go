@@ -65,8 +65,11 @@ func TestSessions(t *testing.T) {
 	if !ops.Exists(id, "/Users/me/.cadre/w") {
 		t.Error("a folder with a dot")
 	}
-	if !ops.ResumeFailed("No conversation found with session ID: "+id) || ops.ResumeFailed("Error: something else") {
-		t.Error("ResumeFailed")
+	if _, size, ok := ops.Transcript(id, "/Users/me/.cadre/w"); !ok || size != 3 {
+		t.Errorf("Transcript: %v %d", ok, size)
+	}
+	if _, _, ok := ops.Transcript(id, "/Users/me/other"); ok {
+		t.Error("Transcript in another folder")
 	}
 	if got := ops.FromHook(strings.NewReader(`{"session_id": "` + id + `", "source": "clear"}`)); got != id {
 		t.Errorf("FromHook %q", got)

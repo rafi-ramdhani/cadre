@@ -112,13 +112,13 @@ func TestUpStartsMembersWithTheirCadre(t *testing.T) {
 	if names := tm.MemberNames(scope.Running()[0]); strings.Join(names, ",") != "work-dev-engineer,work-dev-pm" {
 		t.Errorf("MemberNames %v", names)
 	}
-	if line := scope.StopRole("dev", "pm"); line != "  work-dev-pm stopped" {
+	if line := scope.StopRole("dev", "", "pm"); line != "  work-dev-pm stopped" {
 		t.Errorf("StopRole: %q", line)
 	}
-	if line := scope.StopTeam("dev"); line != "  cadre-work-dev stopped" {
+	if line := scope.StopTeam("dev", ""); line != "  cadre-work-dev stopped" {
 		t.Errorf("StopTeam: %q", line)
 	}
-	if line := scope.StopTeam("dev"); line != "  cadre-work-dev not running" {
+	if line := scope.StopTeam("dev", ""); line != "  cadre-work-dev not running" {
 		t.Errorf("StopTeam again: %q", line)
 	}
 }
@@ -206,8 +206,8 @@ func TestLegacySessions(t *testing.T) {
 	tm.command("new-session", "-d", "-s", "cadre-dev", "-n", "pm", "sleep", "60").Run()
 	def := Scope{Name: "work", Path: c, T: tm, Default: true}
 	other := Scope{Name: "work", Path: c, T: tm}
-	if def.Live("dev") != "cadre-dev" || other.Live("dev") != "" {
-		t.Errorf("Live: default %q, other %q", def.Live("dev"), other.Live("dev"))
+	if def.Live("dev", "") != "cadre-dev" || other.Live("dev", "") != "" {
+		t.Errorf("Live: default %q, other %q", def.Live("dev", ""), other.Live("dev", ""))
 	}
 	if len(def.Running()) != 1 || len(other.Running()) != 0 {
 		t.Errorf("Running: default %d, other %d", len(def.Running()), len(other.Running()))
@@ -218,8 +218,14 @@ func TestLegacySessions(t *testing.T) {
 	if !strings.Contains(out.String(), "dev-pm already running (legacy session cadre-dev") {
 		t.Errorf("up with a legacy session: %q", out.String())
 	}
-	if line := def.StopTeam("dev"); line != "  cadre-dev stopped" {
+	if line := def.StopTeam("dev", ""); line != "  cadre-dev stopped" {
 		t.Errorf("stop a legacy team: %q", line)
+	}
+	// tmux 3.5 and later kept a dot in a 0.1.x session's name; 3.4 made
+	// it "_". Either is found.
+	tm.command("new-session", "-d", "-s", "cadre-dev-my.app", "-n", "pm", "sleep", "60").Run()
+	if line := def.StopTeam("dev", "my.app"); !strings.HasSuffix(line, " stopped") {
+		t.Errorf("stop a dotted legacy team: %q", line)
 	}
 }
 
@@ -422,8 +428,10 @@ type resumableOps struct{ gone string }
 
 func (o resumableOps) NewID() string              { return "new-id" }
 func (o resumableOps) Exists(id, dir string) bool { return id != o.gone }
-func (o resumableOps) ResumeFailed(string) bool   { return false }
-func (o resumableOps) FromHook(io.Reader) string  { return "" }
+func (o resumableOps) Transcript(string, string) (time.Time, int64, bool) {
+	return time.Time{}, 0, false
+}
+func (o resumableOps) FromHook(io.Reader) string { return "" }
 
 func TestPlan(t *testing.T) {
 	dir := t.TempDir()
@@ -454,6 +462,38 @@ func TestPlan(t *testing.T) {
 	Forget(record)
 	if ReadRecord(record) != nil {
 		t.Error("Forget")
+	}
+}
+
+// tmux reads a dot in a target as the start of a pane, so a project such
+// as my.app is named with the colon that ends the session part: it can be
+// found, listed, attached to and stopped.
+func TestADottedProjectIsFoundStoppedAndAttached(t *testing.T) {
+	tm := private(t)
+	c, stub := cadreDir(t, "work")
+	if out, failed := up(tm, c, stub, "dev", "pm", "my.app"); failed {
+		t.Fatalf("up: %s", out)
+	}
+	// tmux 3.4 turns the dot into "_"; cadre names it so on every version.
+	name := "cadre-work-dev-my_app"
+	if !tm.Has(name) || tm.Has("cadre-work-dev-my") || SessionName("work", "dev-my.app") != name {
+		t.Fatalf("Has: %v", tm.Has(name))
+	}
+	if w := tm.Windows(name); len(w) != 1 || w[0] != "pm" {
+		t.Errorf("Windows: %q", w)
+	}
+	// Without a terminal, tmux finds the session and then cannot open the
+	// terminal; a target it cannot read fails before that.
+	out, _ := tm.command(attachArgs(name, false)...).CombinedOutput()
+	if !strings.Contains(string(out), "not a terminal") {
+		t.Errorf("attach: %s", out)
+	}
+	if args := attachArgs(name, true); args[0] != "switch-client" || args[2] != "="+name+":" {
+		t.Errorf("switch-client: %q", args)
+	}
+	s := Scope{Name: "work", Path: c, T: tm}
+	if line := s.StopTeam("dev", "my.app"); line != "  "+name+" stopped" || tm.Has(name) {
+		t.Errorf("stop: %q", line)
 	}
 }
 

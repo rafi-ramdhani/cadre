@@ -143,7 +143,7 @@ func (e *env) hookFindings(rt runtime.Runtime) []finding {
 		if cadres.GetState(cadres.HookKept) == pair {
 			continue
 		}
-		f := finding{Problem: runtime.Problem{What: "the orchestrator hook runs " + display(p) + ", not this cadre (" + display(bin) + ")",
+		f := finding{Problem: runtime.Problem{What: "the orchestrator hook runs " + display(p) + ", not this cadre (" + cadres.Tilde(bin) + ")",
 			Fix: "run cadre in a terminal and answer yes"}}
 		if placed != nil {
 			f.Fix = "install cadre (with Homebrew or install.sh) and run it from there; " + placed.Error()

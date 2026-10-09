@@ -1,0 +1,101 @@
+// Package paths resolves physical paths and the folders cadrei uses.
+package paths
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+
+	"golang.org/x/sys/unix"
+)
+
+// maxLinks bounds symlink resolution, so a loop ends. For a loop, the
+// path Real returns differs from Python's (each stops at a different link
+// of the loop); neither resolves it, and no check relies on that path.
+const maxLinks = 255
+
+// Real returns the physical form of p: every symlink along the way is
+// resolved and "." and ".." are applied to the resolved path, as Python's
+// os.path.realpath does. Unlike filepath.EvalSymlinks it works for paths
+// that do not exist: from the first missing part on, the rest is kept as
+// written. A relative p is taken from the current folder.
+func Real(p string) string {
+	if !filepath.IsAbs(p) {
+		wd, err := os.Getwd()
+		if err != nil {
+			wd = "/"
+		}
+		p = wd + "/" + p
+	}
+	rest := strings.Split(p, "/")
+	cur, links := "/", 0
+	for len(rest) > 0 {
+		name := rest[0]
+		rest = rest[1:]
+		switch name {
+		case "", ".":
+			continue
+		case "..":
+			cur = filepath.Dir(cur)
+			continue
+		}
+		next := filepath.Join(cur, name)
+		fi, err := os.Lstat(next)
+		if err != nil || fi.Mode()&os.ModeSymlink == 0 || links >= maxLinks {
+			cur = next
+			continue
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			cur = next
+			continue
+		}
+		links++
+		if filepath.IsAbs(target) {
+			cur = "/"
+		}
+		rest = append(strings.Split(target, "/"), rest...)
+	}
+	return cur
+}
+
+// Home is the user's home folder, physical. HOME wins, so tests can use a
+// fake one.
+func Home() string {
+	h := os.Getenv("HOME")
+	if h == "" {
+		h, _ = os.UserHomeDir()
+	}
+	return Real(h)
+}
+
+// Within reports whether path is dir or inside it. Both should be physical.
+func Within(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, "/")+"/")
+}
+
+// Inside reports whether path is the folder dir or inside it. Folders are
+// compared by identity (os.SameFile) as well as by spelling, so another
+// spelling of the same folder matches: on macOS's case-insensitive disk,
+// ~/.CADREI/WORK is ~/.cadrei/work.
+func Inside(path, dir string) bool {
+	if Within(path, dir) {
+		return true
+	}
+	target, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	for p := path; ; p = filepath.Dir(p) {
+		if st, err := os.Stat(p); err == nil && os.SameFile(st, target) {
+			return true
+		}
+		if p == "/" || p == "." {
+			return false
+		}
+	}
+}
+
+// Getwd is the current folder as the kernel has it, not $PWD, which keeps
+// whatever spelling the user typed.
+func Getwd() (string, error) { return unix.Getwd() }

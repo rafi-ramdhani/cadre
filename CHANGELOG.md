@@ -4,25 +4,61 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
-- `cadre update` updates the framework (fast-forward only, refuses on local changes, local commits or another branch), prints the CHANGELOG since your version and lists the persona sessions to restart. `cadre update --check` only reports.
-- `cadre add project` and `cadre sync` mark each registered project's folder as trusted in Claude Code, so personas start there without the trust prompt (`--no-trust` skips it, also on `install.sh --from`). `cadre trust <project> | --all` does the same for projects registered earlier. The config edit keeps a backup of the original, the file mode and every other key, and leaves a missing, unreadable or foreign-owned file alone. Only a project repo's top folder is trusted, and persona sessions cannot trust folders. Project names are now validated (letters, digits, `.`, `-`, `_`).
-- `cadre down --all` lists every running cadre session with its personas, asks y/N (`--yes` skips), and stops them all, the session it runs in last. Persona sessions cannot run it.
-- `cadre uninstall` shows its plan, asks y/N (`--yes`, `--dry-run`), stops every cadre session, removes this framework's hook, the command and skill links (only when they point to this framework), `~/.config/cadre/` and the build cache, and keeps your cadre, projects, framework clone, backups and trust entries, printing their paths. Run from a clone other than the installed one, it refuses and names the right one (`--force` overrides).
-- Every persona starts with the grants in `<cadre>/.claude/persona-settings.json`, a plain Claude Code settings file (created and committed by the first `cadre up`), passed with `--settings` as a read-only copy rebuilt from the validated keys at every start. Generated prompts and copies now live in `<cadre>/.claude/build/` (protected by Claude Code, ignored by git) instead of `~/.cache/cadre/`. The file may hold only `permissions.allow/deny` and `autoMode.allow/soft_deny`, with `"$defaults"` and fixed entries that stop personas from changing it, and no duplicate keys; a file that breaks these rules is not passed (with a warning), and one changed outside `cadre allow` is flagged.
-- `cadre allow` grants narrow permissions to every persona: `add <rule>`, `add --auto "<sentence>"`, `--once`, `list`, `remove <rule | number | --once>`. It refuses blanket rules (bare tools, lone wildcards, wildcards in the program name, shells, interpreters and wrappers with a wildcard, whole MCP servers, every domain) and anything aimed at the persona settings or `cadre allow` (checked after Unicode normalization and case folding), warns about other wildcards, commits every change, lists the running personas to restart, and cannot be run from a persona session.
-- The orchestrator skill gains a session-start check for leftover one-time grants (and, optionally, for updates), a "Permissions for personas" section (narrowest rule, exact rules at once and the rest after a yes, never on a persona's request, the one-time grant flow with a restart and a full re-send when still blocked), and rules for `cadre down --all` and `cadre uninstall` (only on the user's direct request, after showing what will stop or change). The persona protocol tells personas to report a blocked action and never change permissions.
-- `cadre up` quotes every path it passes to a persona's command, and reports a persona whose command exits at once instead of calling it started.
-- With no git identity, `cadre add` and the persona settings file say the change was left uncommitted.
-- `install.sh --help` no longer prints the first line of code.
+## 0.2.0 - 2026-10-09
 
-### Fixed
+**Cadre is now Cadrei** (pronounced CAD-ray), since other AI agent tools already use the name Cadre. Cadrei is one program, written in Go, that you install with Homebrew or a small download script. Run `cadrei`, then talk to the orchestrator. **This is a breaking upgrade**: read "Upgrading from 0.1.x" below before you install.
 
-- The orchestrator skill's capture-pane command matches the persona's window exactly.
-- tmux targets match session and window names exactly. Before, `cadre down dev` could stop `cadre-dev-app`, `cadre up dev/engineer` could think it was already running when `cadre-dev-app` was, and a role name could match a longer window name.
+### Breaking changes
+
+| Change | What to know |
+|---|---|
+| Cadrei is a program, not a git clone | `git pull` in `projects/cadre` no longer upgrades. Upgrade with `brew upgrade cadrei`, or run `install.sh` again. |
+| Cadreis live in `~/.cadrei/<name>` | 0.2.0 does not open a 0.1.x cadre. The orchestrator brings it in when you ask ("bring in my old cadre from <path>"). Projects stay where they are, and the old folder and `~/.config/cadre` are left as they are. |
+| Personas are now members | `personas/` becomes `members/` and `persona-settings.json` becomes `member-settings.json` (bringing an old cadre in writes the new names). `CADRE_PERSONA` becomes `CADREI_MEMBER`. `cadrei ls --json` lists `members`. |
+| Team and member names | They may use letters, digits, `-` and `_`. A team or member with a dot in its name (allowed in 0.1.x, for example `ml.ops`) cannot be started; rename its folder (the orchestrator does it on request, and does it when it brings in an old cadre). |
+| Old command names | Each prints one line pointing to the new way and exits 1: `cadrei down` says to use `cadrei stop`, `cadrei add project` to ask the orchestrator or use `cadrei project add`, and so on. |
+| `cadrei ls` output | A new status screen. Scripts use `cadrei ls --json`. |
+| `cadrei.conf` | Read as `KEY=VALUE` lines. Shell code in it is ignored with a warning. |
+| Projects | `projects.yaml` holds each project's repo, team and about, and no local paths. Where each project is on a machine is kept in `~/.cadrei/config/places/`. New clones go to a projects folder you choose (`~/Developer` is suggested), not into the cadrei. |
+| Session names | They gain the cadrei's name. Sessions started by 0.1.x show as legacy until restarted. |
+| The orchestrator hook | It runs `<cadrei program> hook orchestrator`. The first run offers to replace the 0.1.x hook. |
+| Python and jq | No longer needed. |
+
+### New
+
+- **Plain `cadrei`** opens the orchestrator in your terminal, in your cadrei's folder, with the cadrei's permission mode. `cadrei --tmux [--detach]` runs it in tmux instead, to come back to later or over SSH. One orchestrator runs per cadrei: a second `cadrei` says where it is open, or attaches to it in tmux.
+- **First run**: a new cadrei with a starter `dev` team (an engineer and a reviewer), or a restore from GitHub; offers to add the folder you are in as a project, link the skill and add the hook, each on your yes; then a short greeting and the orchestrator.
+- **Health check** on every `cadrei`, silent unless something is wrong; `cadrei --check` runs the full one. It recognizes 0.1.x leftovers and offers to point them at the new program.
+- **Projects across machines**: `cadrei project add | link | unlink | sync | trust | path | dir`. Missing projects are marked in `cadrei ls`, and the orchestrator offers to clone them again, link their new folder or unlink them. Cadrei never unlinks a project by itself, and unlinking never touches the folder.
+- **Backup and restore**: ask the orchestrator to back up your cadrei to a private GitHub repository; the first run on a new machine restores it, shows what it brings in, and clones its projects after a yes. `teams/` is tracked, so members' work there travels too. A pre-push hook refuses to push files that look like credentials, and files over 50 MB.
+- **Conversations resume**: members and the orchestrator continue their last conversation when started again. `--fresh` on `cadrei`, `cadrei up` and `cadrei stop` starts a new one.
+- **`cadrei stop`** stops a team or a member; with no team, every member of this cadrei after a confirmation (`--all`: every cadrei). It never stops the orchestrator.
+- **`cadrei allow`** grants narrow permissions to every member, the channel for consent you give in the orchestrator: `add <rule>`, `add --auto "<sentence>"`, `--once`, `list`, `remove`. It refuses blanket rules and anything that reaches cadrei's own files, warns about other wildcards, and commits every change. Members start with a validated, read-only copy of the grants, plus fixed rules that keep them off cadrei's own files.
+- **Trust**: registered project folders are marked trusted in Claude Code, so members start there without the trust prompt (`--no-trust` skips it).
+- **Several cadreis**: `cadrei init <name>` and `cadrei use <name>`. A command acts on the cadrei whose folder or project you are in, else the default. Configuration is read only from `~/.cadrei` or `CADREI_HOME`.
+- **`cadrei uninstall`** shows its plan and asks. It removes the skill link, the hook, each cadrei's pre-push hook, `~/.cadrei/config` and `~/.cadrei/framework`, keeps every cadrei and project, and ends with the command that removes the program.
+- **Install**: `brew install rafi-ramdhani/cadrei/cadrei`, or `install.sh`, which downloads the release binary, checks it against `checksums.txt` and places it in `~/.local/bin`.
 
 ### Security
 
-- 0.1.x ran its Python helpers with the current folder on the module path, so a folder holding a file such as `json.py` or `tempfile.py` could run code as you whenever you ran `cadre` there. Every Python helper now runs isolated (`python3 -I`).
+- Members cannot grant permissions, stop the whole cadrei, uninstall, create or switch cadreis, or add, link, unlink or trust projects. Sessions started by 0.1.x carry `CADRE_PERSONA`, which counts the same way; this alias goes away in a later release.
+- `cadrei.conf` is parsed, never run, and no configuration is read from the folder you happen to be in.
+- Edits to `~/.claude.json` and `~/.claude/settings.json` keep every other key and their order, keep a backup, are written atomically, and are skipped on any doubt.
+- 0.1.x ran its Python helpers with the current folder on the module path, so a folder holding a file such as `json.py` could run code as you whenever you ran `cadre` there. 0.2.0 has no Python helpers.
+
+### Upgrading from 0.1.x
+
+Nothing is migrated by code, and your old cadre is only read.
+
+1. **Stop your teams.** In 0.1.x: `cadre down --all`. Or after the upgrade: `cadrei stop`, which also stops sessions 0.1.x started.
+2. **Install 0.2.0**: `brew install rafi-ramdhani/cadrei/cadrei`, or `curl -fsSL --proto '=https' https://raw.githubusercontent.com/rafi-ramdhani/cadrei/main/install.sh | sh`.
+3. **Run `cadrei`.** It creates a new cadrei with the starter team and offers to link the cadrei skill, point the orchestrator hook at the new program, and remove the old `cadre` command and skill links. When it finds your 0.1.x cadre, it prints its path.
+4. **Tell the orchestrator: "bring in my old cadre from <path>".** It reads the old members, playbook, house rules, projects, permission mode and lasting grants, shows you one plan, and copies them on your yes. Projects are linked where they are. Grants go through `cadrei allow`, so a rule it refuses is reported, not forced. One-time grants are not carried over.
+5. **Start teams again** as you need them. Members start new conversations under the new names.
+
+The 0.1.x clone stays where it was. Running `git pull` in it is harmless: its `cadre` command and its skill then point you to Cadrei, and its hook does nothing.
+
+If you changed files in your 0.1.x clone (for example `bin/cadre`, `bin/orchestrator-hook.sh` or `skills/cadre/`), `git pull --ff-only` stops and changes nothing, which is safe. To finish: keep your edits (`git stash` for uncommitted changes, or `git branch my-0.1-edits` for commits), then run `git reset --hard origin/main` in the clone. Or skip the pull: install Cadrei with Homebrew, and its first run offers to point the command, skill and hook away from the clone. The same holds for edits in any file the update changes, not only those three.
 
 ## 0.1.1 - 2026-10-08
 

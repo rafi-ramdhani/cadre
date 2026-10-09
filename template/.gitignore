@@ -1,3 +1,23 @@
 .DS_Store
-# Project repos live here but are their own git repos; projects.yaml links them.
-/projects/
+# teams/ is tracked, so the work members keep there is backed up with the
+# cadrei. Generated and bulky files are not.
+node_modules/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.next/
+.cache/
+dist/
+target/
+coverage/
+*.log
+# What cadrei generates for each start: prompts, settings copies, locks.
+/.claude/build/
+# Environment files hold secrets; their templates are meant to be shared.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.env.dist

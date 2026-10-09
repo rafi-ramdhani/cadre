@@ -1,0 +1,390 @@
+// Package session runs member sessions: Claude Code sessions in tmux,
+// one tmux session per team (and project), one window per role. It names
+// them, records which cadrei each belongs to, and starts, lists and stops
+// them.
+package session
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+)
+
+// Tmux runs tmux on the user's server, or on a private one when
+// CADREI_TMUX_SOCKET names a socket (tests use that). Commands are always
+// run with their arguments as they are, never through a shell, and every
+// target is exact (=name), since tmux otherwise matches prefixes and
+// cadre 0.1.x's down dev once stopped cadre-dev-app.
+type Tmux struct{ Socket string }
+
+// Default is the tmux cadrei uses.
+func Default() Tmux { return Tmux{Socket: os.Getenv("CADREI_TMUX_SOCKET")} }
+
+// command runs a tmux client for cadrei to read. -u marks the client as
+// UTF-8 whatever the locale, so tmux does not turn non-ASCII characters in
+// names and paths into "_" (a C locale, as on CI machines).
+func (t Tmux) command(args ...string) *exec.Cmd {
+	if t.Socket != "" {
+		args = append([]string{"-L", t.Socket}, args...)
+	}
+	return exec.Command("tmux", append([]string{"-u"}, args...)...)
+}
+
+// run runs tmux and returns its output, trimmed.
+func (t Tmux) run(args ...string) (string, error) {
+	out, err := t.command(args...).CombinedOutput()
+	return strings.TrimRight(string(out), "\n"), err
+}
+
+// target names a session exactly. The colon ends the session part, so a
+// dot in the name (a project such as my.app) is not read as a pane.
+func target(session string) string { return "=" + session + ":" }
+
+// attachArgs attaches to session, or switches the client to it when this
+// process already runs inside tmux.
+func attachArgs(session string, inside bool) []string {
+	if inside {
+		return []string{"switch-client", "-t", target(session)}
+	}
+	return []string{"attach", "-t", target(session)}
+}
+
+// Has reports whether a session called name runs.
+func (t Tmux) Has(name string) bool {
+	_, err := t.run("has-session", "-t", target(name))
+	return err == nil
+}
+
+// Option reads a session's user option ("" when unset or no session).
+func (t Tmux) Option(session, name string) string {
+	out, err := t.run("show-options", "-qv", "-t", target(session), name)
+	if err != nil {
+		return ""
+	}
+	return unescape(out)
+}
+
+// recordable refuses an option value that tmux could not give back as it
+// is: Sessions and Members read one line per session with fields split by
+// sep, and tmux escapes control characters and bytes that are not UTF-8 in
+// its output.
+func recordable(name, value string) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("cannot record %s in tmux: %q is not valid UTF-8", name, value)
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("cannot record %s in tmux: %q holds a tab, a line break or another control character", name, value)
+		}
+	}
+	for i := 0; i+2 < len(value); i++ {
+		if value[i] == '\\' && value[i+1] == '$' && dollarEscaped(value[i+2]) {
+			return fmt.Errorf("cannot record %s in tmux: %q holds a backslash before $, which tmux would not give back as it is", name, value)
+		}
+	}
+	return nil
+}
+
+// startDir passes a start folder to tmux's -c, which tmux expands as a
+// format: "##" is a literal "#", so a folder holding "#{" stays itself.
+func startDir(dir string) string { return strings.ReplaceAll(dir, "#", "##") }
+
+// dollarEscaped reports whether tmux 3.4 may write "$" followed by c as
+// "\$" in command output (utf8_strvis); later versions may not. tmux tests
+// c with the locale's isalpha, which in a UTF-8 locale on macOS is true for
+// the lead bytes of multibyte characters, so every byte from 0x80 counts.
+func dollarEscaped(c byte) bool {
+	return c == '_' || c == '{' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80
+}
+
+// unescape undoes that: it drops a backslash right before such a "$".
+// recordable refuses values that hold one, so this is exact for a tmux that
+// escapes and for one that does not.
+func unescape(s string) string {
+	if !strings.Contains(s, `\$`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+2 < len(s) && s[i+1] == '$' && dollarEscaped(s[i+2]) {
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// SetOption sets a session's user option.
+func (t Tmux) SetOption(session, name, value string) error {
+	if err := recordable(name, value); err != nil {
+		return err
+	}
+	_, err := t.run("set-option", "-q", "-t", target(session), name, value)
+	return err
+}
+
+// SetWindowOption sets a window's user option.
+func (t Tmux) SetWindowOption(session, window, name, value string) error {
+	if err := recordable(name, value); err != nil {
+		return err
+	}
+	_, err := t.run("set-option", "-w", "-q", "-t", target(session)+"="+window, name, value)
+	return err
+}
+
+// Windows lists a session's window names.
+func (t Tmux) Windows(session string) []string {
+	out, err := t.run("list-windows", "-t", target(session), "-F", "#W")
+	if err != nil || out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
+}
+
+// HasWindow reports whether session has a window called name.
+func (t Tmux) HasWindow(session, name string) bool {
+	for _, w := range t.Windows(session) {
+		if w == name {
+			return true
+		}
+	}
+	return false
+}
+
+// PaneDead reports whether a window's command has ended (a dead pane is
+// kept when the user's tmux sets remain-on-exit).
+func (t Tmux) PaneDead(session, window string) bool {
+	out, err := t.run("list-panes", "-t", target(session)+"="+window, "-F", "#{pane_dead}")
+	return err == nil && strings.HasPrefix(out, "1")
+}
+
+// PanePID is the pid of the command running in a window.
+func (t Tmux) PanePID(session, window string) (int, error) {
+	out, err := t.run("display", "-p", "-t", target(session)+"="+window, "#{pane_pid}")
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(out))
+}
+
+// Info is what cadrei records on a session.
+type Info struct {
+	Name    string // the tmux session
+	Home    string // @cadrei_home: its cadrei's physical path; "" for a legacy session, or one without cadrei's markers
+	Team    string // @cadrei_team
+	Project string // @cadrei_project
+	Role    string // @cadrei_role: "orchestrator", or "" for a team's session
+	Target  string // @cadrei_target: the project or folder it was started for
+}
+
+// Legacy reports whether a session was started by cadre 0.1.x: a cadre-
+// name, and no home.
+func (i Info) Legacy() bool { return i.Home == "" && strings.HasPrefix(i.Name, legacyPrefix) }
+
+// sep splits the fields of tmux's -F output. tmux writes command output
+// through vis(3) with VIS_OCTAL|VIS_CSTYLE (3.4 does; later versions may
+// not), which turns control characters into escapes such as \037, except
+// tab and newline. So the separator is a tab, and recordable refuses tabs,
+// line breaks and every other control character in recorded values.
+const sep = "\t"
+
+// Sessions lists the cadrei sessions on the server, with their options.
+func (t Tmux) Sessions() []Info {
+	format := strings.Join([]string{"#S", "#{@cadrei_home}", "#{@cadrei_team}", "#{@cadrei_project}", "#{@cadrei_role}", "#{@cadrei_target}"}, sep)
+	out, err := t.run("list-sessions", "-F", format)
+	if err != nil || out == "" {
+		return nil
+	}
+	var list []Info
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Split(line, sep)
+		if len(f) != 6 || !Started(f[0]) {
+			continue
+		}
+		list = append(list, Info{Name: f[0], Home: unescape(f[1]), Team: unescape(f[2]), Project: unescape(f[3]), Role: unescape(f[4]), Target: unescape(f[5])})
+	}
+	return list
+}
+
+// Member is a window and the Claude session name recorded on it.
+type Member struct{ Session, Window, Name string }
+
+// Members lists every window of every cadrei session with its
+// @cadrei_member (empty for windows from before it was recorded).
+func (t Tmux) Members() []Member {
+	out, err := t.run("list-windows", "-a", "-F", strings.Join([]string{"#S", "#W", "#{@cadrei_member}"}, sep))
+	if err != nil || out == "" {
+		return nil
+	}
+	var list []Member
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Split(line, sep)
+		if len(f) == 3 && Started(f[0]) {
+			list = append(list, Member{f[0], f[1], unescape(f[2])})
+		}
+	}
+	return list
+}
+
+// Option is a tmux user option to set.
+type Option struct{ Name, Value string }
+
+// StartSpec is a window to start.
+type StartSpec struct {
+	Session, Window, Dir string
+	Env                  []string // KEY=value
+	Argv                 []string // at least the program and one argument
+	SessionOptions       []Option // set on a new session, in the same tmux command
+	SessionHooks         []Option // set-hook on a new session: hook name and its tmux command
+	WindowOptions        []Option
+}
+
+// word passes one argument to tmux as it is. tmux splits its command line
+// at an argument that is or ends with ";", and reads a trailing "\;" as a
+// literal ";", so a trailing ";" is escaped; an argument that already ends
+// in "\;" is refused, since tmux would change it.
+func word(w string) (string, error) {
+	switch {
+	case strings.HasSuffix(w, `\;`):
+		return "", fmt.Errorf("cannot pass %q to tmux: it ends in a backslash and a semicolon", w)
+	case strings.HasSuffix(w, ";"):
+		return w[:len(w)-1] + `\;`, nil
+	}
+	return w, nil
+}
+
+// Start runs argv in a new window of the session (a new session when it
+// does not run yet), in dir, with env added, and sets the options in the
+// same tmux command, so no other cadrei command sees the session without
+// them. The command runs as it is: with several arguments, tmux execs it
+// without a shell (and -e on new-session needs tmux 3.2), so no value
+// needs quoting.
+func (t Tmux) Start(s StartSpec) error {
+	if len(s.Argv) < 2 {
+		// With one argument, tmux hands it to a shell.
+		return fmt.Errorf("tmux: a command needs at least two arguments to run without a shell")
+	}
+	for _, o := range append(append([]Option{}, s.SessionOptions...), s.WindowOptions...) {
+		if err := recordable(o.Name, o.Value); err != nil {
+			return err
+		}
+	}
+	var args []string
+	var bad error
+	// add escapes each word as it goes in; only the separators added below
+	// are bare ";".
+	add := func(words ...string) {
+		for _, w := range words {
+			e, err := word(w)
+			if err != nil && bad == nil {
+				bad = err
+			}
+			args = append(args, e)
+		}
+	}
+	isNew := !t.Has(s.Session)
+	if isNew {
+		add("new-session", "-d", "-s", s.Session, "-n", s.Window, "-c", startDir(s.Dir))
+	} else {
+		add("new-window", "-d", "-t", target(s.Session), "-n", s.Window, "-c", startDir(s.Dir))
+	}
+	for _, e := range s.Env {
+		add("-e", e)
+	}
+	add("--")
+	add(s.Argv...)
+	set := func(flag, target string, o Option) {
+		args = append(args, ";")
+		add("set-option", flag, "-t", target, o.Name, o.Value)
+	}
+	if isNew {
+		for _, o := range s.SessionOptions {
+			set("-q", target(s.Session), o)
+		}
+		for _, h := range s.SessionHooks {
+			args = append(args, ";")
+			add("set-hook", "-t", target(s.Session), h.Name, h.Value)
+		}
+	}
+	for _, o := range s.WindowOptions {
+		set("-wq", target(s.Session)+"="+s.Window, o)
+	}
+	if bad != nil {
+		return bad
+	}
+	if out, err := t.run(args...); err != nil && t.Has(s.Session) {
+		return fmt.Errorf("tmux: %s", out)
+	}
+	// A command that ended at once took its session with it before the
+	// options were set; the caller's start check reports that.
+	return nil
+}
+
+// KillSession stops a session.
+func (t Tmux) KillSession(name string) error {
+	_, err := t.run("kill-session", "-t", target(name))
+	return err
+}
+
+// KillWindow stops one window of a session.
+func (t Tmux) KillWindow(session, window string) error {
+	_, err := t.run("kill-window", "-t", target(session)+"="+window)
+	return err
+}
+
+// Version returns tmux's major and minor version, or an error when tmux
+// is missing.
+func (t Tmux) Version() (int, int, error) {
+	out, err := exec.Command("tmux", "-V").Output()
+	if err != nil {
+		return 0, 0, errors.New("tmux is not installed")
+	}
+	v := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "tmux"))
+	v = strings.TrimPrefix(v, "next-")
+	majorText, rest, _ := strings.Cut(v, ".")
+	major, err := strconv.Atoi(majorText)
+	if err != nil {
+		return 0, 0, fmt.Errorf("cannot read the tmux version %q", out)
+	}
+	minor := 0
+	for i := 0; i < len(rest) && rest[i] >= '0' && rest[i] <= '9'; i++ {
+		minor = minor*10 + int(rest[i]-'0')
+	}
+	return major, minor, nil
+}
+
+// Own returns the cadrei session this process runs in, if any: $TMUX names
+// a session on the same tmux server.
+func (t Tmux) Own() string {
+	tmuxEnv, pane := os.Getenv("TMUX"), os.Getenv("TMUX_PANE")
+	if tmuxEnv == "" || pane == "" {
+		return ""
+	}
+	socket, _, _ := strings.Cut(tmuxEnv, ",")
+	if path, err := t.run("display", "-p", "-t", pane, "#{socket_path}"); err != nil || path != socket {
+		return ""
+	}
+	name, err := t.run("display", "-p", "-t", pane, "#S")
+	if err != nil || !Started(name) {
+		return ""
+	}
+	return name
+}
+
+// Attach replaces this process with tmux attached to session (or switches
+// the client when already inside tmux).
+func (t Tmux) Attach(session string) error {
+	path, err := exec.LookPath("tmux")
+	if err != nil {
+		return errors.New("tmux is not installed")
+	}
+	args := []string{"tmux"}
+	if t.Socket != "" {
+		args = append(args, "-L", t.Socket)
+	}
+	return execProcess(path, append(args, attachArgs(session, os.Getenv("TMUX") != "")...))
+}

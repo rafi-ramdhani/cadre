@@ -4,7 +4,7 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
-## 0.2.0 - Unreleased
+## 0.2.0 - 2026-10-09
 
 **Cadre is now Cadrei** (pronounced CAD-ray), since other AI agent tools already use the name Cadre. Cadrei is one program, written in Go, that you install with Homebrew or a small download script. Run `cadrei`, then talk to the orchestrator. **This is a breaking upgrade**: read "Upgrading from 0.1.x" below before you install.
 

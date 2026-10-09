@@ -4,12 +4,15 @@
 package framework
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	goruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -144,20 +147,83 @@ func Placed(binary string) error {
 // owned says why the file at p (physical) could be replaced by another
 // user, or nil.
 func owned(p string) error {
-	uid := os.Getuid()
+	uid := uint32(os.Getuid())
 	for d := p; ; d = filepath.Dir(d) {
 		st, err := os.Stat(d)
 		if err != nil {
 			return err
 		}
-		if sys, ok := st.Sys().(*syscall.Stat_t); ok && int(sys.Uid) != uid && sys.Uid != 0 {
-			return fmt.Errorf("%s belongs to another user", d)
+		sys, ok := st.Sys().(*syscall.Stat_t)
+		if !ok {
+			return fmt.Errorf("cannot tell who owns %s", d)
 		}
-		if st.Mode().Perm()&0o022 != 0 {
-			return fmt.Errorf("other users can change %s", d)
+		if why := placeOf(d, st.Mode().Perm(), sys.Uid, sys.Gid, uid); why != "" {
+			return errors.New(why)
 		}
 		if d == "/" || d == "." {
 			return nil
 		}
 	}
+}
+
+// placeOf says why a file or folder with this mode, owner and group lets
+// another user replace what it holds, or "". It must belong to the user or
+// root, and be writable by no one else; a group may write it only when its
+// members could become root anyway, or when it is the user's own group.
+// Homebrew leaves its prefix group-writable for the admin group (gid 80 on
+// macOS), which is why that counts.
+func placeOf(d string, mode os.FileMode, owner, group, uid uint32) string {
+	switch {
+	case owner != uid && owner != 0:
+		return d + " belongs to another user"
+	case mode&0o002 != 0:
+		return "other users can change " + d
+	case mode&0o020 != 0 && !groupSafe(group, uid):
+		return "other users can change " + d
+	}
+	return ""
+}
+
+// The system's account files, variables for tests.
+var (
+	groupFile  = "/etc/group"
+	passwdFile = "/etc/passwd"
+)
+
+// groupSafe reports whether letting a group write a folder gives no one
+// more than they have: on macOS, admin (80) and wheel (0), whose members
+// can become root; elsewhere, the user's own primary group when no one
+// else is in it.
+func groupSafe(gid, uid uint32) bool {
+	if goruntime.GOOS == "darwin" {
+		return gid == 80 || gid == 0
+	}
+	if gid != uint32(os.Getgid()) {
+		return false
+	}
+	g := strconv.FormatUint(uint64(gid), 10)
+	me := strconv.FormatUint(uint64(uid), 10)
+	// No user but this one has the group as its primary group...
+	raw, err := os.ReadFile(passwdFile)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		f := strings.Split(line, ":")
+		if len(f) > 3 && f[3] == g && f[2] != me {
+			return false
+		}
+	}
+	// ...and it lists no members.
+	raw, err = os.ReadFile(groupFile)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		f := strings.Split(line, ":")
+		if len(f) > 3 && f[2] == g {
+			return strings.TrimSpace(f[3]) == ""
+		}
+	}
+	return false
 }

@@ -49,10 +49,16 @@ func runUninstall(e *env) int {
 	// The plan: only what this cadrei made, and where it still points here.
 	// Sessions started by 0.1.x are not this cadrei's to stop: on a machine
 	// that runs 0.1.x too, they are the user's live sessions.
-	var members, orchestrators, legacy []string
+	// Nor are sessions without cadrei's markers, which cadrei did not make
+	// in full.
+	var members, orchestrators, legacy, unmarked []string
 	for _, i := range session.All(t, known) {
-		if i.Home == "" {
+		if i.Legacy() {
 			legacy = append(legacy, i.Name)
+			continue
+		}
+		if i.Home == "" {
+			unmarked = append(unmarked, i.Name)
 			continue
 		}
 		members = append(members, i.Name)
@@ -147,6 +153,9 @@ func runUninstall(e *env) int {
 	}
 	if len(legacy) > 0 {
 		e.say("  sessions started by cadre 0.1.x, left running: %s", joinNames(legacy))
+	}
+	if len(unmarked) > 0 {
+		e.say("  sessions without cadrei's markers, left running: %s", joinNames(unmarked))
 	}
 	for _, name := range terminals {
 		e.say("  the orchestrator of %s open in a terminal: close it yourself", name)

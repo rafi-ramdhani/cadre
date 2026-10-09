@@ -188,6 +188,10 @@ type InstructionOps interface {
 	// Unlink removes Path when it is a link to dir, and nothing else. It
 	// reports whether it removed it.
 	Unlink(dir string) (bool, error)
+	// OldClone reports whether dir is a clone of cadre 0.1.x, which
+	// installed itself as a git checkout holding its command, its skill and
+	// its hook script.
+	OldClone(dir string) bool
 }
 
 // ErrNotLink is returned for a path cadrei would link that holds something

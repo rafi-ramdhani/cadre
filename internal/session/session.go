@@ -78,8 +78,9 @@ type Scope struct {
 }
 
 // Ours reports whether a session belongs to this cadrei: its own, or a
-// legacy session (no @cadrei_home) when this is the default cadrei.
-func (s Scope) Ours(i Info) bool { return i.Home == s.Path || (i.Home == "" && s.Default) }
+// legacy session (a cadre- name, no @cadrei_home) when this is the default
+// cadrei.
+func (s Scope) Ours(i Info) bool { return i.Home == s.Path || (i.Legacy() && s.Default) }
 
 // Running lists this cadrei's member sessions (not its orchestrator),
 // sorted by name.
@@ -193,11 +194,13 @@ func (s Scope) CheckMember(session, window, member string) error {
 }
 
 // Group is the label of a session in a listing of every cadrei: its cadrei's
-// name, "legacy" or "unknown".
+// name, "legacy", "without markers" or "unknown".
 func Group(i Info, known map[string]string) string {
 	switch {
-	case i.Home == "":
+	case i.Legacy():
 		return "legacy sessions (started by cadre 0.1.x)"
+	case i.Home == "":
+		return "sessions without cadrei's markers"
 	case known[i.Home] != "":
 		return "cadrei " + known[i.Home]
 	}

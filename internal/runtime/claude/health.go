@@ -174,6 +174,20 @@ func (i instructions) Unlink(dir string) (bool, error) {
 	return true, os.Remove(i.Path())
 }
 
+// OldClone needs every part of a 0.1.x clone, so a link into a repository
+// of the user's own is never taken for one.
+func (instructions) OldClone(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		return false
+	}
+	for _, f := range []string{"bin/cadre", "bin/orchestrator-hook.sh", "skills/cadre/SKILL.md"} {
+		if st, err := os.Stat(filepath.Join(dir, f)); err != nil || !st.Mode().IsRegular() {
+			return false
+		}
+	}
+	return true
+}
+
 type hooks struct{}
 
 func (hooks) File() string { return filepath.Join(ConfigDir(), "settings.json") }

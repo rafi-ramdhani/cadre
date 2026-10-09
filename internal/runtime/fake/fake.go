@@ -118,6 +118,9 @@ func (i instructions) Target() (string, error) {
 	return os.Readlink(i.Path())
 }
 
+// OldClone finds none: the fake never had a 0.1.x.
+func (instructions) OldClone(string) bool { return false }
+
 func (i instructions) Unlink(dir string) (bool, error) {
 	if t, err := i.Target(); err != nil || t != dir {
 		return false, nil

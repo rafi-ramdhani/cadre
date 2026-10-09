@@ -145,6 +145,36 @@ func TestUpRefusesACollision(t *testing.T) {
 	refused(t, "belongs to cadrei work (/elsewhere/work)", "up", "dev/reviewer")
 }
 
+// A cadrei- session without markers is not a 0.1.x one: ls, ls --all and
+// uninstall say it has no markers, never that it is legacy.
+func TestASessionWithoutMarkersIsNotLegacy(t *testing.T) {
+	home := sandbox(t)
+	socket := withTmux(t, home)
+	must(t, "init", "work")
+	tmuxIn(socket, "new-session", "-d", "-s", "cadrei-work-dev", "-n", "engineer", "sleep", "60")
+	if out := must(t, "ls"); strings.Contains(out, "legacy") || !strings.Contains(out, "running: nothing") {
+		t.Errorf("ls shows it as the cadrei's:\n%s", out)
+	}
+	out := must(t, "ls", "--all")
+	if strings.Contains(out, "legacy") || !strings.Contains(out, "sessions without cadrei's markers") {
+		t.Errorf("ls --all:\n%s", out)
+	}
+	var st allStatus
+	if err := json.Unmarshal([]byte(must(t, "ls", "--all", "--json")), &st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Legacy) != 0 || len(st.Unknown) != 1 || st.Unknown[0].Session != "cadrei-work-dev" || st.Unknown[0].Legacy {
+		t.Errorf("ls --all --json: legacy %v, unknown %v", st.Legacy, st.Unknown)
+	}
+	if code, out, errOut := call("up", "dev/engineer"); code == 0 || !strings.Contains(out+errOut, "without cadrei's markers") {
+		t.Errorf("up: %d %q %q", code, out, errOut)
+	}
+	out = must(t, "uninstall", "--dry-run")
+	if !strings.Contains(out, "sessions without cadrei's markers, left running: cadrei-work-dev") || strings.Contains(out, "0.1.x, left running") {
+		t.Errorf("uninstall plan:\n%s", out)
+	}
+}
+
 func TestLegacySessionsInLs(t *testing.T) {
 	home := sandbox(t)
 	socket := withTmux(t, home)

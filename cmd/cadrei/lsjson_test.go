@@ -85,7 +85,7 @@ func TestLsJSONShape(t *testing.T) {
 	os.MkdirAll(home+"/Developer/app", 0o755)
 	register(t, home, "work", "app:\n  repo: me/app\n  team: dev\n  about: the app\n  path: ~/Developer/app\n")
 	must(t, "up", "dev/engineer")
-	tmuxIn(socket, "new-session", "-d", "-s", "cadrei-dev", "-n", "pm", "sleep", "60")
+	tmuxIn(socket, "new-session", "-d", "-s", "cadre-dev", "-n", "pm", "sleep", "60")
 	// A mode the runtime lacks, so problems has an element.
 	os.WriteFile(home+"/.cadrei/work/cadrei.conf", []byte("PERMISSION_MODE=yolo\n"), 0o644)
 	checkShape(t, "ls-shape.json", must(t, "ls", "--json"))

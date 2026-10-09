@@ -159,14 +159,17 @@ check "cadre.conf is never run" bash -c "echo 'touch $T/marker' >> '$C/cadre.con
 check "and its command line is named" bash -c "cd '$C' && cadre ls 2>&1 | grep -q 'ignored (only KEY=VALUE'"
 git -C "$C" checkout -q -- cadre.conf
 
-echo "a 0.1.x config is left as it is"
-mkdir -p "$T/old/visible/personas" "$HOME/.config/cadre"
+echo "a 0.1.x cadre is left as it is"
+mkdir -p "$T/old/visible/personas" "$T/old/visible/projects" "$HOME/.config/cadre"
+touch "$T/old/visible/projects.yaml"
 echo "$T/old/visible" > "$HOME/.config/cadre/home"
-snap() { find "$T/old/visible" "$HOME/.config/cadre" -exec ls -ldn {} + | sort; find "$HOME/.config/cadre" -type f -exec cksum {} +; }
+snap() { find "$T/old/visible" "$HOME/.config/cadre" -exec ls -ldn {} + | sort; find "$T/old/visible" "$HOME/.config/cadre" -type f -exec cksum {} + | sort; }
 before=$(snap)
 cadre ls >/dev/null 2>&1; cadre ls --all >/dev/null 2>&1; cadre --check >/dev/null 2>&1 || true
-check "cadre changes neither the 0.1.x cadre nor ~/.config/cadre" test "$(snap)" = "$before"
+check "cadre leaves the 0.1.x cadre and ~/.config/cadre byte for byte" test "$(snap)" = "$before"
 check "the default stays this machine's" grep -qx demo "$HOME/.cadre/config/default"
+check "its top folder is not linked as a project" bash -c "cadre project add old --path '$T/old/visible' 2>&1 | grep -q 'it is a cadre from 0.1.x; to bring it in, tell the orchestrator: bring in my old cadre from'"
+check "there is no migrate command" bash -c "cadre migrate 2>&1 | grep -q \"unknown command 'migrate'\""
 rm -rf "$HOME/.config/cadre"
 
 echo "grow"
@@ -483,6 +486,12 @@ for rule in "Edit(//$C/cadre.con[f])" "Edit(//$C/[c]adre.conf)" "Edit(//$C/cadre
   grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
 done
 check "glob refusals leave the file unchanged" cmp -s "$PS" "$T/ps.before"
+for rule in "Bash(rm $C/members/dev/engineer.md)" "Bash(echo x > $C/playbook.md)" 'Bash(rm -rf ~/.cadre/demo)' \
+    'Bash(cp x ~/.cadre/config/default)' 'Bash(sed -i s/a/b/ ../../members/dev/engineer.md)'; do
+  if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
+  grep -q "only the user changes" <<<"$err" || fail "refused as cadre's own files: $rule"
+done
+check "shell rules on cadre's own files are refused, and leave the file unchanged" cmp -s "$PS" "$T/ps.before"
 # A symlinked folder under home: both the written and the resolved path are checked.
 mkdir -p "$T/h2/dotfiles/config/git" "$T/h2/dotfiles/config/fish"
 ln -s "$T/h2/dotfiles/config" "$T/h2/.config"
@@ -654,7 +663,7 @@ mkdir -p "$T/elsewhere/members"; ln -s "$T/elsewhere" "$HOME/.cadre/linked"
 check "a symlink in ~/.cadre is not a cadre" bash -c "! cadre ls --all | grep -q '^cadre linked'"
 rm "$HOME/.cadre/linked"
 mkdir -p "$T/old0/personas"; touch "$T/old0/projects.yaml"
-check "a 0.1.x cadre gets the migrate hint" bash -c "cd '$T/old0' && cadre </dev/null 2>/dev/null | grep -q 'looks like a cadre from before 0.2.0: move it into ~/.cadre with cadre migrate'"
+check "a 0.1.x cadre gets the bring-in hint" bash -c "cd '$T/old0' && cadre </dev/null 2>/dev/null | grep -q 'looks like a cadre from 0.1.x. To bring it in, tell the orchestrator: bring in my old cadre from'"
 
 echo "help"
 check "help lists the visible commands" bash -c "cadre help | grep -q 'cadre stop' && ! cadre help | grep -q 'cadre allow'"

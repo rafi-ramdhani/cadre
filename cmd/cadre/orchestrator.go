@@ -77,6 +77,9 @@ func runPlain(e *env) int {
 	}
 	if first {
 		e.say("%s", greeting)
+		if old := cadres.OldHome(); old != "" {
+			e.say("You have a cadre from 0.1.x at %s. To bring it in, tell the orchestrator: bring in my old cadre from %s.", display(old), display(old))
+		}
 	} else {
 		e.missingProjects(r)
 	}
@@ -195,7 +198,7 @@ func (e *env) openingNotes(r *cadres.Resolved) {
 		return
 	}
 	if look := lookalike(wd); look != "" {
-		e.say("%s looks like a cadre from before 0.2.0: move it into ~/.cadre with cadre migrate.", look)
+		e.say("%s looks like a cadre from 0.1.x. To bring it in, tell the orchestrator: bring in my old cadre from %s.", look, look)
 		return
 	}
 	if top, err := exec.Command("git", "-C", wd, "rev-parse", "--show-toplevel").Output(); err == nil && len(top) > 0 {
@@ -204,19 +207,10 @@ func (e *env) openingNotes(r *cadres.Resolved) {
 }
 
 // lookalike returns the folder at or above dir that looks like a 0.1.x
-// cadre (personas/ and projects.yaml) but is not a known one, or "".
-// Nothing in it is read.
+// cadre, or "". Nothing in it is read.
 func lookalike(dir string) string {
-	known := map[string]bool{}
-	list, _ := cadres.List()
-	for _, c := range list {
-		known[c.Path] = true
-	}
 	for d := dir; ; d = filepath.Dir(d) {
-		// 0.1.x cadres keep their members in personas/.
-		st, err := os.Stat(filepath.Join(d, "personas"))
-		_, err2 := os.Stat(filepath.Join(d, "projects.yaml"))
-		if err == nil && st.IsDir() && err2 == nil && !known[d] && !cadres.Inside(d) {
+		if cadres.OldCadre(d) {
 			return d
 		}
 		if d == "/" || d == "." {

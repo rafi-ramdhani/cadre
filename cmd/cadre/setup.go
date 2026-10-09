@@ -31,7 +31,12 @@ func (e *env) firstRun(rt runtime.Runtime) bool {
 		return false
 	}
 	e.say("Welcome to cadre: a team of %s sessions that you lead from one conversation.", rt.Title())
-	switch strings.ToLower(e.ask("Start a new cadre, or restore one from GitHub? [new/restore] ")) {
+	choice, ok := e.answer("Start a new cadre, or restore one from GitHub? [new/restore] ")
+	if !ok {
+		e.fail("input ended; nothing was changed")
+		return false
+	}
+	switch strings.ToLower(choice) {
 	case "", "n", "new":
 	case "r", "restore":
 		e.fail("restoring a cadre from GitHub is not built yet in this version; start a new one for now")
@@ -45,7 +50,7 @@ func (e *env) firstRun(rt runtime.Runtime) bool {
 		return false
 	}
 	e.say("Created your cadre %s, with a dev team (an engineer and a reviewer).", c.Name)
-	e.offerLink()
+	e.offerLink(rt)
 	e.offerHook(rt)
 	return true
 }
@@ -65,7 +70,11 @@ func suggestName() string {
 func (e *env) newCadre() (cadres.Cadre, bool) {
 	suggest := suggestName()
 	for tries := 0; tries < 3; tries++ {
-		name := e.ask(fmt.Sprintf("Name for your cadre? [%s] ", suggest))
+		name, ok := e.answer(fmt.Sprintf("Name for your cadre? [%s] ", suggest))
+		if !ok {
+			e.fail("input ended; nothing was changed")
+			return cadres.Cadre{}, false
+		}
 		if name == "" {
 			name = suggest
 		}
@@ -88,8 +97,10 @@ func (e *env) newCadre() (cadres.Cadre, bool) {
 }
 
 // offerLink offers to link the git repository the user is in to the new
-// cadre, as a project of the dev team.
-func (e *env) offerLink() {
+// cadre, as a project of the dev team. Linking trusts the folder in the
+// runtime, so the question says so, and the answer defaults to no: a user
+// may run cadre first in a repository they just cloned.
+func (e *env) offerLink(rt runtime.Runtime) {
 	wd, err := paths.Getwd()
 	if err != nil || cadres.Inside(wd) {
 		return
@@ -100,7 +111,7 @@ func (e *env) offerLink() {
 	}
 	top := paths.Real(strings.TrimSpace(string(out)))
 	name := filepath.Base(top)
-	if project.CheckName(name) != nil || !e.yes(fmt.Sprintf("Link this folder (%s) to your cadre?", name), true) {
+	if project.CheckName(name) != nil || !e.yes(fmt.Sprintf("Link this folder (%s) to your cadre and trust it in %s?", name, rt.Title()), false) {
 		return
 	}
 	sub := &env{args: []string{name, "--path", top}, stdin: e.stdin, stdout: e.stdout, stderr: e.stderr, lines: e.lines}
@@ -114,10 +125,15 @@ func (e *env) offerHook(rt runtime.Runtime) {
 	if progs, err := hooks.Find(); err != nil || len(progs) > 0 {
 		return
 	}
+	bin := framework.Binary()
+	if err := e.hookPlaced(bin); err != nil {
+		e.say("Not offering the orchestrator hook: %s. Install cadre (with Homebrew or install.sh) and run it from there to add it.", err)
+		return
+	}
 	if !e.yes(fmt.Sprintf("Make every new %s session the orchestrator?", rt.Title()), false) {
 		return
 	}
-	if _, err := hooks.Set(framework.Binary()); err != nil {
+	if _, err := hooks.Set(bin); err != nil {
 		fmt.Fprintf(e.stderr, "could not add the hook: %s\n", err)
 		return
 	}

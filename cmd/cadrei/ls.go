@@ -132,7 +132,7 @@ func skippedEntries(c cadreis.Cadrei) []string {
 }
 
 func viewOf(t session.Tmux, i session.Info) sessionView {
-	v := sessionView{Session: i.Name, Team: i.Team, Project: i.Project, Legacy: i.Home == "", Members: []memberView{}}
+	v := sessionView{Session: i.Name, Team: i.Team, Project: i.Project, Legacy: i.Legacy(), Members: []memberView{}}
 	if v.Team == "" {
 		// A 0.1.x session recorded no team: show its key.
 		v.Team = session.Bare(i.Name)
@@ -208,10 +208,16 @@ func runLs(e *env) int {
 				st.Cadreis = append(st.Cadreis, statusOf(c, def, t))
 			}
 		}
+		// A cadrei- session without markers (made by hand, or a start that
+		// died early) is not legacy: it is listed with the unknown ones.
+		unmarked := map[string]bool{}
 		for _, i := range session.All(t, nil) {
 			switch {
-			case i.Home == "":
+			case i.Legacy():
 				st.Legacy = append(st.Legacy, viewOf(t, i))
+			case i.Home == "":
+				unmarked[i.Name] = true
+				st.Unknown = append(st.Unknown, viewOf(t, i))
 			case !known[i.Home]:
 				st.Unknown = append(st.Unknown, viewOf(t, i))
 			}
@@ -227,7 +233,11 @@ func runLs(e *env) int {
 		}
 		e.printSessions("legacy sessions (started by cadre 0.1.x; they belong to the default cadrei)", st.Legacy)
 		for _, u := range st.Unknown {
-			e.printSessions("sessions of a cadrei no longer known", []sessionView{u})
+			heading := "sessions of a cadrei no longer known"
+			if unmarked[u.Session] {
+				heading = "sessions without cadrei's markers"
+			}
+			e.printSessions(heading, []sessionView{u})
 		}
 		return 0
 	}

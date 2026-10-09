@@ -158,8 +158,9 @@ func TestHealthCheck(t *testing.T) {
 }
 
 // The links a 0.1.x install made into its clone (the cadre command and
-// the cadre skill) are offered for removal; the clone stays, a no is
-// remembered, and a link that does not point into a clone is left alone.
+// the cadre skill) are offered for removal, defaulting to no; the clone
+// stays, a no is remembered, the end of the input is not a no, and a link
+// into anything but a whole 0.1.x clone is left alone.
 func TestHealthOffersToRemoveTheOldLinks(t *testing.T) {
 	home := sandbox(t)
 	withTmux(t, home)
@@ -167,10 +168,12 @@ func TestHealthOffersToRemoveTheOldLinks(t *testing.T) {
 	os.WriteFile(home+"/release", nil, 0o644)
 	must(t, "init", "work")
 	clone := home + "/Documents/demo/projects/cadre"
-	os.MkdirAll(clone+"/bin", 0o755)
-	os.MkdirAll(clone+"/skills/cadre", 0o755)
-	os.MkdirAll(clone+"/.git", 0o755)
+	for _, d := range []string{"/bin", "/skills/cadre", "/.git"} {
+		os.MkdirAll(clone+d, 0o755)
+	}
 	os.WriteFile(clone+"/bin/cadre", []byte("exit 1\n"), 0o755)
+	os.WriteFile(clone+"/bin/orchestrator-hook.sh", []byte("exit 0\n"), 0o755)
+	os.WriteFile(clone+"/skills/cadre/SKILL.md", []byte("bridge\n"), 0o644)
 	os.MkdirAll(home+"/.local/bin", 0o755)
 	command, skill := home+"/.local/bin/cadre", home+"/.claude/skills/cadre"
 	os.Symlink(clone+"/bin/cadre", command)
@@ -184,20 +187,45 @@ func TestHealthOffersToRemoveTheOldLinks(t *testing.T) {
 	}
 	ttyForTests, hookAnywhereForTests = true, true
 	defer func() { ttyForTests, hookAnywhereForTests = false, false }()
-	callIn("y\nn\n", "--check")
-	if _, err := os.Lstat(command); err == nil {
-		t.Error("the old command link stayed after a yes")
+	// The input ends at the first question: nothing more is asked, no
+	// answer is remembered, and both fixes are printed.
+	_, _, errOut = callIn("", "--check")
+	if strings.Count(errOut, "Remove the link") != 1 || strings.Count(errOut, "fix: remove the link") != 2 {
+		t.Errorf("at the end of the input:\n%s", errOut)
 	}
-	if _, err := os.Lstat(skill); err != nil {
-		t.Error("the old skill link went after a no")
+	if cadreis.GetState(cadreis.OldLinkKept(command)) != "" || cadreis.GetState(cadreis.OldLinkKept(skill)) != "" {
+		t.Error("the end of the input was remembered as a no")
 	}
-	if _, err := os.Stat(clone + "/bin/cadre"); err != nil {
+	// Enter keeps a link: the question defaults to no.
+	_, _, errOut = callIn("\ny\n", "--check")
+	if !strings.Contains(errOut, "? The clone stays. [y/N]") {
+		t.Errorf("the question does not default to no:\n%s", errOut)
+	}
+	if _, err := os.Lstat(command); err != nil {
+		t.Error("the old command link went on Enter")
+	}
+	if _, err := os.Lstat(skill); err == nil {
+		t.Error("the old skill link stayed after a yes")
+	}
+	if _, err := os.Stat(clone + "/skills/cadre/SKILL.md"); err != nil {
 		t.Error("the clone changed")
 	}
 	if _, _, errOut := call("--check"); strings.Contains(errOut, "0.1.x link") {
 		t.Errorf("the kept link was reported again:\n%s", errOut)
 	}
-	// A cadre link that is not into a clone is not cadrei's to remove.
+	// A link into a repository that is not a whole 0.1.x clone is not
+	// cadrei's to remove.
+	cadreis.SetState(cadreis.OldLinkKept(command), "")
+	os.Remove(clone + "/bin/orchestrator-hook.sh")
+	if _, _, errOut := call("--check"); strings.Contains(errOut, ".local/bin/cadre") {
+		t.Errorf("a link into a repository without the hook script was reported:\n%s", errOut)
+	}
+	os.WriteFile(clone+"/bin/orchestrator-hook.sh", []byte("exit 0\n"), 0o755)
+	os.Remove(clone + "/skills/cadre/SKILL.md")
+	if _, _, errOut := call("--check"); strings.Contains(errOut, ".local/bin/cadre") {
+		t.Errorf("a link into a repository without the skill was reported:\n%s", errOut)
+	}
+	os.Remove(command)
 	os.Symlink("/usr/local/bin/other", command)
 	if _, _, errOut := call("--check"); strings.Contains(errOut, ".local/bin/cadre") {
 		t.Errorf("a link elsewhere was reported:\n%s", errOut)

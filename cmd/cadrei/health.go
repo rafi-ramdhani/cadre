@@ -151,22 +151,23 @@ func skillFindings(rt runtime.Runtime) []finding {
 
 // oldLinkFindings offers to remove the links a 0.1.x install made into its
 // clone: the cadre command in ~/.local/bin and the cadre skill beside
-// cadrei's. After a pull they lead only to the bridge files. A no is
-// remembered for that link.
+// cadrei's. After a pull they lead only to the bridge files. The question
+// defaults to no, since a link is something the user may have made, and a
+// no is remembered for that link.
 func oldLinkFindings(rt runtime.Runtime) []finding {
 	var out []finding
 	for _, l := range []struct{ link, inClone string }{
 		{filepath.Join(paths.Home(), ".local", "bin", "cadre"), "bin/cadre"},
 		{filepath.Join(filepath.Dir(rt.Instructions().Path()), "cadre"), "skills/cadre"},
 	} {
-		clone := oldClone(l.link, l.inClone)
+		clone := oldClone(rt, l.link, l.inClone)
 		if clone == "" || cadreis.GetState(cadreis.OldLinkKept(l.link)) != "" {
 			continue
 		}
 		link := l.link
 		out = append(out, finding{Problem: runtime.Problem{What: cadreis.Tilde(link) + " is a cadre 0.1.x link into its clone at " + display(clone),
 			Fix: "remove the link (the clone stays): rm " + cadreis.Tilde(link)},
-			ask: "Remove the link " + cadreis.Tilde(link) + "? The clone stays.", yes: true,
+			ask:      "Remove the link " + cadreis.Tilde(link) + "? The clone stays.",
 			fix:      func() error { return os.Remove(link) },
 			declined: func() { cadreis.SetState(cadreis.OldLinkKept(link), "yes") }})
 	}
@@ -174,9 +175,8 @@ func oldLinkFindings(rt runtime.Runtime) []finding {
 }
 
 // oldClone returns the 0.1.x clone link points into, as <clone>/inClone,
-// or "" when link is not such a link. A clone is a git checkout that holds
-// the bridge's bin/cadre.
-func oldClone(link, inClone string) string {
+// or "" when link is not such a link (see runtime.InstructionOps.OldClone).
+func oldClone(rt runtime.Runtime, link, inClone string) string {
 	if st, err := os.Lstat(link); err != nil || st.Mode()&fs.ModeSymlink == 0 {
 		return ""
 	}
@@ -188,13 +188,7 @@ func oldClone(link, inClone string) string {
 		to = filepath.Join(filepath.Dir(link), to)
 	}
 	clone, ok := strings.CutSuffix(filepath.Clean(to), "/"+inClone)
-	if !ok {
-		return ""
-	}
-	if _, err := os.Stat(filepath.Join(clone, ".git")); err != nil {
-		return ""
-	}
-	if st, err := os.Stat(filepath.Join(clone, "bin", "cadre")); err != nil || !st.Mode().IsRegular() {
+	if !ok || !rt.Instructions().OldClone(clone) {
 		return ""
 	}
 	return clone
@@ -276,17 +270,23 @@ func (e *env) health(rt runtime.Runtime, force bool) (found int, fatal bool) {
 	}
 	for _, f := range list {
 		fmt.Fprintf(e.stderr, "problem: %s\n", f.What)
-		if f.ask != "" && e.interactive() {
+		// Once the input has ended, nothing more is asked, and the end is
+		// not remembered as a no: the fix is printed instead.
+		if f.ask != "" && e.interactive() && !e.eof {
 			if e.yes(f.ask, f.yes) {
 				if err := f.fix(); err != nil {
 					fmt.Fprintf(e.stderr, "  could not fix it: %s\n", err)
 				} else {
 					fmt.Fprintln(e.stderr, "  fixed")
 				}
-			} else if f.declined != nil {
-				f.declined()
+				continue
 			}
-			continue
+			if !e.eof {
+				if f.declined != nil {
+					f.declined()
+				}
+				continue
+			}
 		}
 		fmt.Fprintf(e.stderr, "  fix: %s\n", f.Fix)
 		fatal = fatal || f.Fatal

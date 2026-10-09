@@ -174,12 +174,16 @@ func (t Tmux) PanePID(session, window string) (int, error) {
 // Info is what cadrei records on a session.
 type Info struct {
 	Name    string // the tmux session
-	Home    string // @cadrei_home: its cadrei's physical path; "" for a legacy session
+	Home    string // @cadrei_home: its cadrei's physical path; "" for a legacy session, or one without cadrei's markers
 	Team    string // @cadrei_team
 	Project string // @cadrei_project
 	Role    string // @cadrei_role: "orchestrator", or "" for a team's session
 	Target  string // @cadrei_target: the project or folder it was started for
 }
+
+// Legacy reports whether a session was started by cadre 0.1.x: a cadre-
+// name, and no home.
+func (i Info) Legacy() bool { return i.Home == "" && strings.HasPrefix(i.Name, legacyPrefix) }
 
 // sep splits the fields of tmux's -F output. tmux writes command output
 // through vis(3) with VIS_OCTAL|VIS_CSTYLE (3.4 does; later versions may

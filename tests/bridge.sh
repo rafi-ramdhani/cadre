@@ -65,17 +65,17 @@ bridge() {
   ok "the install fast-forwards to the new main"
 
   code=0; out=$(sh -c "$hook" 2>&1) || code=$?
-  [ "$code" = 0 ] && [ -z "$out" ] || fail "the hook exits 0 and prints nothing (exit $code, output: $out)"
+  if [ "$code" != 0 ] || [ -n "$out" ]; then fail "the hook exits 0 and prints nothing (exit $code, output: $out)"; fi
   ok "the hook exits 0 and prints nothing"
   code=0; out=$(CADRE_PERSONA=x CADRE_OFF=1 sh -c "$hook" 2>&1) || code=$?
-  [ "$code" = 0 ] && [ -z "$out" ] || fail "the hook is as quiet in a member session (exit $code)"
+  if [ "$code" != 0 ] || [ -n "$out" ]; then fail "the hook is as quiet in a member session (exit $code)"; fi
   ok "the hook is as quiet in a member session"
 
   for args in "" "ls" "up dev my-app" "version"; do
     code=0
     # shellcheck disable=SC2086 # each word is an argument
     out=$("$HOME/.local/bin/cadre" $args 2>&1) || code=$?
-    [ "$code" = 1 ] && [ "$out" = "$want" ] || fail "cadre $args prints the install line and exits 1 (exit $code, output: $out)"
+    if [ "$code" != 1 ] || [ "$out" != "$want" ]; then fail "cadre $args prints the install line and exits 1 (exit $code, output: $out)"; fi
   done
   ok "the old cadre command prints the install line and exits 1, whatever it is given"
 

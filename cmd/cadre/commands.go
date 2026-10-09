@@ -79,7 +79,7 @@ func init() {
 		// Hidden: run by Claude Code and git as hooks.
 		{name: "hook orchestrator", hidden: true, run: runHookOrchestrator},
 		{name: "hook session", hidden: true, run: notBuilt("cadre hook session")},
-		{name: "hook pre-push", hidden: true, run: notBuilt("cadre hook pre-push")},
+		{name: "hook pre-push", hidden: true, run: runHookPrePush},
 	}
 }
 

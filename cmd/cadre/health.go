@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	cadre "github.com/rafi-ramdhani/cadre"
+	"github.com/rafi-ramdhani/cadre/internal/backup"
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
 	"github.com/rafi-ramdhani/cadre/internal/framework"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
@@ -68,10 +69,27 @@ func findings(rt runtime.Runtime, full bool) []finding {
 				Fix: "brew upgrade tmux"}})
 		}
 	}
+	out = append(out, guardFindings()...)
 	out = append(out, skillFindings(rt)...)
 	out = append(out, hookFindings(rt)...)
 	if f, ok := pathFinding(); ok {
 		out = append(out, f)
+	}
+	return out
+}
+
+// guardFindings keeps cadre's pre-push guard in every cadre repository,
+// which is cadre's own setup, so it needs no question. A pre-push hook of
+// the user's own is left alone and reported.
+func guardFindings() []finding {
+	var out []finding
+	list, _ := cadres.List()
+	for _, c := range list {
+		if _, err := backup.Install(c.Path, framework.Binary()); errors.Is(err, backup.ErrForeign) {
+			out = append(out, finding{Problem: runtime.Problem{
+				What: "the cadre " + c.Name + " has a pre-push git hook of its own, so cadre's check for credentials before a backup push does not run",
+				Fix:  "add this line to " + display(c.Path) + "/.git/hooks/pre-push: " + framework.Binary() + ` hook pre-push "$@" || exit 1`}})
+		}
 	}
 	return out
 }

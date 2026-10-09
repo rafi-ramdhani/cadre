@@ -79,6 +79,14 @@ Built in O-T5c (`cmd/cadre/setup.go`, `health.go`, `hook.go`):
 - **Framework folder**: `~/.cadre/framework` holds the skill written out from the binary, with `VERSION`; it is rewritten when the version differs (always, for a build from source). The skill link (`InstructionOps`) points at it; the hook (`HookOps`) runs `framework.Binary()`, the Homebrew opt path rather than the Cellar one.
 - **`cadre hook orchestrator`** (hidden) prints the runtime's hook answer with `orchestrator.md`, and nothing under `CADRE_PERSONA`, `CADRE_OFF` or `CADRE_ORCHESTRATOR`. It never fails.
 
+## Backup and restore
+
+Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
+- **Restore** is the first run's other choice: the repository (owner/repo or a URL) is cloned into `~/.cadre/<name>` (the repository's name without `cadre-`, confirmed by the user), refused and removed when it has no `personas/`, made the default, and given the pre-push guard; then `project sync` asks for the projects folder when needed, clones, records places and trusts.
+- **The pre-push guard**: `.git/hooks/pre-push` in each cadre (written on init and restore, and kept on every plain `cadre`; a hook of the user's own is left alone and reported) runs `cadre hook pre-push`. It reads git's ref updates, lists every object the push carries that no remote has (`rev-list --objects <sha> --not --remotes`), and through one `cat-file --batch` checks names (`.credentials.json`, `.env` and `.env.*` but templates, private keys, key stores), sizes over 50 MB, and contents up to 8 MB for tokens (`sk-ant-`, `ghp_`, `github_pat_`, `gh[ousr]_`, private key headers). A finding, or any error, stops the push.
+- **The cadre's `.gitignore`** tracks `teams/` and leaves out dependency folders, build output and logs.
+- **Backing up** is the orchestrator's job (the skill): a private `<user>/cadre-<name>` with `gh repo create`, only after the user's yes, then a push after each commit. No cadre command is involved.
+
 ## Data model (section N)
 
 ```

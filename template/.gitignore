@@ -1,3 +1,15 @@
 .DS_Store
-# Project repos live here but are their own git repos; projects.yaml links them.
-/projects/
+# teams/ is tracked, so the work personas keep there is backed up with the
+# cadre. Generated and bulky files are not.
+node_modules/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.next/
+.cache/
+dist/
+build/
+target/
+coverage/
+*.log

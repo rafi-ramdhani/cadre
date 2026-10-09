@@ -105,17 +105,6 @@ func TestFirstRunAsksBeforeEachChange(t *testing.T) {
 	}
 }
 
-func TestFirstRunRestoreIsNotBuiltYet(t *testing.T) {
-	firstMachine(t)
-	code, _, errOut := callIn("restore\n")
-	if code != 1 || !strings.Contains(errOut, "not built yet") {
-		t.Errorf("exit %d, %q", code, errOut)
-	}
-	if list, _ := cadres.List(); len(list) != 0 {
-		t.Error("restore created a cadre")
-	}
-}
-
 func TestHealthCheck(t *testing.T) {
 	home := sandbox(t)
 	withTmux(t, home)
@@ -231,5 +220,103 @@ func TestHookOrchestrator(t *testing.T) {
 			t.Errorf("with %s: %d %q %q", v, code, out, errOut)
 		}
 		t.Setenv(v, "")
+	}
+}
+
+// backupOf makes the backup repository of a cadre called name, as a
+// machine that backed it up would have pushed it: personas, a registry
+// with a project that has a repo and one that has none, and no places.
+func backupOf(t *testing.T, name, appRepo string) string {
+	t.Helper()
+	src := filepath.Join(t.TempDir(), name)
+	os.MkdirAll(src+"/personas/dev", 0o755)
+	os.WriteFile(src+"/personas/dev/engineer.md", []byte("# engineer\n"), 0o644)
+	os.WriteFile(src+"/projects.yaml", []byte("app:\n  repo: "+appRepo+"\n  team: dev\nnotes:\n  team: dev\n"), 0o644)
+	bare := filepath.Join(t.TempDir(), "cadre-"+name+".git")
+	for _, args := range [][]string{{"-C", src, "init", "-q", "-b", "main"}, {"-C", src, "add", "-A"},
+		{"-C", src, "commit", "-qm", "backup"}, {"clone", "-q", "--bare", src, bare}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	return bare
+}
+
+func TestFirstRunRestore(t *testing.T) {
+	home := firstMachine(t)
+	app := bareRepo(t, "app")
+	backup := backupOf(t, "work", app)
+	os.WriteFile(home+"/.claude.json", []byte("{}\n"), 0o600)
+	// restore, the repository, its name as suggested, where projects go,
+	// no hook, the skill link.
+	code, out, errOut := callIn("restore\n" + backup + "\n\n~/Code\nn\ny\n")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errOut)
+	}
+	c := home + "/.cadre/work"
+	if cadres.Default() != "work" || !strings.Contains(out, "Restored your cadre work.") {
+		t.Errorf("default %q\n%s", cadres.Default(), out)
+	}
+	if _, err := os.Stat(home + "/Code/app/.git"); err != nil {
+		t.Errorf("app was not cloned:\n%s", out)
+	}
+	if cadres.Place(cadres.Cadre{Name: "work", Path: c}, "app") != home+"/Code/app" {
+		t.Error("app's place was not recorded")
+	}
+	if !strings.Contains(out, "app: trusted in Claude Code") || !strings.Contains(out, "notes: not on this machine, and no repo to clone") {
+		t.Errorf("sync:\n%s", out)
+	}
+	if !strings.Contains(readFile(t, c+"/.git/hooks/pre-push"), "hook pre-push") {
+		t.Error("the pre-push guard was not installed")
+	}
+	if ran := readFile(t, home+"/orch-ran"); !strings.Contains(ran, "--name\nwork-orchestrator\n") {
+		t.Errorf("the orchestrator did not open:\n%s", ran)
+	}
+}
+
+func TestRestoreRefusesARepositoryThatIsNotACadre(t *testing.T) {
+	home := firstMachine(t)
+	notACadre := bareRepo(t, "app")
+	code, _, errOut := callIn("restore\n" + notACadre + "\nwork\n")
+	if code != 1 || !strings.Contains(errOut, "is not a cadre (it has no personas/ folder); nothing was kept") {
+		t.Errorf("exit %d, %q", code, errOut)
+	}
+	if _, err := os.Stat(home + "/.cadre/work"); err == nil {
+		t.Error("the clone was kept")
+	}
+	if code, _, errOut := callIn("restore\n-oops\n\n\n"); code != 1 || !strings.Contains(errOut, "cannot start with -") {
+		t.Errorf("an option as a repository: %d %q", code, errOut)
+	}
+}
+
+func TestPrePushGuard(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	if !strings.Contains(readFile(t, c+"/.git/hooks/pre-push"), framework.Binary()+"' hook pre-push") {
+		t.Fatal("init did not install the guard")
+	}
+	os.MkdirAll(c+"/teams/dev", 0o755)
+	os.WriteFile(c+"/teams/dev/.env", []byte("TOKEN=x\n"), 0o644)
+	os.WriteFile(c+"/teams/dev/notes.md", []byte("ok\n"), 0o644)
+	exec.Command("git", "-C", c, "add", "-A").Run()
+	exec.Command("git", "-C", c, "commit", "-qm", "work").Run()
+	head, _ := exec.Command("git", "-C", c, "rev-parse", "HEAD").Output()
+	t.Chdir(c)
+	code, _, errOut := callIn("refs/heads/main "+strings.TrimSpace(string(head))+" refs/heads/main 0000000000000000000000000000000000000000\n", "hook", "pre-push", "origin", "url")
+	if code != 1 || !strings.Contains(errOut, "teams/dev/.env: looks like an environment file") || strings.Contains(errOut, "notes.md") {
+		t.Errorf("exit %d, %q", code, errOut)
+	}
+	exec.Command("git", "-C", c, "rm", "-q", "--cached", "teams/dev/.env").Run()
+	exec.Command("git", "-C", c, "commit", "-q", "--amend", "-m", "work").Run()
+	head, _ = exec.Command("git", "-C", c, "rev-parse", "HEAD").Output()
+	if code, _, errOut := callIn("refs/heads/main "+strings.TrimSpace(string(head))+" refs/heads/main 0000000000000000000000000000000000000000\n", "hook", "pre-push", "origin", "url"); code != 0 {
+		t.Errorf("a clean push: %d %q", code, errOut)
+	}
+	// A hook of the user's own is left alone and reported.
+	os.WriteFile(c+"/.git/hooks/pre-push", []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	_, _, errOut = call("--check")
+	if !strings.Contains(errOut, "has a pre-push git hook of its own") || readFile(t, c+"/.git/hooks/pre-push") != "#!/bin/sh\nexit 0\n" {
+		t.Errorf("a hook of the user's: %q", errOut)
 	}
 }

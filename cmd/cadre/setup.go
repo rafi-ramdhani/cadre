@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
@@ -34,8 +35,11 @@ func (e *env) firstRun(rt runtime.Runtime) bool {
 	switch strings.ToLower(e.ask("Start a new cadre, or restore one from GitHub? [new/restore] ")) {
 	case "", "n", "new":
 	case "r", "restore":
-		e.fail("restoring a cadre from GitHub is not built yet in this version; start a new one for now")
-		return false
+		if !e.restoreCadre(rt) {
+			return false
+		}
+		e.offerHook(rt)
+		return true
 	default:
 		e.fail("answer new or restore; nothing was changed")
 		return false
@@ -77,6 +81,7 @@ func (e *env) newCadre() (cadres.Cadre, bool) {
 		if note != "" {
 			e.say("%s", note)
 		}
+		e.guard(c)
 		if err := cadres.SetDefault(c.Name); err != nil {
 			e.fail("%s", err)
 			return c, false
@@ -122,4 +127,82 @@ func (e *env) offerHook(rt runtime.Runtime) {
 		return
 	}
 	e.say("Added the hook to %s.", display(hooks.File()))
+}
+
+// restoreName is the name a restored cadre gets on this machine: the
+// repository's name, without the cadre- a backup's name starts with.
+func restoreName(repo string) string {
+	name := strings.TrimSuffix(filepath.Base(strings.TrimRight(repo, "/")), ".git")
+	if n := strings.TrimPrefix(name, "cadre-"); n != "" {
+		name = n
+	}
+	return name
+}
+
+// restoreCadre restores a cadre from its backup repository: it clones it
+// into ~/.cadre/<name>, makes it the default, asks where projects go when
+// some must be cloned, then clones and trusts them (project sync).
+// Projects without a repo stay missing until linked.
+func (e *env) restoreCadre(rt runtime.Runtime) bool {
+	repo := ""
+	for tries := 0; tries < 3 && repo == ""; tries++ {
+		repo = e.ask("Which repository holds your cadre? (owner/repo, or its URL) ")
+		if strings.HasPrefix(repo, "-") {
+			fmt.Fprintln(e.stderr, "a repository cannot start with -")
+			repo = ""
+		}
+	}
+	if repo == "" {
+		e.fail("no repository given; nothing was changed")
+		return false
+	}
+	var c cadres.Cadre
+	suggest := restoreName(repo)
+	for tries := 0; ; tries++ {
+		if tries == 3 {
+			e.fail("no cadre was restored")
+			return false
+		}
+		name := e.ask(fmt.Sprintf("Name for this cadre on this machine? [%s] ", suggest))
+		if name == "" {
+			name = suggest
+		}
+		if err := cadres.CheckName(name); err != nil {
+			fmt.Fprintln(e.stderr, err)
+			continue
+		}
+		dest := filepath.Join(cadres.Root(), name)
+		if _, err := os.Lstat(dest); err == nil {
+			fmt.Fprintf(e.stderr, "%s already exists; choose another name\n", dest)
+			continue
+		}
+		if other, ok := cadres.Clash(name, dest); ok {
+			fmt.Fprintf(e.stderr, "a cadre named %s is already at %s; choose another name\n", other.Name, other.Path)
+			continue
+		}
+		c = cadres.Cadre{Name: name, Path: dest}
+		break
+	}
+	e.say("Cloning %s into %s...", repo, display(c.Path))
+	if err := project.Clone(repo, c.Path); err != nil {
+		e.fail("%s", err)
+		return false
+	}
+	c.Path = paths.Real(c.Path)
+	if !c.Present() {
+		// Only what this command just cloned is removed.
+		os.RemoveAll(c.Path)
+		e.fail("%s is not a cadre (it has no personas/ folder); nothing was kept", repo)
+		return false
+	}
+	e.guard(c)
+	if err := cadres.SetDefault(c.Name); err != nil {
+		e.fail("%s", err)
+		return false
+	}
+	e.say("Restored your cadre %s.", c.Name)
+	sub := &env{stdin: e.stdin, stdout: e.stdout, stderr: e.stderr, lines: e.lines}
+	runProjectSync(sub)
+	e.lines = sub.lines
+	return true
 }

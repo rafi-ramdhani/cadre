@@ -16,7 +16,7 @@ var tmpl = fstest.MapFS{
 	"template/playbook.md":         {Data: []byte("# Playbook of {{name}}\n")},
 	"template/projects.yaml":       {Data: []byte("# One entry per project.\n")},
 	"template/cadre.conf":          {Data: []byte("PERMISSION_MODE=default\n")},
-	"template/.gitignore":          {Data: []byte(".DS_Store\n# Project repos live here but are their own git repos; projects.yaml links them.\n/projects/\n")},
+	"template/.gitignore":          {Data: []byte(".DS_Store\nnode_modules/\n")},
 	"template/teams/.gitkeep":      {Data: nil},
 	"template/personas/dev/pm.md":  {Data: []byte("# PM of {{name}}\n")},
 	"template/personas/dev/eng.md": {Data: []byte("# Engineer\n")},
@@ -67,8 +67,8 @@ func TestCreateInCadreFolder(t *testing.T) {
 	if b, _ := os.ReadFile(c.Path + "/playbook.md"); string(b) != "# Playbook of work\n" {
 		t.Errorf("name not put in: %q", b)
 	}
-	if b, _ := os.ReadFile(c.Path + "/.gitignore"); strings.Contains(string(b), "projects") {
-		t.Errorf(".gitignore keeps projects/: %q", b)
+	if b, _ := os.ReadFile(c.Path + "/.gitignore"); string(b) != ".DS_Store\nnode_modules/\n" {
+		t.Errorf(".gitignore %q", b)
 	}
 	if _, err := os.Stat(c.Path + "/projects"); err == nil {
 		t.Error("a cadre in ~/.cadre has projects/")

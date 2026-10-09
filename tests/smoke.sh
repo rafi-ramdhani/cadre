@@ -95,6 +95,8 @@ check "the orchestrator text names the leftover-grant check" grep -q "cadre allo
 check "skill: leftover one-time grants at session start" grep -q "Run \`cadre allow list\`" "$SK"
 check "skill: stopping everything only on request" grep -q "or \`cadre stop --all\` (every cadre's) only when the user asks for it directly" "$SK"
 check "skill: uninstall only on request, after the dry run" grep -q "Run \`cadre uninstall --dry-run\`, show the plan" "$SK"
+check "skill: a backup repository only after a yes, and private" grep -q "Create it only after the user's explicit yes, typed here: \`gh repo create cadre-<name> --private" "$SK"
+check "skill: never credentials in the cadre" grep -q "never add credentials to the cadre" "$SK"
 check "protocol: report blocked actions" grep -q "If an action is blocked or denied by a permission check, stop" "$ROOT/protocol.md"
 check "no em dashes" py '
 import os, sys
@@ -123,8 +125,18 @@ check "--check: everything in order" bash -c "cadre --check | grep -q 'everythin
 ln -sfn "$T/elsewhere-skill" "$HOME/.claude/skills/cadre"
 check "--check names a wrong skill link, with its fix" bash -c "cadre --check </dev/null 2>&1 | grep -q 'the cadre skill links to' && cadre --check </dev/null 2>&1 | grep -q 'fix:'"
 ln -sfn "$HOME/.cadre/framework/skills/cadre" "$HOME/.claude/skills/cadre"
-# The rest of the suite starts from a machine with no cadre yet.
+check "the new cadre has the pre-push guard" grep -q "hook pre-push" "$HOME/.cadre/first/.git/hooks/pre-push"
+# The same cadre restored from its backup on a new machine.
+git clone -q --bare "$HOME/.cadre/first" "$T/cadre-first.git"
 mv "$HOME/.cadre/first" "$T/first.away"; rm "$HOME/.cadre/config/default"; rm -f "$T/orch-ran"
+out=$(printf 'restore\n%s\n\n' "$T/cadre-first.git" | CADRE_TEST_TTY=1 cadre 2>&1)
+check "restore clones the backup into ~/.cadre, named from the repository" bash -c "grep -q 'Restored your cadre first.' <<<'$out' && test -f '$HOME/.cadre/first/personas/dev/engineer.md'"
+check "and makes it the default, with the guard, then opens the orchestrator" bash -c "grep -qx first '$HOME/.cadre/config/default' && grep -q 'hook pre-push' '$HOME/.cadre/first/.git/hooks/pre-push' && grep -qx first-orchestrator '$T/orch-ran'"
+mkdir -p "$T/notacadre" && git -C "$T/notacadre" init -q && git -C "$T/notacadre" commit -q --allow-empty -m x
+rm -rf "$HOME/.cadre/first"; rm "$HOME/.cadre/config/default"
+check "restore refuses a repository that is not a cadre, and keeps nothing" bash -c "printf 'restore\n%s\nx\n' '$T/notacadre' | CADRE_TEST_TTY=1 cadre 2>&1 | grep -q 'is not a cadre' && test ! -e '$HOME/.cadre/x'"
+# The rest of the suite starts from a machine with no cadre yet.
+rm -f "$T/orch-ran"
 cd "$T"
 
 echo "layout (N.1)"
@@ -301,6 +313,18 @@ check "sync clones them into the projects folder" bash -c "grep -q 'app: cloned 
 check "and uses a clone that is already there" grep -q "t1: already at $HOME/Developer/t1" <<<"$out"
 check "and records this machine's places" grep -q '"t1": "~/Developer/t1"' "$HOME/.cadre/config/places/demo.json"
 rm -rf "$HOME/Developer"; mv "$T/Developer.saved" "$HOME/Developer"; mv "$T/places.saved" "$HOME/.cadre/config/places/demo.json"
+
+echo "backup"
+git init -q --bare "$T/backup.git"
+git -C "$C" remote add origin "$T/backup.git"
+check "a clean push passes the guard" git -C "$C" push -q origin main
+mkdir -p "$C/teams/ops"
+printf 'ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz\n' > "$C/teams/ops/.env"
+git -C "$C" add teams && git -C "$C" commit -qm "ops notes"
+out=$(git -C "$C" push origin main 2>&1 || true)
+check "a push carrying a credential is stopped, naming the file" bash -c "grep -q 'teams/ops/.env: looks like an environment file' <<<'$out' && test \"\$(git -C '$T/backup.git' rev-parse main)\" != \"\$(git -C '$C' rev-parse main)\""
+git -C "$C" reset -q --hard HEAD~1
+git -C "$C" remote remove origin
 
 echo "resolution (N.3)"
 cd "$T"

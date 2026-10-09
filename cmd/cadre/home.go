@@ -40,25 +40,9 @@ func (e *env) ask(question string) string {
 	return strings.TrimSpace(line)
 }
 
-// home prepares ~/.cadre: the one-time copy of ~/.config/cadre (N.1).
-func (e *env) home() bool {
-	msg, err := cadres.CopyOldConfig()
-	if err != nil {
-		e.fail("%s", err)
-		return false
-	}
-	if msg != "" {
-		fmt.Fprintln(e.stderr, "note: "+msg)
-	}
-	return true
-}
-
 // resolve finds the cadre this command acts on (N.3), asking which one
 // when several cadres link the project the user is in.
 func (e *env) resolve() (*cadres.Resolved, bool) {
-	if !e.home() {
-		return nil, false
-	}
 	var ask cadres.Asker
 	if e.interactive() {
 		ask = func(project string, names []string) (string, error) {
@@ -96,7 +80,7 @@ func runInit(e *env) int {
 	if len(e.args) != 1 || strings.HasPrefix(e.args[0], "-") {
 		return e.fail("usage: cadre init <name>")
 	}
-	if e.member("create or switch cadres") || !e.home() {
+	if e.member("create or switch cadres") {
 		return 1
 	}
 	c, note, err := cadres.Create(e.args[0], cadre.Assets)
@@ -124,7 +108,7 @@ func runUse(e *env) int {
 	if len(e.args) != 1 || strings.HasPrefix(e.args[0], "-") {
 		return e.fail("usage: cadre use <name>")
 	}
-	if e.member("create or switch cadres") || !e.home() {
+	if e.member("create or switch cadres") {
 		return 1
 	}
 	c, ok := cadres.Find(e.args[0])

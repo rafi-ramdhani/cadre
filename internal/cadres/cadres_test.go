@@ -129,43 +129,23 @@ func TestList(t *testing.T) {
 	}
 }
 
-func TestCopyOldConfig(t *testing.T) {
+func TestOldCadres(t *testing.T) {
 	home := fakeHome(t, true)
-	visible := filepath.Join(home, "Documents", "demo")
-	other := filepath.Join(home, "Documents", "two")
-	os.MkdirAll(visible+"/members", 0o755)
-	os.MkdirAll(other+"/members", 0o755)
-	old := OldConfig()
-	os.MkdirAll(old, 0o755)
-	os.WriteFile(old+"/home", []byte("~/Documents/demo\n"), 0o644)
-	os.WriteFile(old+"/cadres", []byte(visible+"\n"+other+"\n"), 0o644)
-	os.WriteFile(old+"/member-settings.sha256", []byte("abc "+visible+"/.claude/member-settings.json\n"), 0o600)
-	os.MkdirAll(old+"/cadres.lock", 0o755)
-	msg, err := CopyOldConfig()
-	if err != nil || msg == "" {
-		t.Fatalf("CopyOldConfig: %q %v", msg, err)
+	Create("work", tmpl)
+	old := filepath.Join(home, "Documents", "demo")
+	os.MkdirAll(old+"/personas", 0o755)
+	os.WriteFile(old+"/projects.yaml", nil, 0o644)
+	os.MkdirAll(home+"/.config/cadre", 0o755)
+	os.WriteFile(home+"/.config/cadre/home", []byte("~/Documents/demo\n"), 0o644)
+	if OldHome() != old {
+		t.Errorf("OldHome %q", OldHome())
 	}
-	if Default() != "demo" {
-		t.Errorf("default %q", Default())
+	if !OldCadre(old) || OldCadre(old+"/personas") || OldCadre(home+"/.cadre/work") || OldCadre(home) {
+		t.Error("OldCadre")
 	}
-	if _, err := os.Stat(Config("external")); err == nil {
-		t.Error("the 0.1.x cadres were listed as outside cadres")
-	}
-	if b, _ := os.ReadFile(Config("member-settings.sha256")); !strings.Contains(string(b), "abc ") {
-		t.Errorf("fingerprints %q", b)
-	}
-	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
-		t.Error("~/.config/cadre is still there")
-	}
-	if _, err := os.Stat(old + ".moved-to-0.2.0/home"); err != nil || !strings.Contains(msg, ".moved-to-0.2.0") {
-		t.Errorf("the old folder was not kept aside: %v %q", err, msg)
-	}
-	if msg, _ := CopyOldConfig(); msg != "" {
-		t.Error("a second copy did something")
-	}
-	// A 0.1.x cadre is not opened where it is: cadre migrate moves it.
-	if _, err := Resolve(home, nil); !errors.Is(err, ErrNoCadre) {
-		t.Errorf("resolve after the copy: %v", err)
+	os.WriteFile(home+"/.config/cadre/home", []byte("/nowhere/demo\n"), 0o644)
+	if OldHome() != "" {
+		t.Error("a missing old home was named")
 	}
 }
 

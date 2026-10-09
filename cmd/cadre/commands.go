@@ -56,7 +56,6 @@ func init() {
 		// Advanced, grouped.
 		{name: "init", usage: "<name>", summary: "create a cadre in ~/.cadre/<name>", group: "Cadres", run: runInit},
 		{name: "use", usage: "<name>", summary: "make a cadre the default", group: "Cadres", run: runUse},
-		{name: "migrate", usage: "[--dry-run]", summary: "move a 0.1.x cadre into ~/.cadre (projects stay put)", group: "Cadres", run: notBuilt("cadre migrate")},
 
 		{name: "project add", usage: "<name> <repo> | <name> --path <dir>", summary: "clone a project into your projects folder, or link a folder", group: "Projects", run: runProjectAdd},
 		{name: "project link", usage: "<name> <dir>", summary: "set where a project's folder is on this machine", group: "Projects", run: runProjectLink},

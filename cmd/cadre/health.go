@@ -228,9 +228,6 @@ func runCheck(e *env) int {
 	if len(e.args) > 0 {
 		return e.fail("usage: cadre --check")
 	}
-	if !e.home() {
-		return 1
-	}
 	rt, err := runtime.Get(runtimeName())
 	if err != nil {
 		return e.fail("%s", err)

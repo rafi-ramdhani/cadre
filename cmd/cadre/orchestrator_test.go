@@ -113,7 +113,7 @@ func TestPlainCadreFromAProjectAndNotes(t *testing.T) {
 	os.WriteFile(home+"/old/demo/projects.yaml", nil, 0o644)
 	os.WriteFile(home+"/old/demo/cadre.conf", []byte("touch "+home+"/marker\n"), 0o644)
 	t.Chdir(home + "/old/demo")
-	if out := must(t); !strings.Contains(out, home+"/old/demo looks like a cadre from before 0.2.0: move it into ~/.cadre with cadre migrate") {
+	if out := must(t); !strings.Contains(out, home+"/old/demo looks like a cadre from 0.1.x. To bring it in, tell the orchestrator: bring in my old cadre from "+home+"/old/demo.") {
 		t.Errorf("look-alike: %q", out)
 	}
 	if _, err := os.Stat(home + "/marker"); err == nil {

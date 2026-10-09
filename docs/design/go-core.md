@@ -37,8 +37,8 @@ internal/
   sessions/    names, attribution (@cadre_home), legacy, start, stop, ls data
   conf/        cadre.conf parsed as KEY=VALUE, never sourced (N.1)
   home/        the ~/.cadre layout: config/, framework/, <name>/
-  cadres/      the cadre list, reserved names, resolution (N.3), the
-               ~/.config/cadre copy (N.1), migration (N.6)
+  cadres/      the cadre list, reserved names, resolution (N.3), and
+               what cadre recognizes of 0.1.x (read only)
   registry/    projects.yaml: projects linked by path, the projects folder
   orchestrator/ plain cadre, its lock, --tmux                      (M-T2)
   health/      fast and full checks                                (M-T3)
@@ -112,11 +112,12 @@ Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
 
   Configuration is only ever read from `~/.cadre/` or `CADRE_HOME`, never
   from a folder the user is in.
-- **`~/.config/cadre` copy** (N.1): runs once, under the config lock, before
-  any command reads config. It copies `home` as a name into `default` and
-  the fingerprints, then moves the old folder aside (the migration reads the
-  old cadres list there). A 0.1.x cadre opens only once `cadre migrate` has
-  moved it into `~/.cadre`.
+- **Coming from 0.1.x** (O-T6e): cadre never changes a 0.1.x cadre or
+  `~/.config/cadre`. It reads `~/.config/cadre/home` for one line on the
+  first run, and recognizes an old cadre's top folder (`personas/` and
+  `projects.yaml`, not a known cadre: `cadres.OldCadre`) to point to the
+  bring-in and to refuse linking or trusting it. Bringing an old cadre in is
+  the orchestrator's job, guided by the skill.
 - **`cadre.conf`** (`conf.Parse`) reads `KEY=VALUE` lines, `#` comments and
   optional single or double quotes, with no expansion. Any other line is
   ignored with a warning naming it. Only `PERMISSION_MODE` is read (for the
@@ -137,11 +138,6 @@ Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
   or `/mnt` drive that is not mounted); `up`, `attach` and `project path`
   refuse a project that is not present, saying how to get it back, and
   cadre never unlinks one by itself.
-- **Migration** (N.6) lives in `cadres` and is built on `fsx`: copy, verify
-  (file list, sizes, symlink targets, `git rev-parse HEAD` and
-  `git status --porcelain`), rewrite paths, commit, then move the old files
-  aside into `cadre-before-0.2/`. It never deletes, and it refuses while
-  sessions run.
 
 ## Core primitives
 

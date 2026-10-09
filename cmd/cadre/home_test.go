@@ -128,24 +128,66 @@ func TestProjectPath(t *testing.T) {
 	}
 }
 
-func TestOldConfigIsMovedOnce(t *testing.T) {
+// snapshot is every file under dir with its content, to compare.
+func snapshot(t *testing.T, dir string) string {
+	t.Helper()
+	var b strings.Builder
+	filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			raw, _ := os.ReadFile(p)
+			fmt.Fprintf(&b, "%s %o %q\n", p, info.Mode(), raw)
+		}
+		return nil
+	})
+	return b.String()
+}
+
+// A machine with a 0.1.x cadre: cadre changes neither it nor
+// ~/.config/cadre, refuses to link or trust its top folder, accepts its
+// projects, and points to the bring-in.
+func TestA01CadreIsLeftAsItIs(t *testing.T) {
 	home := sandbox(t)
-	os.MkdirAll(home+"/Documents/demo/personas", 0o755)
+	withTmux(t, home)
+	stubClaude(t, home)
+	os.WriteFile(home+"/release", nil, 0o644)
+	old := home + "/Documents/demo"
+	os.MkdirAll(old+"/personas/dev", 0o755)
+	os.WriteFile(old+"/personas/dev/pm.md", []byte("# pm\n"), 0o644)
+	os.WriteFile(old+"/projects.yaml", []byte("app:\n  repo: me/app\n"), 0o644)
+	os.WriteFile(old+"/cadre.conf", []byte("PERMISSION_MODE=auto\n"), 0o644)
+	repo := bareRepo(t, "app")
+	exec.Command("git", "init", "-q", old).Run()
+	exec.Command("git", "clone", "-q", repo, old+"/projects/app").Run()
 	os.MkdirAll(home+"/.config/cadre", 0o755)
-	os.WriteFile(home+"/.config/cadre/home", []byte(home+"/Documents/demo\n"), 0o644)
-	code, _, errOut := call("ls", "--all")
-	if code != 0 || !strings.Contains(errOut, "moved cadre's settings") {
-		t.Errorf("first command: %d %q", code, errOut)
+	os.WriteFile(home+"/.config/cadre/home", []byte(old+"\n"), 0o644)
+	os.WriteFile(home+"/.config/cadre/cadres", []byte(old+"\n"), 0o644)
+	before := snapshot(t, old) + snapshot(t, home+"/.config/cadre")
+	// The first run points to the bring-in.
+	ttyForTests = true
+	code, out, errOut := callIn("new\nwork\nn\nn\n")
+	ttyForTests = false
+	if code != 0 || !strings.Contains(out, "You have a cadre from 0.1.x at ~/Documents/demo. To bring it in, tell the orchestrator: bring in my old cadre from ~/Documents/demo.") {
+		t.Errorf("first run: %d\n%s%s", code, out, errOut)
 	}
-	if _, err := os.Stat(home + "/.config/cadre"); err == nil {
-		t.Error("~/.config/cadre is still there")
+	if cadres.Default() != "work" {
+		t.Errorf("default %q", cadres.Default())
 	}
-	if _, err := os.Stat(home + "/.config/cadre.moved-to-0.2.0/home"); err != nil {
-		t.Error("the old folder was not kept aside")
+	for _, args := range [][]string{{"ls"}, {"ls", "--all"}, {"--check"}, {"project", "dir", "~/Code"}} {
+		call(args...)
 	}
-	_, _, errOut = call("ls", "--all")
-	if strings.Contains(errOut, "moved") {
-		t.Error("the move was announced twice")
+	hint := "it is a cadre from 0.1.x; to bring it in, tell the orchestrator: bring in my old cadre from ~/Documents/demo"
+	refused(t, hint, "project", "add", "demo", "--path", old)
+	must(t, "project", "add", "app", "--path", old+"/projects/app", "--no-trust")
+	refused(t, hint, "project", "link", "app", old)
+	register(t, home, "work", "app:\n  repo: "+repo+"\n  path: "+old+"\n")
+	if out := must(t, "project", "trust", "app"); !strings.Contains(out, "app: not trusted, "+hint) {
+		t.Errorf("trust: %q", out)
+	}
+	if after := snapshot(t, old) + snapshot(t, home+"/.config/cadre"); after != before {
+		t.Error("the 0.1.x cadre or ~/.config/cadre changed")
+	}
+	if code, _, errOut := call("migrate"); code != 1 || !strings.Contains(errOut, "unknown command 'migrate'") {
+		t.Errorf("migrate: %d %q", code, errOut)
 	}
 }
 

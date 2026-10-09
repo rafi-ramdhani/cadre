@@ -155,17 +155,18 @@ check "cadre.conf is never run" bash -c "echo 'touch $T/marker' >> '$C/cadre.con
 check "and its command line is named" bash -c "cd '$C' && cadre ls 2>&1 | grep -q 'ignored (only KEY=VALUE'"
 git -C "$C" checkout -q -- cadre.conf
 
-echo "the old ~/.config/cadre is moved once"
-mkdir -p "$T/old/visible/personas" "$HOME/.config/cadre"
+echo "a 0.1.x cadre is left as it is"
+mkdir -p "$T/old/visible/personas" "$T/old/visible/projects" "$HOME/.config/cadre"
+touch "$T/old/visible/projects.yaml"
 echo "$T/old/visible" > "$HOME/.config/cadre/home"
-mv "$HOME/.cadre/config/default" "$T/default.saved"
-err=$(cadre ls 2>&1 >/dev/null || true)
-check "moved, with a note" grep -q "moved cadre's settings" <<<"$err"
-check "the old folder is kept aside" test -f "$HOME/.config/cadre.moved-to-0.2.0/home" -a ! -e "$HOME/.config/cadre"
-check "the default is kept by name" grep -qx visible "$HOME/.cadre/config/default"
-check "a 0.1.x cadre is not listed as an outside cadre" test ! -e "$HOME/.cadre/config/external"
-check "nor opened where it is, until it is migrated" bash -c "cd '$T' && ! cadre ls >/dev/null 2>&1"
-mv "$T/default.saved" "$HOME/.cadre/config/default"
+snap() { find "$T/old/visible" "$HOME/.config/cadre" -type f -exec cksum {} + | sort; }
+before=$(snap)
+cadre ls >/dev/null 2>&1; cadre ls --all >/dev/null 2>&1; cadre --check >/dev/null 2>&1 || true
+check "cadre leaves the 0.1.x cadre and ~/.config/cadre byte for byte" test "$(snap)" = "$before"
+check "the default stays this machine's" grep -qx demo "$HOME/.cadre/config/default"
+check "its top folder is not linked as a project" bash -c "cadre project add old --path '$T/old/visible' 2>&1 | grep -q 'it is a cadre from 0.1.x; to bring it in, tell the orchestrator: bring in my old cadre from'"
+check "there is no migrate command" bash -c "cadre migrate 2>&1 | grep -q \"unknown command 'migrate'\""
+rm -rf "$HOME/.config/cadre"
 
 echo "grow"
 cd "$C"
@@ -645,7 +646,7 @@ mkdir -p "$T/elsewhere/members"; ln -s "$T/elsewhere" "$HOME/.cadre/linked"
 check "a symlink in ~/.cadre is not a cadre" bash -c "! cadre ls --all | grep -q '^cadre linked'"
 rm "$HOME/.cadre/linked"
 mkdir -p "$T/old0/personas"; touch "$T/old0/projects.yaml"
-check "a 0.1.x cadre gets the migrate hint" bash -c "cd '$T/old0' && cadre </dev/null 2>/dev/null | grep -q 'looks like a cadre from before 0.2.0: move it into ~/.cadre with cadre migrate'"
+check "a 0.1.x cadre gets the bring-in hint" bash -c "cd '$T/old0' && cadre </dev/null 2>/dev/null | grep -q 'looks like a cadre from 0.1.x. To bring it in, tell the orchestrator: bring in my old cadre from'"
 
 echo "help"
 check "help lists the visible commands" bash -c "cadre help | grep -q 'cadre stop' && ! cadre help | grep -q 'cadre allow'"

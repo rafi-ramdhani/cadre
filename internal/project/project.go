@@ -178,9 +178,22 @@ func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added,
 	return a, err
 }
 
+// oldCadre refuses the top folder of a 0.1.x cadre, which is brought in,
+// not linked or trusted as a project; its projects/<name> folders are
+// projects like any other.
+func oldCadre(dir string) string {
+	if cadres.OldCadre(dir) {
+		return "it is a cadre from 0.1.x; to bring it in, tell the orchestrator: bring in my old cadre from " + cadres.Tilde(dir)
+	}
+	return ""
+}
+
 // LinkRefusal says why a folder (physical) cannot be linked as a project,
 // or "".
 func LinkRefusal(dir string, protected []string) string {
+	if why := oldCadre(dir); why != "" {
+		return why
+	}
 	if why := DestRefusal(dir, protected); why != "" {
 		return why
 	}

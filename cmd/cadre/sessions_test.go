@@ -27,10 +27,17 @@ func withTmux(t *testing.T, home string) string {
 	t.Cleanup(func() { exec.Command("tmux", "-L", socket, "kill-server").Run() })
 	bin := filepath.Join(home, "bin")
 	os.MkdirAll(bin, 0o755)
-	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \""+home+"/args-$CADRE_PERSONA\"\nexec sleep 300\n"), 0o755)
+	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"+stubAnswers+"printf '%s\\n' \"$@\" > \""+home+"/args-$CADRE_PERSONA\"\nexec sleep 300\n"), 0o755)
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	return socket
 }
+
+// stubAnswers makes a stub claude answer the health check's questions as
+// a current, logged-in install does.
+const stubAnswers = "case \"$1 $2\" in\n" +
+	"  '--version '*) echo '2.1.300 (Claude Code)'; exit 0 ;;\n" +
+	"  'auth status') echo '{\"loggedIn\": true}'; exit 0 ;;\n" +
+	"esac\n"
 
 func tmuxIn(socket string, args ...string) string {
 	out, _ := exec.Command("tmux", append([]string{"-L", socket}, args...)...).CombinedOutput()
@@ -116,8 +123,8 @@ func TestStopOneTeamOrRole(t *testing.T) {
 	withTmux(t, home)
 	must(t, "init", "work")
 	must(t, "up", "dev/engineer")
-	must(t, "up", "dev/pm")
-	if out := must(t, "stop", "dev/pm"); strings.TrimSpace(out) != "work-dev-pm stopped" {
+	must(t, "up", "dev/reviewer")
+	if out := must(t, "stop", "dev/reviewer"); strings.TrimSpace(out) != "work-dev-reviewer stopped" {
 		t.Errorf("stop a role: %q", out)
 	}
 	if out := must(t, "stop", "dev"); strings.TrimSpace(out) != "cadre-work-dev stopped" {
@@ -135,7 +142,7 @@ func TestUpRefusesACollision(t *testing.T) {
 	must(t, "init", "work")
 	tmuxIn(socket, "new-session", "-d", "-s", "cadre-work-dev", "sleep", "60")
 	tmuxIn(socket, "set-option", "-t", "=cadre-work-dev:", "@cadre_home", "/elsewhere/work")
-	refused(t, "belongs to cadre work (/elsewhere/work)", "up", "dev/pm")
+	refused(t, "belongs to cadre work (/elsewhere/work)", "up", "dev/reviewer")
 }
 
 func TestLegacySessionsInLs(t *testing.T) {
@@ -173,7 +180,7 @@ func TestTheRuntimeIsNotAChoice(t *testing.T) {
 		return // a -tags cadretest build has the fake runtime
 	}
 	t.Setenv("CADRE_TEST_RUNTIME", "fake")
-	if out := must(t, "up", "dev/pm"); !strings.Contains(out, "work-dev-pm started") {
+	if out := must(t, "up", "dev/reviewer"); !strings.Contains(out, "work-dev-reviewer started") {
 		t.Errorf("CADRE_TEST_RUNTIME in a release build: %q", out)
 	}
 }

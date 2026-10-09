@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rafi-ramdhani/cadre/internal/cadres"
 	"github.com/rafi-ramdhani/cadre/internal/testguard"
 )
 
@@ -38,6 +39,12 @@ func sandbox(t *testing.T) string {
 	socket := fmt.Sprintf("cadre-gotest-%d-%d", os.Getpid(), time.Now().UnixNano())
 	t.Setenv("CADRE_TMUX_SOCKET", socket)
 	t.Cleanup(func() { exec.Command("tmux", "-L", socket, "kill-server").Run() })
+	// A machine set up and checked: the skill linked, this version's full
+	// health check done. Tests of the first run and the health check undo
+	// this.
+	os.MkdirAll(home+"/.claude/skills", 0o755)
+	os.Symlink(home+"/.cadre/framework/skills/cadre", home+"/.claude/skills/cadre")
+	cadres.SetState(cadres.CheckedVersion, version)
 	testguard.Check(t)
 	return home
 }
@@ -66,8 +73,13 @@ func TestInitAndUse(t *testing.T) {
 	if !strings.Contains(out, "created "+home+"/.cadre/work") || !strings.Contains(out, "work is the default cadre") {
 		t.Errorf("init work: %q", out)
 	}
-	if b, _ := os.ReadFile(home + "/.cadre/work/playbook.md"); !strings.Contains(string(b), "work") {
+	if b, _ := os.ReadFile(home + "/.cadre/work/README.md"); !strings.HasPrefix(string(b), "# work\n") {
 		t.Error("the template was not written from the embedded assets")
+	}
+	// The starter team: dev, with an engineer and a reviewer.
+	roles, _ := filepath.Glob(home + "/.cadre/work/personas/*/*.md")
+	if len(roles) != 2 || filepath.Base(roles[0]) != "engineer.md" || filepath.Base(roles[1]) != "reviewer.md" {
+		t.Errorf("starter team %v", roles)
 	}
 	out = must(t, "init", "life")
 	if !strings.Contains(out, "default cadre stays work") {
@@ -116,23 +128,40 @@ func TestProjectPath(t *testing.T) {
 	}
 }
 
-func TestOldConfigIsMovedOnce(t *testing.T) {
+// A 0.1.x ~/.config/cadre is never changed, and a command without a
+// terminal creates nothing before asking.
+func TestTheOldConfigIsLeftAlone(t *testing.T) {
 	home := sandbox(t)
+	os.RemoveAll(home + "/.cadre") // the sandbox's own state, not cadre's
 	os.MkdirAll(home+"/Documents/demo/personas", 0o755)
 	os.MkdirAll(home+"/.config/cadre", 0o755)
 	os.WriteFile(home+"/.config/cadre/home", []byte(home+"/Documents/demo\n"), 0o644)
-	code, _, errOut := call("ls", "--all")
-	if code != 0 || !strings.Contains(errOut, "moved cadre's settings") {
-		t.Errorf("first command: %d %q", code, errOut)
+	os.WriteFile(home+"/.config/cadre/persona-settings.sha256", []byte("abc x\n"), 0o600)
+	before, _ := exec.Command("ls", "-lnR", home+"/.config").Output()
+	if code, _, _ := call(); code != 1 {
+		t.Errorf("plain cadre with no cadre and no terminal exited %d", code)
 	}
-	if _, err := os.Stat(home + "/.config/cadre"); err == nil {
-		t.Error("~/.config/cadre is still there")
+	if _, err := os.Stat(home + "/.cadre"); err == nil {
+		t.Error("~/.cadre was created before asking")
 	}
-	if _, err := os.Stat(home + "/.config/cadre.moved-to-0.2.0/home"); err != nil {
-		t.Error("the old folder was not kept aside")
+	for _, args := range [][]string{{"ls", "--all"}, {"--check"}, {"init", "work"}, {"ls"}} {
+		call(args...)
 	}
-	_, _, errOut = call("ls", "--all")
-	if strings.Contains(errOut, "moved") {
-		t.Error("the move was announced twice")
+	after, _ := exec.Command("ls", "-lnR", home+"/.config").Output()
+	if string(after) != string(before) || readFile(t, home+"/.config/cadre/home") != home+"/Documents/demo\n" {
+		t.Errorf("~/.config/cadre changed:\n%s\n%s", before, after)
+	}
+}
+
+func TestCutConfigKeysAreNamed(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("PERMISSION_MODE=default\nRUNTIME=codex\nORCHESTRATOR_TMUX=yes\n"), 0o644)
+	_, _, errOut := call("ls")
+	for _, want := range []string{"cadre.conf sets RUNTIME, which cadre no longer reads: there is one runtime",
+		"cadre.conf sets ORCHESTRATOR_TMUX, which cadre no longer reads: open the orchestrator in tmux with cadre --tmux"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("no %q in %q", want, errOut)
+		}
 	}
 }

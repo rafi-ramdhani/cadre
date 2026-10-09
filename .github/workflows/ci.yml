@@ -18,19 +18,19 @@ jobs:
           fetch-depth: 0
       - name: Install tools (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y tmux shellcheck jq
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Install tools (macOS)
         if: runner.os == 'macOS'
-        run: brew install tmux shellcheck jq
+        run: brew install shellcheck
       - name: Configure git
         run: |
           git config --global user.name "CI"
           git config --global user.email "ci@example.com"
           git config --global init.defaultBranch main
+      # The bash line is frozen; its suite retired. Its scripts stay linted
+      # until O-T9 replaces them with the bridge files.
       - name: Lint
         run: shellcheck -x bin/cadre bin/orchestrator-hook.sh install.sh tests/smoke-bash.sh tests/smoke.sh
-      - name: Smoke test (bash version, until the Go one reaches parity)
-        run: tests/smoke-bash.sh
 
   go:
     strategy:
@@ -61,7 +61,10 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: Vet
         run: go vet ./...
+      # On the go.mod version only: a staticcheck release can lag a new Go
+      # (2026.2.1 cannot read Go 1.27.2's export data).
       - name: Staticcheck
+        if: matrix.go == 'go.mod'
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
       - name: Test
         run: go test -race ./...

@@ -154,12 +154,55 @@ type TrustOps interface {
 	Protected() []string
 }
 
+// Problem is one finding of the health check (M.4): what is wrong and the
+// exact fix. A fatal problem stops plain cadre before the runtime starts.
+type Problem struct {
+	What  string
+	Fix   string
+	Fatal bool
+}
+
+// InstructionOps put the orchestrator's instructions (cadre's skill) where
+// the runtime reads them: a link to the folder cadre writes them to.
+type InstructionOps interface {
+	// Path is where the runtime looks for them.
+	Path() string
+	// Target is where Path links to. It returns an error wrapping
+	// fs.ErrNotExist when there is nothing at Path, and ErrNotLink when
+	// something other than a link is there.
+	Target() (string, error)
+	// Link makes Path a link to dir. It replaces a link, never anything else.
+	Link(dir string) error
+}
+
+// ErrNotLink is returned for a path cadre would link that holds something
+// else.
+var ErrNotLink = errors.New("not a link")
+
+// HookOps manage the hook that makes every new session the orchestrator.
+type HookOps interface {
+	// File is the settings file that holds the hook.
+	File() string
+	// Find returns the program each orchestrator hook in File runs: a cadre
+	// binary, or a 0.1.x hook script.
+	Find() ([]string, error)
+	// Set makes `<binary> hook orchestrator` the only orchestrator hook,
+	// replacing others. It returns false when it already was.
+	Set(binary string) (bool, error)
+	// Output is what the hook prints to give a new session text.
+	Output(text string) []byte
+}
+
 // Runtime is an agent CLI cadre can run sessions with.
 type Runtime interface {
 	Name() string
 	Title() string // the product's name, for messages: "Claude Code"
 	Caps() Capabilities
 	Detect() (Install, error)
+	// Health is the runtime's part of the health check: it is installed,
+	// and, when full, it runs and is logged in; and nothing in the cadres'
+	// folders changes what their sessions load.
+	Health(full bool, cadres []string) []Problem
 	// Launch builds the command for a session; the caller runs it.
 	Launch(LaunchSpec) (Command, error)
 	// BuildDir is where cadre writes a cadre's generated prompts and
@@ -167,6 +210,8 @@ type Runtime interface {
 	BuildDir(cadre string) string
 	Permissions() PermissionOps
 	Trust() TrustOps
+	Instructions() InstructionOps
+	Hooks() HookOps
 }
 
 var (

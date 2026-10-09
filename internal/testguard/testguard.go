@@ -23,8 +23,26 @@ var cleared = []string{
 	"CADRE_HOME", "CADRE_PERSONA", "CADRE_OFF", "CADRE_ORCHESTRATOR", "CADRE_TEST_TTY",
 }
 
-// Main sets up the guarded environment, runs the tests and cleans up.
+// Environment a guarded test binary passes to the test binaries it runs as
+// helpers, so they share its HOME and sockets and leave nothing behind.
+const (
+	envHome     = "CADRE_TESTGUARD_HOME"
+	envRealHome = "CADRE_TESTGUARD_REAL_HOME"
+)
+
+// Main sets up the guarded environment, runs the tests and cleans up. A
+// test binary run as a helper by a guarded one reuses its environment.
 func Main(m *testing.M) {
+	// A test may have set its own HOME before starting the helper; Unsafe
+	// still checks that HOME is not the real one.
+	if os.Getenv(envHome) != "" && os.Getenv("TMUX_TMPDIR") != "" {
+		realHome = os.Getenv(envRealHome)
+		if err := Unsafe(); err != nil {
+			fmt.Fprintln(os.Stderr, "testguard:", err)
+			os.Exit(1)
+		}
+		os.Exit(m.Run())
+	}
 	realHome = os.Getenv("HOME")
 	home, err := os.MkdirTemp("", "cadre-test-home-")
 	if err == nil {
@@ -35,6 +53,8 @@ func Main(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv("HOME", home)
+	os.Setenv(envHome, home)
+	os.Setenv(envRealHome, realHome)
 	// tmux keeps its sockets here, not in the user's own tmux folder, so
 	// none is left there. A short path: a socket's path has a length limit.
 	sockets, err := os.MkdirTemp("/tmp", "cadre-tmux-")

@@ -1,15 +1,15 @@
 # Playbook
 
-This setup's teams and routing rules. The orchestrator reads this file at the start of every session.
+This cadre's teams and routing rules. The orchestrator reads this file at the start of every session.
 
 ## Teams
 
 | Team | Personas | Use for |
 |---|---|---|
-| dev | pm, engineer, reviewer, designer | features and fixes in a registered project (`cadre up dev <project>`) |
-| research | researcher, skeptic, writer, editor | questions that need sourced answers |
+| dev | engineer, reviewer | features and fixes in a project (`cadre up dev <project>`) |
 
 ## Pipelines
 
-- **Feature (dev):** pm writes the spec, then engineer builds it on a branch, then reviewer reviews the branch, then engineer fixes the findings. Add designer before engineer for UI work.
-- **Research question:** researcher gathers notes, then skeptic checks them, then writer drafts from the checked notes, then editor tightens the draft.
+- **Feature (dev):** engineer builds it on a branch, then reviewer reviews the branch, then engineer fixes the findings.
+
+The user adds teams and personas by asking the orchestrator, which writes `personas/<team>/<role>.md` and updates this playbook.

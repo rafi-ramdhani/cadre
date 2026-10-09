@@ -71,6 +71,14 @@ Built in O-T4, trimmed in O-T5b:
 - A Go test parses every other source file and fails on Claude Code names in string literals.
 - Operations of later steps (health, hooks and instructions, sessions, context) join the interface in those steps.
 
+## First run and the health check
+
+Built in O-T5c (`cmd/cadre/setup.go`, `health.go`, `hook.go`):
+- **First run**: plain `cadre` with no cadre asks "new or restore". New asks a name (the login name suggested), creates `~/.cadre/<name>` with the starter team (dev: engineer, reviewer) as the default, and offers to link the git repository the user is in. Then it offers the hook, runs the full health check (which offers the skill link), prints the greeting and opens the orchestrator. Restore is O-T6b. Without a terminal it says what to run and changes nothing.
+- **Health check** on every plain `cadre`, silent unless something is wrong. Fast checks look only at files and `PATH`; the full check (first run, a version change recorded in `state.json`, a fast finding, `cadre --check`) also runs the runtime (`Health(full)`: `--version`, and `auth status` from the version whose docs list it). Each finding has a fix; the skill link and the hook are fixed only after a yes, and a kept hook is remembered per pair of programs. Fatal: the runtime or git missing.
+- **Framework folder**: `~/.cadre/framework` holds the skill written out from the binary, with `VERSION`; it is rewritten when the version differs (always, for a build from source). The skill link (`InstructionOps`) points at it; the hook (`HookOps`) runs `framework.Binary()`, the Homebrew opt path rather than the Cellar one.
+- **`cadre hook orchestrator`** (hidden) prints the runtime's hook answer with `orchestrator.md`, and nothing under `CADRE_PERSONA`, `CADRE_OFF` or `CADRE_ORCHESTRATOR`. It never fails.
+
 ## Data model (section N)
 
 ```
@@ -333,6 +341,12 @@ Open in the last bash PR (#11) when it was frozen; the Go code must get them rig
   passed the chaining check (fixed on main separately).
 
 ## Open points
+
+- **Staticcheck and Go 1.27 (2026-10-09)**: CI runs staticcheck 2026.2.1 on
+  the go.mod Go version only, since it cannot read the export data of Go
+  1.27.2, which the stable leg installs (releases build with stable). When a
+  staticcheck release supports Go 1.27, move the pin in
+  `.github/workflows/ci.yml` and drop the step's `if:`.
 
 - N.7 lists `Write(...)` deny entries; this design leaves them out (see
   Persona settings). The PM should confirm.

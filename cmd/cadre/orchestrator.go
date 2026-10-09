@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -40,20 +41,32 @@ func runPlain(e *env) int {
 	if detach && !useTmux {
 		return e.fail("--detach goes with --tmux")
 	}
-	if e.persona("start the orchestrator") || !e.home() {
+	if e.persona("start the orchestrator") {
 		return 1
 	}
+	rt, err := runtime.Get(runtimeName())
+	if err != nil {
+		return e.fail("%s", err)
+	}
+	first := false
 	if list, _ := cadres.List(); len(list) == 0 {
-		return e.fail("no cadre yet; create one with cadre init <name>")
+		if !e.firstRun(rt) {
+			return 1
+		}
+		first = true
 	}
 	r, ok := e.resolve()
 	if !ok {
 		return 1
 	}
-	e.openingNotes(r)
-	rt, ok := e.cadreRuntime(r)
-	if !ok {
+	if !first {
+		e.openingNotes(r)
+	}
+	if _, fatal := e.health(rt, first); fatal {
 		return 1
+	}
+	if e.eof {
+		return e.fail("input ended before the orchestrator opened; run cadre again to open it")
 	}
 	if err := runtime.CanOrchestrate(rt); err != nil {
 		return e.fail("%s", err)
@@ -61,6 +74,11 @@ func runPlain(e *env) int {
 	mode := e.mode(e.conf(r))
 	if err := runtime.Usable(rt, mode); err != nil {
 		return e.fail("%s", err)
+	}
+	if first {
+		e.say("%s", greeting)
+	} else {
+		e.missingProjects(r)
 	}
 	if useTmux && !e.tmuxReady() {
 		return 1
@@ -91,8 +109,11 @@ func runPlain(e *env) int {
 			e.say("the orchestrator of %s is already running", r.Name)
 			return e.attachTo(l.Session, detach)
 		}
-		return e.fail("the orchestrator of %s is already open in another terminal (%s, since %s); use that one, or close it first",
-			r.Name, l.TTY, l.Since.Format("15:04"))
+		where := "since " + l.Since.Format("15:04")
+		if l.TTY != "" {
+			where = l.TTY + ", " + where
+		}
+		return e.fail("the orchestrator of %s is already open in another terminal (%s); use that one, or close it first", r.Name, where)
 	}
 	// One in tmux that cadre could not record in the lock still counts.
 	if name := orchestrator.SessionName(r.Name); !useTmux && haveTmux() && orchestratorSession(t, name, r.Path, 0) {
@@ -233,7 +254,7 @@ func (e *env) runTerminal(c runtime.Command, lockPath string, release func()) in
 	if err := cmd.Start(); err != nil {
 		return e.fail("could not start the orchestrator: %s", err)
 	}
-	tty, _ := os.Readlink("/dev/fd/0")
+	tty := terminalName()
 	lock, lockErr := orchestrator.WriteLock(lockPath, cmd.Process.Pid, orchestrator.Terminal, tty, "")
 	release()
 	if lockErr == nil {
@@ -351,4 +372,15 @@ func (e *env) attachOrchestrator(r *cadres.Resolved) int {
 		return e.fail("%s", err)
 	}
 	return 0
+}
+
+// terminalName is this process's controlling terminal as /dev/<name>, or
+// "" when it has none (a pipe on stdin is not a terminal).
+func terminalName() string {
+	out, err := exec.Command("ps", "-o", "tty=", "-p", strconv.Itoa(os.Getpid())).Output()
+	name := strings.TrimSpace(string(out))
+	if err != nil || strings.Trim(name, "?") == "" {
+		return ""
+	}
+	return orchestrator.CleanTTY("/dev/" + name)
 }

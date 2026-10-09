@@ -67,7 +67,46 @@ func (f Fake) Launch(s runtime.LaunchSpec) (runtime.Command, error) {
 	}, nil
 }
 
-func (Fake) BuildDir(cadre string) string       { return filepath.Join(cadre, ".fake", "build") }
+func (Fake) BuildDir(cadre string) string { return filepath.Join(cadre, ".fake", "build") }
+
+// Health finds nothing wrong: the fake is always installed.
+func (Fake) Health(bool, []string) []runtime.Problem { return nil }
+
+func (Fake) Instructions() runtime.InstructionOps { return instructions{} }
+func (Fake) Hooks() runtime.HookOps               { return hooks{} }
+
+// instructions link the skill under $HOME/.fake, as the real adapter does
+// under Claude Code's folder.
+type instructions struct{}
+
+func (instructions) Path() string {
+	return filepath.Join(os.Getenv("HOME"), ".fake", "skills", "cadre")
+}
+
+func (i instructions) Target() (string, error) {
+	st, err := os.Lstat(i.Path())
+	if err != nil {
+		return "", err
+	}
+	if st.Mode()&os.ModeSymlink == 0 {
+		return "", runtime.ErrNotLink
+	}
+	return os.Readlink(i.Path())
+}
+
+func (i instructions) Link(dir string) error {
+	os.MkdirAll(filepath.Dir(i.Path()), 0o755)
+	os.Remove(i.Path())
+	return os.Symlink(dir, i.Path())
+}
+
+// hooks keep no settings: the fake has no orchestrator hook.
+type hooks struct{}
+
+func (hooks) File() string                      { return filepath.Join(os.Getenv("HOME"), ".fake", "settings.json") }
+func (hooks) Find() ([]string, error)           { return nil, nil }
+func (hooks) Set(string) (bool, error)          { return false, errors.New("the fake runtime has no hooks") }
+func (hooks) Output(text string) []byte         { return []byte(text + "\n") }
 func (Fake) Permissions() runtime.PermissionOps { return permissions{} }
 func (Fake) Trust() runtime.TrustOps            { return trust{} }
 

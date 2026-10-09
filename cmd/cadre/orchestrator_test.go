@@ -19,7 +19,7 @@ import (
 // arguments, environment and folder, then waits for a release file.
 func stubClaude(t *testing.T, home string) {
 	t.Helper()
-	os.WriteFile(home+"/bin/claude", []byte("#!/bin/sh\n{ printf '%s\\n' \"$@\"; env; pwd; } > \""+home+"/orch-ran\"\n"+
+	os.WriteFile(home+"/bin/claude", []byte("#!/bin/sh\n"+stubAnswers+"{ printf '%s\\n' \"$@\"; env; pwd; } > \""+home+"/orch-ran\"\n"+
 		"i=0; while [ ! -e \""+home+"/release\" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done\n"), 0o755)
 }
 
@@ -236,9 +236,13 @@ func TestAnOrchestratorInTmuxWithoutItsLockStillCounts(t *testing.T) {
 	if out := must(t); !strings.Contains(out, "the orchestrator of work is already running") {
 		t.Errorf("a second orchestrator started: %q", out)
 	}
-	if _, err := os.Stat(home + "/orch-ran"); err != nil {
-		t.Fatal("the tmux orchestrator did not run")
+	for i := 0; i < 100; i++ {
+		if _, err := os.Stat(home + "/orch-ran"); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
+	t.Fatal("the tmux orchestrator did not run")
 }
 
 func TestTwoRunsStartOneOrchestrator(t *testing.T) {

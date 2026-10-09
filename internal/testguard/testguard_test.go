@@ -1,8 +1,10 @@
 package testguard
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -97,5 +99,26 @@ func TestEveryTestPackageIsGuarded(t *testing.T) {
 			rel, _ := filepath.Rel(root, dir)
 			t.Errorf("%s has tests but no TestMain that runs testguard.Main", rel)
 		}
+	}
+}
+
+// A test binary run as a helper by this one shares its HOME and sockets,
+// so a helper that is killed (as fsx's lock tests kill theirs) leaves no
+// folder of its own behind.
+func TestAHelperReusesTheGuardedEnvironment(t *testing.T) {
+	if os.Getenv("TESTGUARD_HELPER") == "1" {
+		fmt.Printf("HELPER %s %s\n", os.Getenv("HOME"), os.Getenv("TMUX_TMPDIR"))
+		return
+	}
+	exe, _ := os.Executable()
+	cmd := exec.Command(exe, "-test.run=TestAHelperReusesTheGuardedEnvironment")
+	cmd.Env = append(os.Environ(), "TESTGUARD_HELPER=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helper: %v\n%s", err, out)
+	}
+	want := fmt.Sprintf("HELPER %s %s\n", os.Getenv("HOME"), os.Getenv("TMUX_TMPDIR"))
+	if !strings.Contains(string(out), want) {
+		t.Errorf("the helper did not share the environment:\n%s\nwant %q", out, want)
 	}
 }

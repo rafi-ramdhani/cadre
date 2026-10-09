@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 // Names (section I.3): a team's tmux session is cadre-<cadre>-<team>, or
@@ -33,13 +34,19 @@ func Key(team, project string) string {
 }
 
 // SessionName is a team's tmux session.
-func SessionName(cadre, key string) string { return "cadre-" + cadre + "-" + key }
+func SessionName(cadre, key string) string { return tmuxName("cadre-" + cadre + "-" + key) }
+
+// tmuxName is a session name as tmux keeps it: tmux 3.4 and earlier turn
+// a "." into "_" (a project such as my.app), later ones keep it, so cadre
+// writes "_" for every version. Two projects whose names differ only
+// there are told apart by the session's @cadre_project.
+func tmuxName(name string) string { return strings.ReplaceAll(name, ".", "_") }
 
 // MemberName is a member's Claude session name.
 func MemberName(cadre, key, role string) string { return cadre + "-" + key + "-" + role }
 
 // LegacyName is the tmux session 0.1.x gave a team: no cadre in it.
-func LegacyName(key string) string { return "cadre-" + key }
+func LegacyName(key string) string { return tmuxName("cadre-" + key) }
 
 // Scope is the cadre a command acts on.
 type Scope struct {

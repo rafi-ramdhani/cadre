@@ -58,6 +58,16 @@ func TestSameRepo(t *testing.T) {
 		{"/x/acme/tool.git", "/x/acme/tool.git", true},
 		{"file:///x/acme/tool", "/x/acme/tool", true},
 		{"/x/acme/tool", "/y/acme/tool", false},
+		// git reads the host as evil.example in each of these.
+		{"acme/tool", "https://evil.example#@github.com/acme/tool", false},
+		{"acme/tool", "https://evil.example?@github.com/acme/tool", false},
+		{"acme/tool", `https://evil.example\@github.com/acme/tool`, false},
+		{"acme/tool", "https://evil.example/#@github.com/acme/tool", false},
+		{"acme/tool", "evil.example#@github.com:acme/tool", false},
+		{"acme/tool", "https://x:y@github.com/acme/tool", false},
+		{"acme/tool", "https://a@b@github.com/acme/tool", false},
+		{"acme/tool", "https://me@github.com/acme/tool", true},
+		{"acme/tool", "ssh://git@github.com:22/acme/tool.git", true},
 	} {
 		if got := SameRepo(tc.a, tc.b); got != tc.want {
 			t.Errorf("SameRepo(%q, %q) = %v", tc.a, tc.b, got)

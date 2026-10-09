@@ -507,22 +507,33 @@ func (c *Checker) commandWord(rule, w string) {
 		// folders below its cadre: k leading ".." climb k-2 folders above
 		// the cadre, so an own name within the next k-1 parts may be the
 		// cadre's (../../members, ../../../w/members).
-		parts := strings.Split(path.Clean(w), "/")
-		for _, p := range parts {
-			if spells(normText(p), ".cadre") {
-				refuse("refused: %s reaches a .cadre folder, which holds cadre's own files; only the user changes those, through the orchestrator", rule)
+		// The word is read both cleaned and as written: the kernel follows
+		// a link before "..", so a/../../members climbs twice when a is a
+		// link to the team folder, though it cleans to one climb.
+		for _, form := range []string{path.Clean(w), w} {
+			parts := strings.Split(form, "/")
+			for _, p := range parts {
+				if spells(normText(p), ".cadre") {
+					refuse("refused: %s reaches a .cadre folder, which holds cadre's own files; only the user changes those, through the orchestrator", rule)
+				}
 			}
-		}
-		k := 0
-		for k < len(parts) && spells(normText(parts[k]), "..") {
-			k++
-		}
-		if k < 2 {
-			return
-		}
-		for _, p := range parts[k:min(len(parts), 2*k-1)] {
-			if name := c.ownName(p); name != "" {
-				refuse("refused: %s climbs out to %s, a cadre's own file; only the user changes those, through the orchestrator", rule, name)
+			for i := 0; i < len(parts); {
+				k := 0
+				for i+k < len(parts) && spells(normText(parts[i+k]), "..") {
+					k++
+				}
+				if k == 0 {
+					i++
+					continue
+				}
+				if k >= 2 {
+					for _, p := range parts[i+k : min(len(parts), i+2*k-1)] {
+						if name := c.ownName(p); name != "" {
+							refuse("refused: %s climbs out to %s, a cadre's own file; only the user changes those, through the orchestrator", rule, name)
+						}
+					}
+				}
+				i += k
 			}
 		}
 		return

@@ -1,5 +1,7 @@
-# Release builds for cadre (spec section O.4): a static binary for macOS and
-# Linux, amd64 and arm64, with SHA-256 checksums.
+# Release builds for cadre: a static binary for macOS and Linux, amd64 and
+# arm64, with SHA-256 checksums. The Homebrew formula is made from those
+# checksums by packaging/homebrew/formula.sh (see .github/workflows/release.yml),
+# not by goreleaser, so a release never needs write access to the tap.
 version: 2
 project_name: cadre
 
@@ -29,3 +31,8 @@ snapshot:
 
 changelog:
   disable: true
+
+release:
+  github:
+    owner: rafi-ramdhani
+    name: cadre

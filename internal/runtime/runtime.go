@@ -173,6 +173,9 @@ type InstructionOps interface {
 	Target() (string, error)
 	// Link makes Path a link to dir. It replaces a link, never anything else.
 	Link(dir string) error
+	// Unlink removes Path when it is a link to dir, and nothing else. It
+	// reports whether it removed it.
+	Unlink(dir string) (bool, error)
 }
 
 // ErrNotLink is returned for a path cadre would link that holds something
@@ -189,6 +192,9 @@ type HookOps interface {
 	// Set makes `<binary> hook orchestrator` the only orchestrator hook,
 	// replacing others. It returns false when it already was.
 	Set(binary string) (bool, error)
+	// Remove takes out the orchestrator hooks that run binary, and leaves
+	// every other hook. It reports whether it removed any.
+	Remove(binary string) (bool, error)
 	// Output is what the hook prints to give a new session text.
 	Output(text string) []byte
 }

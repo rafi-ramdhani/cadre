@@ -5,6 +5,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/rafi-ramdhani/cadre/internal/framework"
 )
 
 // A command as the user types it. The table below is the single source for
@@ -50,8 +52,8 @@ func init() {
 		{name: "attach", usage: "[team] [project]", summary: "watch or talk to a running team, or the orchestrator in tmux", run: runAttach},
 		{name: "stop", usage: "[team[/role]] [project] [--all]", summary: "stop a team; with no team, every team of this cadre (asks first)", run: runStop},
 		{name: "help", usage: "[advanced]", summary: "these commands; advanced lists the rest", run: runHelp},
-		{name: "--version", summary: "the version", run: runVersion},
-		{name: "uninstall", usage: "[--yes | --dry-run]", summary: "remove cadre's skill link, hook and config (keeps your cadres and projects)", run: notBuilt("cadre uninstall")},
+		{name: "--version", summary: "the version, and how cadre was installed", run: runVersion},
+		{name: "uninstall", usage: "[--yes | --dry-run]", summary: "remove cadre's skill link, hook and config (keeps your cadres and projects)", run: runUninstall},
 
 		// Advanced, grouped.
 		{name: "init", usage: "<name>", summary: "create a cadre in ~/.cadre/<name>", group: "Cadres", run: runInit},
@@ -167,7 +169,7 @@ func runVersion(e *env) int {
 	if len(e.args) > 0 {
 		return e.fail("usage: cadre --version")
 	}
-	e.say("cadre %s", version)
+	e.say("cadre %s (%s)", version, framework.Kind(version))
 	return 0
 }
 

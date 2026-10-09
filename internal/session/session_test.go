@@ -420,9 +420,10 @@ func (r resumable) Sessions() runtime.SessionOps { return resumableOps{r.gone} }
 
 type resumableOps struct{ gone string }
 
-func (o resumableOps) NewID() string             { return "new-id" }
-func (o resumableOps) Exists(id string) bool     { return id != o.gone }
-func (o resumableOps) FromHook(io.Reader) string { return "" }
+func (o resumableOps) NewID() string              { return "new-id" }
+func (o resumableOps) Exists(id, dir string) bool { return id != o.gone }
+func (o resumableOps) ResumeFailed(string) bool   { return false }
+func (o resumableOps) FromHook(io.Reader) string  { return "" }
 
 func TestPlan(t *testing.T) {
 	dir := t.TempDir()

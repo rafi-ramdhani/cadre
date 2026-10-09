@@ -50,13 +50,23 @@ func TestSessions(t *testing.T) {
 	}
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if ops.Exists(id) {
+	if ops.Exists(id, "/Users/me/app") {
 		t.Error("a conversation with no transcript exists")
 	}
+	// Only the transcript in the session's own folder counts, as
+	// claude --resume looks there: /Users/me/.cadre/w is -Users-me--cadre-w.
 	os.MkdirAll(filepath.Join(cfg, "projects", "-Users-me-app"), 0o755)
 	os.WriteFile(filepath.Join(cfg, "projects", "-Users-me-app", id+".jsonl"), []byte("{}\n"), 0o600)
-	if !ops.Exists(id) || ops.Exists("../../etc/passwd") {
+	if !ops.Exists(id, "/Users/me/app") || ops.Exists(id, "/Users/me/.cadre/w") || ops.Exists("../../etc/passwd", "/Users/me/app") {
 		t.Error("Exists")
+	}
+	os.MkdirAll(filepath.Join(cfg, "projects", "-Users-me--cadre-w"), 0o755)
+	os.WriteFile(filepath.Join(cfg, "projects", "-Users-me--cadre-w", id+".jsonl"), []byte("{}\n"), 0o600)
+	if !ops.Exists(id, "/Users/me/.cadre/w") {
+		t.Error("a folder with a dot")
+	}
+	if !ops.ResumeFailed("No conversation found with session ID: "+id) || ops.ResumeFailed("Error: something else") {
+		t.Error("ResumeFailed")
 	}
 	if got := ops.FromHook(strings.NewReader(`{"session_id": "` + id + `", "source": "clear"}`)); got != id {
 		t.Errorf("FromHook %q", got)

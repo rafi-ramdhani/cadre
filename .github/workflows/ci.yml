@@ -61,7 +61,10 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: Vet
         run: go vet ./...
+      # On the go.mod version only: a staticcheck release can lag a new Go
+      # (2026.2.1 cannot read Go 1.27.2's export data).
       - name: Staticcheck
+        if: matrix.go == 'go.mod'
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
       - name: Test
         run: go test -race ./...

@@ -508,6 +508,12 @@ for rule in "Edit(//$C/cadre.con[f])" "Edit(//$C/[c]adre.conf)" "Edit(//$C/cadre
   grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
 done
 check "glob refusals leave the file unchanged" cmp -s "$PS" "$T/ps.before"
+for rule in "Bash(rm $C/members/dev/engineer.md)" "Bash(echo x > $C/playbook.md)" 'Bash(rm -rf ~/.cadre/demo)' \
+    'Bash(cp x ~/.cadre/config/default)' 'Bash(sed -i s/a/b/ ../../members/dev/engineer.md)'; do
+  if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
+  grep -q "only the user changes" <<<"$err" || fail "refused as cadre's own files: $rule"
+done
+check "shell rules on cadre's own files are refused, and leave the file unchanged" cmp -s "$PS" "$T/ps.before"
 # A symlinked folder under home: both the written and the resolved path are checked.
 mkdir -p "$T/h2/dotfiles/config/git" "$T/h2/dotfiles/config/fish"
 ln -s "$T/h2/dotfiles/config" "$T/h2/.config"

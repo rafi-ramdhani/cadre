@@ -261,10 +261,10 @@ func runStop(e *env) int {
 		key := session.Key(team, project)
 		roles := []string{role}
 		if role == "" {
-			e.say("%s", s.StopTeam(key))
+			e.say("%s", s.StopTeam(team, project))
 			roles = session.Roles(r.Path, team)
 		} else {
-			e.say("%s", s.StopRole(key, role))
+			e.say("%s", s.StopRole(team, project, role))
 		}
 		if fresh {
 			var names []string
@@ -371,8 +371,11 @@ func runAttach(e *env) int {
 	}
 	key := session.Key(e.args[0], proj)
 	s := scope(r)
-	live := s.Live(key)
+	live := s.Live(e.args[0], proj)
 	if live == "" {
+		if other := s.Instead(e.args[0], proj); other != "" {
+			return e.fail("%s is not running; %s runs under that session name", strings.TrimSpace(e.args[0]+" "+proj), other)
+		}
 		return e.fail("%s is not running", session.SessionName(r.Name, key))
 	}
 	if !e.interactive() {

@@ -100,6 +100,7 @@ type allStatus struct {
 // runtime is missing, or cannot run the cadre's permission mode.
 func problemsOf(c cadres.Cadre) []string {
 	out := append([]string{}, skippedEntries(c)...)
+	out = append(out, unstartable(c)...)
 	rt, err := runtime.Get(runtimeName())
 	if err != nil {
 		return append(out, err.Error())
@@ -376,4 +377,27 @@ func (e *env) printSessions(heading string, list []sessionView) {
 		}
 		e.say("  %s: %s", v.Session, strings.Join(names, " "))
 	}
+}
+
+// unstartable names the teams and members whose names cannot be part of a
+// session name (0.1.x allowed dots, as in ml.ops): cadre up refuses them,
+// so the orchestrator should not offer to start them.
+func unstartable(c cadres.Cadre) []string {
+	var out []string
+	teams, _ := os.ReadDir(filepath.Join(c.Path, "members"))
+	for _, t := range teams {
+		if !t.IsDir() || strings.HasPrefix(t.Name(), ".") {
+			continue
+		}
+		if !session.CheckName(t.Name()) {
+			out = append(out, fmt.Sprintf("team %s cannot start: %s; rename its folder, members/%s", t.Name(), session.NameRule, t.Name()))
+			continue
+		}
+		for _, role := range session.Roles(c.Path, t.Name()) {
+			if !session.CheckName(role) {
+				out = append(out, fmt.Sprintf("member %s of team %s cannot start: %s; rename its file, members/%s/%s.md", role, t.Name(), session.NameRule, t.Name(), role))
+			}
+		}
+	}
+	return out
 }

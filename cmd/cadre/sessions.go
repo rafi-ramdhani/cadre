@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	cadre "github.com/rafi-ramdhani/cadre"
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
+	"github.com/rafi-ramdhani/cadre/internal/project"
 	"github.com/rafi-ramdhani/cadre/internal/registry"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
 	"github.com/rafi-ramdhani/cadre/internal/session"
@@ -91,13 +93,10 @@ func (e *env) picker(r *cadres.Resolved, mode string) func(string) (runtime.Runt
 
 // locate turns a project name or a folder into the key's project part, the
 // folder and the target recorded for restarts.
-func locate(r *cadres.Resolved, arg string) (project, dir, target string, err error) {
+func locate(r *cadres.Resolved, arg string) (proj, dir, target string, err error) {
 	d, perr := projectDir(r, arg)
 	switch {
 	case perr == nil:
-		if st, err := os.Stat(d); err != nil || !st.IsDir() {
-			return "", "", "", fmt.Errorf("project '%s' is not at %s; clone it again with cadre project sync, or ask the orchestrator to relink or unlink it", arg, d)
-		}
 		return arg, d, arg, nil
 	case perr != errNotRegistered:
 		return "", "", "", perr
@@ -297,11 +296,16 @@ func runAttach(e *env) int {
 	if len(e.args) == 0 {
 		return e.attachOrchestrator(r)
 	}
-	project := ""
+	proj := ""
 	if len(e.args) == 2 {
-		project = e.args[1]
+		proj = e.args[1]
+		// A registered project that is missing on this machine is refused,
+		// with how to get it back.
+		if _, err := projectDir(r, proj); err != nil && !errors.Is(err, errNotRegistered) {
+			return e.fail("%s", err)
+		}
 	}
-	key := session.Key(e.args[0], project)
+	key := session.Key(e.args[0], proj)
 	s := scope(r)
 	live := s.Live(key)
 	if live == "" {
@@ -325,9 +329,13 @@ func projectsOf(c cadres.Cadre) []projectView {
 	var out []projectView
 	for _, entry := range reg.Entries() {
 		d := cadres.ProjectDir(c, entry)
-		st, err := os.Stat(d)
-		out = append(out, projectView{Name: entry.Name, Team: entry.Get("team"), About: entry.Get("about"),
-			Path: d, Cloned: d != "" && err == nil && st.IsDir()})
+		v := projectView{Name: entry.Name, Repo: entry.Get("repo"), Team: entry.Get("team"), About: entry.Get("about"),
+			Path: d, State: cadres.Where(d)}
+		v.Cloned = v.State == "present"
+		if !v.Cloned {
+			v.Found = project.Found(cadres.ProjectsDir(), v.Repo)
+		}
+		out = append(out, v)
 	}
 	return out
 }

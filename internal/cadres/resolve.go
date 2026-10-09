@@ -19,23 +19,6 @@ func ProjectsDir() string { return expandHome(firstLine(Config("projects-dir")))
 // Registry is a cadre's projects.yaml.
 func (c Cadre) Registry() string { return filepath.Join(c.Path, "projects.yaml") }
 
-// ProjectDir is where a cadre's project lives: its path (~ expanded, a
-// relative path taken from the cadre folder), else <projects-dir>/<name>
-// ("" when no projects folder is set).
-func ProjectDir(c Cadre, e *registry.Entry) string {
-	if p := e.Get("path"); p != "" {
-		p = expandHome(p)
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(c.Path, p)
-		}
-		return p
-	}
-	if d := ProjectsDir(); d != "" {
-		return filepath.Join(d, e.Name)
-	}
-	return ""
-}
-
 // Resolved is the cadre a command acts on, and how it was found.
 type Resolved struct {
 	Cadre

@@ -93,7 +93,7 @@ func TestPlainCadreFromAProjectAndNotes(t *testing.T) {
 	os.WriteFile(home+"/release", nil, 0o644)
 	must(t, "init", "work")
 	os.MkdirAll(home+"/Developer/app", 0o755)
-	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte("app:\n  repo: me/app\n  path: ~/Developer/app\n"), 0o644)
+	register(t, home, "work", "app:\n  repo: me/app\n  path: ~/Developer/app\n")
 	t.Chdir(home + "/Developer/app")
 	out := must(t)
 	if strings.Contains(out, "Opening your default") {

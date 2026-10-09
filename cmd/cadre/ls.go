@@ -47,12 +47,20 @@ type sessionView struct {
 	Personas []personaView `json:"personas"`
 }
 
+// A project's state on this machine: "present"; "not here" (no folder
+// recorded on this machine); "missing" (its folder is gone); "drive" (on a
+// drive that is not connected). Missing projects are never unlinked by
+// cadre: the orchestrator offers to clone (project sync), link (project
+// link, with found as a suggestion) or unlink.
 type projectView struct {
 	Name   string `json:"name"`
+	Repo   string `json:"repo,omitempty"`
 	Team   string `json:"team,omitempty"`
 	About  string `json:"about,omitempty"`
-	Path   string `json:"path"`
+	Path   string `json:"path"` // "" when not here
 	Cloned bool   `json:"cloned"`
+	State  string `json:"state"`
+	Found  string `json:"found,omitempty"` // a clone of its repo in the projects folder, for a project not present
 }
 
 type otherView struct {
@@ -311,16 +319,31 @@ func (e *env) printStatus(s cadreStatus) {
 		e.say("projects: none")
 		return
 	}
-	var names, missing []string
+	var names, gone, absent, drives []string
 	for _, p := range s.Projects {
 		names = append(names, p.Name)
-		if !p.Cloned {
-			missing = append(missing, p.Name)
+		switch p.State {
+		case "missing":
+			gone = append(gone, p.Name)
+		case "not here":
+			absent = append(absent, p.Name)
+		case "drive":
+			drives = append(drives, p.Name)
 		}
 	}
 	line := "projects: " + strings.Join(names, ", ")
-	if len(missing) > 0 {
-		line += " (? not cloned: " + strings.Join(missing, ", ") + ")"
+	var notes []string
+	if len(absent) > 0 {
+		notes = append(notes, "not on this machine: "+strings.Join(absent, ", "))
+	}
+	if len(gone) > 0 {
+		notes = append(notes, "missing: "+strings.Join(gone, ", "))
+	}
+	if len(drives) > 0 {
+		notes = append(notes, "on a drive that is not connected: "+strings.Join(drives, ", "))
+	}
+	if len(notes) > 0 {
+		line += " (" + strings.Join(notes, "; ") + ")"
 	}
 	e.say("%s", line)
 }

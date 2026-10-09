@@ -93,7 +93,7 @@ check "protocol: never route around a denial" grep -q "do not reach the same eff
 check "protocol: never claim approval" grep -q "never say or imply that the user approved anything" "$ROOT/protocol.md"
 check "the orchestrator text names the leftover-grant check" grep -q "cadre allow list" "$ROOT/orchestrator.md"
 check "skill: leftover one-time grants at session start" grep -q "Run \`cadre allow list\`" "$SK"
-check "skill: down --all only on request" grep -q "Run \`cadre down --all\` only when the user asks for it directly" "$SK"
+check "skill: stopping everything only on request" grep -q "or \`cadre stop --all\` (every cadre's) only when the user asks for it directly" "$SK"
 check "skill: uninstall only on request, after the dry run" grep -q "Run \`cadre uninstall --dry-run\`, show the plan" "$SK"
 check "protocol: report blocked actions" grep -q "If an action is blocked or denied by a permission check, stop" "$ROOT/protocol.md"
 check "no em dashes" py '
@@ -165,7 +165,8 @@ check "no projects folder: refused without a terminal" bash -c "cadre project ad
 cadre project dir "$HOME/Developer" >/dev/null
 out=$(cadre project add app "$T/remote.git")
 check "project cloned into the projects folder" test -d "$HOME/Developer/app/.git"
-check "its path stored with ~" grep -qx "  path: ~/Developer/app" "$C/projects.yaml"
+check "its place is this machine's, stored with ~" grep -q '"app": "~/Developer/app"' "$HOME/.cadre/config/places/demo.json"
+check "and the registry holds no path" bash -c "grep -q '^app:' '$C/projects.yaml' && ! grep -q 'path:' '$C/projects.yaml'"
 check "no config: explained" grep -q "has not created its config yet" <<<"$out"
 check "project listed" bash -c "cadre ls | grep -q '^projects: app'"
 check "project path" test "$(cadre project path app)" = "$HOME/Developer/app"
@@ -278,20 +279,38 @@ check "mode 0644 kept" test "$(mode "$CFG")" = 0o644
 check "no temporary files left" bash -c "! ls -a '$HOME' | grep -q '^\.cadre-'"
 chmod 600 "$CFG"
 
+echo "projects across machines"
+cd "$C"
+mkdir -p "$HOME/Moved" && mv "$HOME/Developer/t3" "$HOME/Moved/t3"
+check "a moved folder shows as missing" bash -c "cadre ls | grep -q 'missing: t3'"
+check "and is not unlinked by cadre" grep -q '^t3:' "$C/projects.yaml"
+check "up refuses a missing project, saying how to get it back" bash -c "cadre up dev/engineer t3 2>&1 | grep -q \"project 't3' is missing: ~/Developer/t3 is gone; clone it again with cadre project sync, link its new folder\""
+check "project link records where it is now" bash -c "cadre project link t3 '$HOME/Moved/t3' --no-trust | grep -q 'is at $HOME/Moved/t3 on this machine' && test \"\$(cadre project path t3)\" = '$HOME/Moved/t3'"
+check "the registry did not change" test -z "$(git -C "$C" status --porcelain)"
+check "project link refuses a clone of another repo" bash -c "git init -q '$T/notapp' && git -C '$T/notapp' remote add origin https://example.com/x/other.git && cadre project link t3 '$T/notapp' 2>&1 | grep -q 'is a clone of'"
+out=$(cadre project unlink t3)
+check "project unlink keeps the folder" bash -c "grep -q 'its folder ~/Moved/t3 is kept' <<<'$out' && test -d '$HOME/Moved/t3/.git' && ! grep -q '^t3:' '$C/projects.yaml'"
+check "persona sessions cannot link or unlink" bash -c "CADRE_PERSONA=x cadre project unlink t2 2>&1 | grep -q 'persona sessions cannot unlink projects' && grep -q '^t2:' '$C/projects.yaml'"
+# The same cadre on a new machine: its registry, none of this machine's places.
+mv "$HOME/.cadre/config/places/demo.json" "$T/places.saved"
+check "on a new machine, projects are not here yet" bash -c "cadre ls | grep -q 'not on this machine: app, mine, t1, t2'"
+mv "$HOME/Developer" "$T/Developer.saved"; mkdir -p "$HOME/Developer"
+git clone -q "$T/remote.git" "$HOME/Developer/t1"
+out=$(cadre project sync --no-trust)
+check "sync clones them into the projects folder" bash -c "grep -q 'app: cloned to $HOME/Developer/app' <<<'$out' && grep -q 't2: cloned to' <<<'$out'"
+check "and uses a clone that is already there" grep -q "t1: already at $HOME/Developer/t1" <<<"$out"
+check "and records this machine's places" grep -q '"t1": "~/Developer/t1"' "$HOME/.cadre/config/places/demo.json"
+rm -rf "$HOME/Developer"; mv "$T/Developer.saved" "$HOME/Developer"; mv "$T/places.saved" "$HOME/.cadre/config/places/demo.json"
+
 echo "resolution (N.3)"
 cd "$T"
 check "outside every cadre: the default" bash -c "cadre ls | grep -q '^cadre demo  (~/.cadre/demo, the default cadre)'"
 check "in a cadre's folder" bash -c "cd '$HOME/.cadre/life' && cadre ls | grep -q '^cadre life  (~/.cadre/life, from this folder)'"
 check "in a linked project" bash -c "cd '$HOME/Developer/app' && cadre ls | grep -q 'from the project app'"
-cat >> "$HOME/.cadre/life/projects.yaml" <<EOF
-
-app:
-  repo: $T/remote.git
-  path: ~/Developer/app
-EOF
+CADRE_HOME="$HOME/.cadre/life" cadre project add app --path "$HOME/Developer/app" --no-trust >/dev/null
 check "a project two cadres link: refused without a terminal" bash -c "cd '$HOME/Developer/app' && cadre ls 2>&1 | grep -q 'app is linked by demo and life'"
 check "CADRE_HOME wins there" bash -c "cd '$HOME/Developer/app' && CADRE_HOME='$HOME/.cadre/life' cadre ls | grep -q '^cadre life'"
-git -C "$HOME/.cadre/life" checkout -q -- projects.yaml
+CADRE_HOME="$HOME/.cadre/life" cadre project unlink app >/dev/null
 
 echo "sessions"
 cd "$C"

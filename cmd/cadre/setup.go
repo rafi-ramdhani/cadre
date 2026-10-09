@@ -162,7 +162,11 @@ func restoreName(repo string) string {
 func (e *env) restoreCadre(rt runtime.Runtime) bool {
 	repo := ""
 	for tries := 0; tries < 3 && repo == ""; tries++ {
-		repo = e.ask("Which repository holds your cadre? (owner/repo, or its URL) ")
+		var ok bool
+		if repo, ok = e.answer("Which repository holds your cadre? (owner/repo, or its URL) "); !ok {
+			e.fail("input ended; nothing was changed")
+			return false
+		}
 		if strings.HasPrefix(repo, "-") {
 			fmt.Fprintln(e.stderr, "a repository cannot start with -")
 			repo = ""
@@ -179,7 +183,11 @@ func (e *env) restoreCadre(rt runtime.Runtime) bool {
 			e.fail("no cadre was restored")
 			return false
 		}
-		name := e.ask(fmt.Sprintf("Name for this cadre on this machine? [%s] ", suggest))
+		name, ok := e.answer(fmt.Sprintf("Name for this cadre on this machine? [%s] ", suggest))
+		if !ok {
+			e.fail("input ended; nothing was changed")
+			return false
+		}
 		if name == "" {
 			name = suggest
 		}

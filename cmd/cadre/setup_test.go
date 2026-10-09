@@ -287,6 +287,12 @@ func TestRestoreRefusesARepositoryThatIsNotACadre(t *testing.T) {
 	if code, _, errOut := callIn("restore\n-oops\n\n\n"); code != 1 || !strings.Contains(errOut, "cannot start with -") {
 		t.Errorf("an option as a repository: %d %q", code, errOut)
 	}
+	if code, _, errOut := callIn("restore\n" + notACadre + "\n"); code != 1 || !strings.Contains(errOut, "input ended; nothing was changed") {
+		t.Errorf("the end of input at the name: %d %q", code, errOut)
+	}
+	if list, _ := cadres.List(); len(list) != 0 {
+		t.Error("the end of input restored a cadre")
+	}
 }
 
 func TestPrePushGuard(t *testing.T) {

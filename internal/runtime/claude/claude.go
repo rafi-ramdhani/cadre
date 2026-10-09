@@ -1,5 +1,5 @@
-// Package claude is cadre's adapter for Claude Code, the only runtime in
-// 0.2.0. Everything cadre knows about Claude Code lives here: its command
+// Package claude is cadrei's adapter for Claude Code, the only runtime in
+// 0.2.0. Everything cadrei knows about Claude Code lives here: its command
 // and flags, its settings format and rule grammar (the allow checker), its
 // .claude folders, ~/.claude.json trust and its hooks.
 package claude
@@ -12,12 +12,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rafi-ramdhani/cadre/internal/cadres"
-	"github.com/rafi-ramdhani/cadre/internal/jsonx"
-	"github.com/rafi-ramdhani/cadre/internal/paths"
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
-	"github.com/rafi-ramdhani/cadre/internal/runtime/claude/allow"
-	"github.com/rafi-ramdhani/cadre/internal/runtime/claude/settings"
+	"github.com/rafi-ramdhani/cadrei/internal/cadreis"
+	"github.com/rafi-ramdhani/cadrei/internal/jsonx"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime/claude/allow"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime/claude/settings"
 )
 
 func init() { runtime.RegisterDefault(Claude{}) }
@@ -70,19 +70,19 @@ func (c Claude) Launch(s runtime.LaunchSpec) (runtime.Command, error) {
 	return runtime.Command{Argv: argv, Dir: s.WorkDir}, nil
 }
 
-// BuildDir is <cadre>/.claude/build: inside a .claude folder, which Claude
+// BuildDir is <cadrei>/.claude/build: inside a .claude folder, which Claude
 // Code protects, and denied to members (N.7).
-func (Claude) BuildDir(cadre string) string { return filepath.Join(cadre, ".claude", "build") }
+func (Claude) BuildDir(cadrei string) string { return filepath.Join(cadrei, ".claude", "build") }
 
 func (Claude) Permissions() runtime.PermissionOps { return permissions{} }
 func (Claude) Trust() runtime.TrustOps            { return trust{} }
 
 type permissions struct{}
 
-func (permissions) GrantsFile(cadre string) string { return filepath.Join(cadre, settings.Rel) }
+func (permissions) GrantsFile(cadrei string) string { return filepath.Join(cadrei, settings.Rel) }
 
-func (permissions) Validate(cadre string, known []string, rule string, auto bool) (string, error) {
-	c := allow.New(cadre, known)
+func (permissions) Validate(cadrei string, known []string, rule string, auto bool) (string, error) {
+	c := allow.New(cadrei, known)
 	if auto {
 		return c.Auto(rule)
 	}
@@ -90,14 +90,14 @@ func (permissions) Validate(cadre string, known []string, rule string, auto bool
 }
 
 // hashFile keeps the settings fingerprints, one file for the machine.
-func hashFile() string { return cadres.Config("member-settings.sha256") }
+func hashFile() string { return cadreis.Config("member-settings.sha256") }
 
-// Prepare makes sure the cadre has its settings file and writes the
+// Prepare makes sure the cadrei has its settings file and writes the
 // validated copy a member starts with; a file that cannot be used gives no
-// copy and a warning, and an edit made outside cadre allow a warning.
-func (p permissions) Prepare(cadre string, places runtime.Places) runtime.Prepared {
+// copy and a warning, and an edit made outside cadrei allow a warning.
+func (p permissions) Prepare(cadrei string, places runtime.Places) runtime.Prepared {
 	var out runtime.Prepared
-	file := p.GrantsFile(cadre)
+	file := p.GrantsFile(cadrei)
 	if _, err := os.Stat(file); err != nil {
 		os.MkdirAll(filepath.Dir(file), 0o755)
 		if err := settings.Create(file); err != nil {
@@ -105,20 +105,20 @@ func (p permissions) Prepare(cadre string, places runtime.Places) runtime.Prepar
 			return out
 		}
 		settings.Record(file, hashFile())
-		if note, _ := cadres.Commit(cadre, "Add the member settings file", settings.Rel); note != "" {
+		if note, _ := cadreis.Commit(cadrei, "Add the member settings file", settings.Rel); note != "" {
 			out.Notes = append(out.Notes, note)
 		}
-		out.Notes = append(out.Notes, "  created "+file+" (grants for members; change it with cadre allow)")
+		out.Notes = append(out.Notes, "  created "+file+" (grants for members; change it with cadrei allow)")
 	}
-	build := Claude{}.BuildDir(cadre)
-	sp := settings.Places{Root: places.Root, Cadres: places.Cadres}
+	build := Claude{}.BuildDir(cadrei)
+	sp := settings.Places{Root: places.Root, Cadreis: places.Cadreis}
 	if places.Binary != "" {
 		sp.SessionHook = SessionHook(places.Binary)
 	}
 	copyPath, err := settings.Export(file, build, sp)
 	if err != nil {
 		// The member still gets every deny rule, and no grants.
-		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: members start with no grants, only cadre's deny rules, because %s cannot be used: %s; fix it or restore it with git -C %s checkout -- %s", file, err, cadre, settings.Rel))
+		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: members start with no grants, only cadrei's deny rules, because %s cannot be used: %s; fix it or restore it with git -C %s checkout -- %s", file, err, cadrei, settings.Rel))
 		if out.Grants, err = settings.ExportDenyOnly(build, sp); err != nil {
 			out.Warnings = append(out.Warnings, "warning: could not write the deny-only copy: "+err.Error())
 		}
@@ -126,10 +126,10 @@ func (p permissions) Prepare(cadre string, places runtime.Places) runtime.Prepar
 	}
 	out.Grants = copyPath
 	if g, err := settings.OpenGrants(file); err == nil && g.HasOnce() {
-		out.Notes = append(out.Notes, "note: one-time grants are still in place; see cadre allow list and remove each when its task is done")
+		out.Notes = append(out.Notes, "note: one-time grants are still in place; see cadrei allow list and remove each when its task is done")
 	}
-	if settings.ChangedOutside(cadre, file, hashFile()) {
-		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: %s was changed outside cadre allow (see git -C %s diff and log -p -- %s); members still get it because it is valid", file, cadre, settings.Rel))
+	if settings.ChangedOutside(cadrei, file, hashFile()) {
+		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: %s was changed outside cadrei allow (see git -C %s diff and log -p -- %s); members still get it because it is valid", file, cadrei, settings.Rel))
 	}
 	return out
 }
@@ -176,7 +176,7 @@ func (trust) Unmark(folders []runtime.Folder) ([]runtime.TrustResult, string) {
 }
 
 // edit changes trust for folders in one write with one backup. Each folder
-// is keyed by its physical path and, when it differs, by the path as cadre
+// is keyed by its physical path and, when it differs, by the path as cadrei
 // spells it (section C).
 func edit(folders []runtime.Folder, op func([]TrustEntry) jsonx.Op) ([]runtime.TrustResult, string) {
 	cfg := Config()
@@ -192,7 +192,7 @@ func edit(folders []runtime.Folder, op func([]TrustEntry) jsonx.Op) ([]runtime.T
 	if len(entries) == 0 {
 		return nil, ""
 	}
-	code, lines := jsonx.Edit(cfg, jsonx.Options{Backup: cfg + ".bak-cadre"}, op(entries))
+	code, lines := jsonx.Edit(cfg, jsonx.Options{Backup: cfg + ".bak-cadrei"}, op(entries))
 	var results []runtime.TrustResult
 	var note string
 	switch code {
@@ -209,7 +209,7 @@ func edit(folders []runtime.Folder, op func([]TrustEntry) jsonx.Op) ([]runtime.T
 	case jsonx.WriteFailed:
 		note = "warning: could not write next to " + cfg + " (folder not writable, or disk full?), so it was left unchanged; Claude Code will ask to trust the folder on first launch"
 	default:
-		note = "warning: " + cfg + " is not a file cadre can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user), so it was left unchanged; Claude Code will ask to trust the folder on first launch"
+		note = "warning: " + cfg + " is not a file cadrei can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user), so it was left unchanged; Claude Code will ask to trust the folder on first launch"
 	}
 	for _, e := range entries {
 		results = append(results, runtime.TrustResult{Name: e.Name, State: "skipped"})

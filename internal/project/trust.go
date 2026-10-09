@@ -1,4 +1,4 @@
-// Package project adds, clones, links and trusts a cadre's projects.
+// Package project adds, clones, links and trusts a cadrei's projects.
 package project
 
 import (
@@ -6,42 +6,42 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rafi-ramdhani/cadre/internal/cadres"
-	"github.com/rafi-ramdhani/cadre/internal/paths"
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/cadreis"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
 )
 
 // TrustRefusal says why folder dir (physical) must not be trusted, or ""
 // when it may be. Only the top folder of a project's git repository is
-// trusted: never a 0.1.x cadre's top folder, /, the home folder, ~/.cadre
-// or a folder containing it, a cadre's folder or anything in it (team
-// folders included), a folder containing a cadre, or anything inside a
+// trusted: never a 0.1.x cadre's top folder, /, the home folder, ~/.cadrei
+// or a folder containing it, a cadrei's folder or anything in it (team
+// folders included), a folder containing a cadrei, or anything inside a
 // folder the runtime loads code from (protected).
 func TrustRefusal(dir string, protected []string) string {
-	if why := oldCadre(dir); why != "" {
+	if why := oldCadrei(dir); why != "" {
 		return why
 	}
 	home := paths.Home()
-	root := paths.Real(cadres.Root())
+	root := paths.Real(cadreis.Root())
 	switch {
 	case dir == "/":
 		return "it is the root folder"
 	case dir == home:
 		return "it is your home folder"
 	case paths.Within(root, dir):
-		return "it is ~/.cadre or contains it"
+		return "it is ~/.cadrei or contains it"
 	case paths.Within(dir, root):
-		return "it is inside ~/.cadre, where cadre keeps its own files"
+		return "it is inside ~/.cadrei, where cadrei keeps its own files"
 	}
 	for _, p := range protected {
 		if paths.Within(dir, p) {
-			return "it is inside " + cadres.Tilde(p)
+			return "it is inside " + cadreis.Tilde(p)
 		}
 	}
-	list, _ := cadres.List()
+	list, _ := cadreis.List()
 	for _, c := range list {
 		if paths.Within(c.Path, dir) {
-			return "it is the cadre folder of " + c.Name + " or contains it"
+			return "it is the cadrei folder of " + c.Name + " or contains it"
 		}
 		if paths.Within(dir, filepath.Join(c.Path, "teams")) {
 			return "it is a team folder"
@@ -72,7 +72,7 @@ func Trust(rt runtime.Runtime, folders []runtime.Folder) ([]runtime.TrustResult,
 	return append(results, marked...), note
 }
 
-// Line is how cadre reports one trust result in runtime title's settings.
+// Line is how cadrei reports one trust result in runtime title's settings.
 func Line(r runtime.TrustResult, title string) string {
 	switch r.State {
 	case "trusted":

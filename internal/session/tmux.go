@@ -1,6 +1,6 @@
 // Package session runs member sessions: Claude Code sessions in tmux,
 // one tmux session per team (and project), one window per role. It names
-// them, records which cadre each belongs to, and starts, lists and stops
+// them, records which cadrei each belongs to, and starts, lists and stops
 // them.
 package session
 
@@ -15,16 +15,16 @@ import (
 )
 
 // Tmux runs tmux on the user's server, or on a private one when
-// CADRE_TMUX_SOCKET names a socket (tests use that). Commands are always
+// CADREI_TMUX_SOCKET names a socket (tests use that). Commands are always
 // run with their arguments as they are, never through a shell, and every
 // target is exact (=name), since tmux otherwise matches prefixes and
-// cadre down dev once stopped cadre-dev-app.
+// cadre 0.1.x's down dev once stopped cadre-dev-app.
 type Tmux struct{ Socket string }
 
-// Default is the tmux cadre uses.
-func Default() Tmux { return Tmux{Socket: os.Getenv("CADRE_TMUX_SOCKET")} }
+// Default is the tmux cadrei uses.
+func Default() Tmux { return Tmux{Socket: os.Getenv("CADREI_TMUX_SOCKET")} }
 
-// command runs a tmux client for cadre to read. -u marks the client as
+// command runs a tmux client for cadrei to read. -u marks the client as
 // UTF-8 whatever the locale, so tmux does not turn non-ASCII characters in
 // names and paths into "_" (a C locale, as on CI machines).
 func (t Tmux) command(args ...string) *exec.Cmd {
@@ -171,14 +171,14 @@ func (t Tmux) PanePID(session, window string) (int, error) {
 	return strconv.Atoi(strings.TrimSpace(out))
 }
 
-// Info is what cadre records on a session.
+// Info is what cadrei records on a session.
 type Info struct {
 	Name    string // the tmux session
-	Home    string // @cadre_home: its cadre's physical path; "" for a legacy session
-	Team    string // @cadre_team
-	Project string // @cadre_project
-	Role    string // @cadre_role: "orchestrator", or "" for a team's session
-	Target  string // @cadre_target: the project or folder it was started for
+	Home    string // @cadrei_home: its cadrei's physical path; "" for a legacy session
+	Team    string // @cadrei_team
+	Project string // @cadrei_project
+	Role    string // @cadrei_role: "orchestrator", or "" for a team's session
+	Target  string // @cadrei_target: the project or folder it was started for
 }
 
 // sep splits the fields of tmux's -F output. tmux writes command output
@@ -188,9 +188,9 @@ type Info struct {
 // line breaks and every other control character in recorded values.
 const sep = "\t"
 
-// Sessions lists the cadre sessions on the server, with their options.
+// Sessions lists the cadrei sessions on the server, with their options.
 func (t Tmux) Sessions() []Info {
-	format := strings.Join([]string{"#S", "#{@cadre_home}", "#{@cadre_team}", "#{@cadre_project}", "#{@cadre_role}", "#{@cadre_target}"}, sep)
+	format := strings.Join([]string{"#S", "#{@cadrei_home}", "#{@cadrei_team}", "#{@cadrei_project}", "#{@cadrei_role}", "#{@cadrei_target}"}, sep)
 	out, err := t.run("list-sessions", "-F", format)
 	if err != nil || out == "" {
 		return nil
@@ -198,7 +198,7 @@ func (t Tmux) Sessions() []Info {
 	var list []Info
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, sep)
-		if len(f) != 6 || !strings.HasPrefix(f[0], "cadre-") {
+		if len(f) != 6 || !Started(f[0]) {
 			continue
 		}
 		list = append(list, Info{Name: f[0], Home: unescape(f[1]), Team: unescape(f[2]), Project: unescape(f[3]), Role: unescape(f[4]), Target: unescape(f[5])})
@@ -209,17 +209,17 @@ func (t Tmux) Sessions() []Info {
 // Member is a window and the Claude session name recorded on it.
 type Member struct{ Session, Window, Name string }
 
-// Members lists every window of every cadre session with its
-// @cadre_member (empty for windows from before it was recorded).
+// Members lists every window of every cadrei session with its
+// @cadrei_member (empty for windows from before it was recorded).
 func (t Tmux) Members() []Member {
-	out, err := t.run("list-windows", "-a", "-F", strings.Join([]string{"#S", "#W", "#{@cadre_member}"}, sep))
+	out, err := t.run("list-windows", "-a", "-F", strings.Join([]string{"#S", "#W", "#{@cadrei_member}"}, sep))
 	if err != nil || out == "" {
 		return nil
 	}
 	var list []Member
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, sep)
-		if len(f) == 3 && strings.HasPrefix(f[0], "cadre-") {
+		if len(f) == 3 && Started(f[0]) {
 			list = append(list, Member{f[0], f[1], unescape(f[2])})
 		}
 	}
@@ -255,7 +255,7 @@ func word(w string) (string, error) {
 
 // Start runs argv in a new window of the session (a new session when it
 // does not run yet), in dir, with env added, and sets the options in the
-// same tmux command, so no other cadre command sees the session without
+// same tmux command, so no other cadrei command sees the session without
 // them. The command runs as it is: with several arguments, tmux execs it
 // without a shell (and -e on new-session needs tmux 3.2), so no value
 // needs quoting.
@@ -353,7 +353,7 @@ func (t Tmux) Version() (int, int, error) {
 	return major, minor, nil
 }
 
-// Own returns the cadre session this process runs in, if any: $TMUX names
+// Own returns the cadrei session this process runs in, if any: $TMUX names
 // a session on the same tmux server.
 func (t Tmux) Own() string {
 	tmuxEnv, pane := os.Getenv("TMUX"), os.Getenv("TMUX_PANE")
@@ -365,7 +365,7 @@ func (t Tmux) Own() string {
 		return ""
 	}
 	name, err := t.run("display", "-p", "-t", pane, "#S")
-	if err != nil || !strings.HasPrefix(name, "cadre-") {
+	if err != nil || !Started(name) {
 		return ""
 	}
 	return name

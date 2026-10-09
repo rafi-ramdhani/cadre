@@ -1,6 +1,6 @@
 .DS_Store
 # teams/ is tracked, so the work members keep there is backed up with the
-# cadre. Generated and bulky files are not.
+# cadrei. Generated and bulky files are not.
 node_modules/
 .venv/
 venv/
@@ -12,7 +12,7 @@ dist/
 target/
 coverage/
 *.log
-# What cadre generates for each start: prompts, settings copies, locks.
+# What cadrei generates for each start: prompts, settings copies, locks.
 /.claude/build/
 # Environment files hold secrets; their templates are meant to be shared.
 .env

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafi-ramdhani/cadre/internal/jsonx"
+	"github.com/rafi-ramdhani/cadrei/internal/jsonx"
 )
 
 // A config as Claude Code writes it (JSON.stringify(x, null, 2)).
@@ -46,7 +46,7 @@ func trustOp(dirs ...string) jsonx.Op { return Trust([]TrustEntry{{Name: "app", 
 
 func TestTrustKeepsEverythingElse(t *testing.T) {
 	p := writeConfig(t, claudeJSON, 0o644)
-	code, lines := jsonx.Edit(p, jsonx.Options{Backup: p + ".bak-cadre"}, trustOp("/w/app", "/typed/app"))
+	code, lines := jsonx.Edit(p, jsonx.Options{Backup: p + ".bak-cadrei"}, trustOp("/w/app", "/typed/app"))
 	if code != jsonx.Changed || strings.Join(lines, ",") != "app\ttrusted" {
 		t.Fatalf("jsonx.Edit = %d %q", code, lines)
 	}
@@ -68,19 +68,19 @@ func TestTrustKeepsEverythingElse(t *testing.T) {
 	if st, _ := os.Stat(p); st.Mode().Perm() != 0o644 {
 		t.Errorf("mode changed to %v", st.Mode().Perm())
 	}
-	if bak, _ := os.ReadFile(p + ".bak-cadre"); string(bak) != claudeJSON {
+	if bak, _ := os.ReadFile(p + ".bak-cadrei"); string(bak) != claudeJSON {
 		t.Error("the backup is not the original")
 	}
 	// Trusting again changes nothing and writes nothing.
 	st1, _ := os.Stat(p)
-	code, lines = jsonx.Edit(p, jsonx.Options{Backup: p + ".bak-cadre"}, trustOp("/w/app", "/typed/app"))
+	code, lines = jsonx.Edit(p, jsonx.Options{Backup: p + ".bak-cadrei"}, trustOp("/w/app", "/typed/app"))
 	st2, _ := os.Stat(p)
 	if code != jsonx.Unchanged || lines[0] != "app\talready" || !st1.ModTime().Equal(st2.ModTime()) {
 		t.Errorf("second trust: %d %q, mtime changed %v", code, lines, !st1.ModTime().Equal(st2.ModTime()))
 	}
 	// The first backup is never overwritten.
-	jsonx.Edit(p, jsonx.Options{Backup: p + ".bak-cadre"}, trustOp("/w/other"))
-	if bak, _ := os.ReadFile(p + ".bak-cadre"); string(bak) != claudeJSON {
+	jsonx.Edit(p, jsonx.Options{Backup: p + ".bak-cadrei"}, trustOp("/w/other"))
+	if bak, _ := os.ReadFile(p + ".bak-cadrei"); string(bak) != claudeJSON {
 		t.Error("a later edit overwrote the first backup")
 	}
 }
@@ -104,14 +104,14 @@ func TestHooks(t *testing.T) {
   "model": "x",
   "hooks": {
     "SessionStart": [
-      {"hooks": [{"type": "command", "command": "bash /old/cadre/bin/orchestrator-hook.sh"}]},
+      {"hooks": [{"type": "command", "command": "bash /old/cadrei/bin/orchestrator-hook.sh"}]},
       {"hooks": [{"type": "command", "command": "echo mine"}]}
     ],
     "Stop": []
   }
 }`
 	p := writeConfig(t, settings, 0o600)
-	add := AddHook("/opt/bin/cadre hook orchestrator", isOrch)
+	add := AddHook("/opt/bin/cadrei hook orchestrator", isOrch)
 	if code, _ := jsonx.Edit(p, jsonx.Options{Backup: p + ".bak"}, add); code != jsonx.Changed {
 		t.Fatalf("add: %d", code)
 	}
@@ -124,16 +124,16 @@ func TestHooks(t *testing.T) {
 	if c, _ := groups[0].Get("hooks").Items[0].Get("command").Text(); c != "echo mine" {
 		t.Errorf("the user's own hook was not kept first: %s", got)
 	}
-	if c, _ := groups[1].Get("hooks").Items[0].Get("command").Text(); c != "/opt/bin/cadre hook orchestrator" {
+	if c, _ := groups[1].Get("hooks").Items[0].Get("command").Text(); c != "/opt/bin/cadrei hook orchestrator" {
 		t.Errorf("the new hook is %q", c)
 	}
 	if code, _ := jsonx.Edit(p, jsonx.Options{}, add); code != jsonx.Unchanged {
 		t.Errorf("adding again: %d", code)
 	}
 
-	ours := func(c string) bool { return c == "/opt/bin/cadre hook orchestrator" }
+	ours := func(c string) bool { return c == "/opt/bin/cadrei hook orchestrator" }
 	code, lines := jsonx.Edit(p, jsonx.Options{Backup: p + ".bak-uninstall", FreshBackup: true}, Unhook(ours, isOrch))
-	if code != jsonx.Changed || strings.Join(lines, ",") != "removed\t/opt/bin/cadre hook orchestrator" {
+	if code != jsonx.Changed || strings.Join(lines, ",") != "removed\t/opt/bin/cadrei hook orchestrator" {
 		t.Errorf("unhook: %d %q", code, lines)
 	}
 	got, _ = os.ReadFile(p)
@@ -145,10 +145,10 @@ func TestHooks(t *testing.T) {
 func TestUnhookReportsAnotherFrameworksHooks(t *testing.T) {
 	p := writeConfig(t, `{"hooks": {"SessionStart": [{"hooks": [
 		{"command": "bash /mine/bin/orchestrator-hook.sh"},
-		{"command": "bash /elsewhere/my\\ cadre/bin/orchestrator-hook.sh"}]}]}}`, 0o600)
+		{"command": "bash /elsewhere/my\\ cadrei/bin/orchestrator-hook.sh"}]}]}}`, 0o600)
 	ours := func(c string) bool { s, _ := OrchestratorHook(c); return s == "/mine/bin/orchestrator-hook.sh" }
 	code, lines := jsonx.Edit(p, jsonx.Options{}, Unhook(ours, isOrch))
-	want := "removed\tbash /mine/bin/orchestrator-hook.sh,kept\tbash /elsewhere/my\\ cadre/bin/orchestrator-hook.sh"
+	want := "removed\tbash /mine/bin/orchestrator-hook.sh,kept\tbash /elsewhere/my\\ cadrei/bin/orchestrator-hook.sh"
 	if code != jsonx.Changed || strings.Join(lines, ",") != want {
 		t.Errorf("code %d, lines %q", code, lines)
 	}
@@ -173,11 +173,11 @@ func TestOrchestratorHook(t *testing.T) {
 		ok        bool
 	}{
 		{"bash /x/bin/orchestrator-hook.sh", "/x/bin/orchestrator-hook.sh", true},
-		{`bash /x/my\ cadre/bin/orchestrator-hook.sh`, "/x/my cadre/bin/orchestrator-hook.sh", true},
+		{`bash /x/my\ cadrei/bin/orchestrator-hook.sh`, "/x/my cadrei/bin/orchestrator-hook.sh", true},
 		{`bash '/x/it''s/orchestrator-hook.sh'`, "/x/its/orchestrator-hook.sh", true},
-		{"/opt/homebrew/opt/cadre/bin/cadre hook orchestrator", "/opt/homebrew/opt/cadre/bin/cadre", true},
+		{"/opt/homebrew/opt/cadrei/bin/cadrei hook orchestrator", "/opt/homebrew/opt/cadrei/bin/cadrei", true},
 		{"bash /x/my-orchestrator-hook.sh", "", false},
-		{"/x/cadre hook statusline", "", false},
+		{"/x/cadrei hook statusline", "", false},
 		{"sh /x/orchestrator-hook.sh", "", false},
 		{"bash 'unclosed", "", false},
 	} {

@@ -9,18 +9,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/fsx"
-	"github.com/rafi-ramdhani/cadre/internal/paths"
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/fsx"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
 )
 
-// Up starts a team, or one of its roles, for this cadre.
+// Up starts a team, or one of its roles, for this cadrei.
 type Up struct {
 	Scope
 	Team     string
 	Role     string // "" for every role of the team
 	Project  string // the project part of the key, or ""
-	Target   string // @cadre_target: the registry name or folder it was started for
+	Target   string // @cadrei_target: the registry name or folder it was started for
 	Dir      string // the working folder
 	Explicit bool   // Dir was given (a project or folder): a role's .workdir pin does not apply
 	Protocol []byte // the member protocol every prompt starts with
@@ -34,8 +34,8 @@ type Up struct {
 }
 
 // Roles lists a team's roles: the .md files in members/<team>.
-func Roles(cadre, team string) []string {
-	files, _ := filepath.Glob(filepath.Join(cadre, "members", team, "*.md"))
+func Roles(cadrei, team string) []string {
+	files, _ := filepath.Glob(filepath.Join(cadrei, "members", team, "*.md"))
 	var out []string
 	for _, f := range files {
 		out = append(out, strings.TrimSuffix(filepath.Base(f), ".md"))
@@ -59,12 +59,12 @@ func workdir(file string) string {
 }
 
 // DefaultDir is a team's working folder: its .workdir file, or
-// <cadre>/teams/<team>.
-func DefaultDir(cadre, team string) string {
-	if d := workdir(filepath.Join(cadre, "members", team, ".workdir")); d != "" {
+// <cadrei>/teams/<team>.
+func DefaultDir(cadrei, team string) string {
+	if d := workdir(filepath.Join(cadrei, "members", team, ".workdir")); d != "" {
 		return d
 	}
-	return filepath.Join(cadre, "teams", team)
+	return filepath.Join(cadrei, "teams", team)
 }
 
 // Start starts the roles and prints a line each. It reports whether any
@@ -147,7 +147,7 @@ func (u Up) start(out io.Writer, role string) error {
 // run starts one member's window with the conversation conv, and checks
 // that it is still there a moment later. It returns the folder it runs in.
 func (u Up) run(rt runtime.Runtime, session, role, name, dir, prompt, grants string, conv Conversation) (string, error) {
-	cmd, err := rt.Launch(runtime.LaunchSpec{Role: runtime.Member, Name: name, Cadre: u.Path, WorkDir: dir,
+	cmd, err := rt.Launch(runtime.LaunchSpec{Role: runtime.Member, Name: name, Cadrei: u.Path, WorkDir: dir,
 		Mode: u.Mode, PromptFile: prompt, Grants: grants, SessionID: conv.SessionID, Resume: conv.Resume})
 	if err != nil {
 		return "", fmt.Errorf("  %s not started: %s", name, err)
@@ -156,15 +156,15 @@ func (u Up) run(rt runtime.Runtime, session, role, name, dir, prompt, grants str
 		dir = cmd.Dir
 	}
 	argv := cmd.Argv
-	// CADRE_HOME pins the member to this cadre wherever it works.
-	env := append([]string{"CADRE_HOME=" + u.Path, "CADRE_MEMBER=" + name}, cmd.Env...)
+	// CADREI_HOME pins the member to this cadrei wherever it works.
+	env := append([]string{"CADREI_HOME=" + u.Path, "CADREI_MEMBER=" + name}, cmd.Env...)
 	hint, hooks := u.T.HintOptions()
 	err = u.T.Start(StartSpec{Session: session, Window: role, Dir: dir, Env: env, Argv: argv,
-		// The target too, recorded with the rest, so a cadre up whose
-		// output pipe closes early (cadre up | head) still records it.
-		SessionOptions: append([]Option{{"@cadre_home", u.Path}, {"@cadre_team", u.Team}, {"@cadre_project", u.Project}, {"@cadre_target", u.Target}}, hint...),
+		// The target too, recorded with the rest, so a cadrei up whose
+		// output pipe closes early (cadrei up | head) still records it.
+		SessionOptions: append([]Option{{"@cadrei_home", u.Path}, {"@cadrei_team", u.Team}, {"@cadrei_project", u.Project}, {"@cadrei_target", u.Target}}, hint...),
 		SessionHooks:   hooks,
-		WindowOptions:  []Option{{"@cadre_member", name}}})
+		WindowOptions:  []Option{{"@cadrei_member", name}}})
 	if err != nil {
 		return "", fmt.Errorf("  %s not started: %s", name, err)
 	}
@@ -183,7 +183,7 @@ func (u Up) run(rt runtime.Runtime, session, role, name, dir, prompt, grants str
 }
 
 // writePrompt builds the member's prompt, rebuilt and swapped in whole at
-// every start: the protocol, the cadre's own protocol.md, then the member.
+// every start: the protocol, the cadrei's own protocol.md, then the member.
 func (u Up) writePrompt(build, key, role, memberFile string) (string, error) {
 	var b strings.Builder
 	b.Write(u.Protocol)
@@ -205,13 +205,13 @@ func (u Up) writePrompt(build, key, role, memberFile string) (string, error) {
 }
 
 // EnsureBuild makes the folder for generated prompts and settings copies,
-// ignored by the cadre's git through its own .gitignore.
+// ignored by the cadrei's git through its own .gitignore.
 func EnsureBuild(build string) error {
-	// A cloned cadre can carry a committed link here; cadre writes its
+	// A cloned cadrei can carry a committed link here; cadrei writes its
 	// prompts, settings copies and locks only into a folder of its own.
 	for _, d := range []string{filepath.Dir(build), build} {
 		if st, err := os.Lstat(d); err == nil && !st.IsDir() {
-			return fmt.Errorf("%s is a link or a file, not a folder; cadre writes its generated files only into a folder of its own, so remove it and run again", d)
+			return fmt.Errorf("%s is a link or a file, not a folder; cadrei writes its generated files only into a folder of its own, so remove it and run again", d)
 		}
 	}
 	if err := os.MkdirAll(build, 0o755); err != nil {

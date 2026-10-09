@@ -9,15 +9,15 @@ import (
 	"testing"
 )
 
-// The reviewer's differential test (cadre-review-kit opfz-*): bash itself
+// The reviewer's differential test (cadrei-review-kit opfz-*): bash itself
 // decides whether "a <punctuation> b" chains commands. With a and b
 // defined as functions, b runs only when a control operator separated it
 // from a. A miss is bash running b while HasOperator says there is no
-// operator: cadre would then accept a real chain. Over-refusals (syntax
+// operator: cadrei would then accept a real chain. Over-refusals (syntax
 // errors, quoted punctuation) are fine.
 //
 // It runs 3,000 cases by default and the reviewer's full 30,000 with
-// CADRE_FULL_ORACLE=1; it is skipped without bash or with -short.
+// CADREI_FULL_ORACLE=1; it is skipped without bash or with -short.
 func TestHasOperatorAgainstBash(t *testing.T) {
 	if testing.Short() {
 		t.Skip("bash oracle is slow")
@@ -27,7 +27,7 @@ func TestHasOperatorAgainstBash(t *testing.T) {
 		t.Skip("bash is not installed")
 	}
 	n := 3000
-	if os.Getenv("CADRE_FULL_ORACLE") == "1" {
+	if os.Getenv("CADREI_FULL_ORACLE") == "1" {
 		n = 30000
 	}
 	cases := generate(n)

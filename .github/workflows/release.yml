@@ -3,7 +3,7 @@ name: Release
 # A v* tag builds the release with goreleaser (binaries for macOS and
 # Linux, amd64 and arm64, and checksums.txt) as a draft, checks the
 # binaries, attaches the Homebrew formula made from those checksums, and
-# only then publishes the release. The tap (rafi-ramdhani/homebrew-cadre)
+# only then publishes the release. The tap (rafi-ramdhani/homebrew-cadrei)
 # is updated by hand from that formula; this workflow never writes to it.
 #
 # Releases build with the Go version go.mod declares, as CI's go.mod leg
@@ -34,16 +34,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: No test hooks in release binaries
         run: |
-          for b in dist/*/cadre; do
-            if grep -a -q CADRE_TEST_ "$b"; then echo "$b holds a CADRE_TEST_ hook"; exit 1; fi
+          # All four binaries must be there, so a renamed binary cannot pass
+          # this check by matching nothing.
+          found=0
+          for b in dist/*/cadrei; do
+            [ -f "$b" ] || continue
+            found=$((found + 1))
+            if grep -a -q CADREI_TEST_ "$b"; then echo "$b holds a CADREI_TEST_ hook"; exit 1; fi
           done
+          if [ "$found" != 4 ]; then echo "found $found cadrei binaries in dist, want 4"; exit 1; fi
       - name: Attach the Homebrew formula
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          packaging/homebrew/formula.sh "$GITHUB_REF_NAME" dist/checksums.txt > cadre.rb
-          ruby -c cadre.rb
-          gh release upload "$GITHUB_REF_NAME" cadre.rb
+          packaging/homebrew/formula.sh "$GITHUB_REF_NAME" dist/checksums.txt > cadrei.rb
+          ruby -c cadrei.rb
+          gh release upload "$GITHUB_REF_NAME" cadrei.rb
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

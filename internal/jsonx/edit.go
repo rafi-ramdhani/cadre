@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/rafi-ramdhani/cadre/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
 )
 
 // The outcome of an Edit. The numbers are the bash json_edit exit codes,
@@ -19,7 +19,7 @@ const (
 	Unchanged   = 3 // nothing to change; not written, no backup
 	Missing     = 4 // the file does not exist; it is never created
 	Unusable    = 5 // unreadable, not valid JSON, an unexpected shape, or another user's
-	KeptChanged = 6 // the file kept changing while cadre wrote it; left as it was
+	KeptChanged = 6 // the file kept changing while cadrei wrote it; left as it was
 	WriteFailed = 7 // the new file could not be written; the old one stands
 )
 
@@ -140,7 +140,7 @@ func attempt(n int, path string, opts Options, op Op) (code int, lines []string,
 // tempNext writes data to a new file in path's folder with mode and
 // returns its name.
 func tempNext(path string, data []byte, mode fs.FileMode) (string, error) {
-	f, err := os.CreateTemp(filepath.Dir(path), ".cadre-")
+	f, err := os.CreateTemp(filepath.Dir(path), ".cadrei-")
 	if err != nil {
 		return "", err
 	}

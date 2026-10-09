@@ -1,4 +1,4 @@
-// Package jsonx reads and edits JSON that cadre does not own, such as
+// Package jsonx reads and edits JSON that cadrei does not own, such as
 // Claude Code's ~/.claude.json and ~/.claude/settings.json, without
 // changing anything it does not mean to change.
 //

@@ -10,8 +10,8 @@ import (
 const sample = `# One entry per project.
 # Projects are their own git repos.
 
-cadre:
-  repo: rafi-ramdhani/cadre
+cadrei:
+  repo: rafi-ramdhani/cadrei
   team: dev
   about: the framework
 
@@ -25,7 +25,7 @@ app:
 
 func TestParse(t *testing.T) {
 	f := Parse(sample)
-	if len(f.Entries()) != 2 || f.Entries()[0].Name != "cadre" || f.Entries()[1].Name != "app" {
+	if len(f.Entries()) != 2 || f.Entries()[0].Name != "cadrei" || f.Entries()[1].Name != "app" {
 		t.Fatalf("entries %+v", f.Entries())
 	}
 	app := f.Get("app")
@@ -53,10 +53,10 @@ func TestParseOddLines(t *testing.T) {
 func TestEdits(t *testing.T) {
 	f := Parse(sample)
 	f.Add("blog", Field{"repo", "me/blog"}, Field{"team", "research"}, Field{"about", ""})
-	if !f.Set("app", "path", "/Volumes/x/app") || !f.Set("cadre", "path", "~/x") || f.Set("nope", "path", "x") {
+	if !f.Set("app", "path", "/Volumes/x/app") || !f.Set("cadrei", "path", "~/x") || f.Set("nope", "path", "x") {
 		t.Fatal("Set results")
 	}
-	if !f.Remove("cadre") || f.Remove("cadre") {
+	if !f.Remove("cadrei") || f.Remove("cadrei") {
 		t.Fatal("Remove results")
 	}
 	want := `# One entry per project.

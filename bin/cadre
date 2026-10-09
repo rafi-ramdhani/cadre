@@ -1,6 +1,6 @@
 #!/bin/sh
 # Cadre 0.1.x installs link ~/.local/bin/cadre to this file in a clone of
-# this repository. Cadre is now a program installed on its own, so this
-# file only points there. It stays here through 0.x.
-echo "cadre 0.2.0 is a new program: brew install rafi-ramdhani/cadre/cadre" >&2
+# this repository. Cadre is now Cadrei, a program installed on its own, so
+# this file only points there. It stays here through 0.x.
+echo "Cadre is now Cadrei: brew install rafi-ramdhani/cadrei/cadrei" >&2
 exit 1

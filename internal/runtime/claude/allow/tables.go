@@ -48,8 +48,8 @@ var protected = []string{".bashrc", ".bash_profile", ".bash_login", ".bash_alias
 	".yarnrc", ".yarnrc.yml", ".mcp.json", ".claude.json"}
 
 // outsideSuffixes are folders, wherever they are, whose files run code
-// outside a member's session or hold cadre's own state.
-var outsideSuffixes = []string{".local/bin", ".config/cadre", ".cache/cadre", ".config/fish", "library/launchagents",
+// outside a member's session or hold cadrei's own state.
+var outsideSuffixes = []string{".local/bin", ".config/cadre", ".cache/cadrei", ".config/fish", "library/launchagents",
 	".config/autostart", ".config/systemd/user"}
 
 // outsideNames are names that, as any part of a path, mean the same.
@@ -63,14 +63,14 @@ var blanket = []string{"anything", "any command", "all files", "everything", "an
 // user's approval.
 var autoRefused = regexp.MustCompile(
 	`\bpermissions?\b|\bsettings\b|settings\.json|soft_deny|\bden(y|ies|ied)\b|\.claude|\bgrant(s|ed)?\b` +
-		`|cadre\W*allow|\ballow subcommand|pre-?approved|approved (by|in advance)|\brules?\b|\bmay do\b|dot-?claude` +
+		`|cadrei\W*allow|\ballow subcommand|pre-?approved|approved (by|in advance)|\brules?\b|\bmay do\b|dot-?claude` +
 		`|zshrc|bashrc|bash_profile|zprofile|zshenv|\.profile|gitconfig|gitmodules|npmrc|envrc|\.ssh|authorized_keys` +
 		`|launchagents|crontab|tmux\.conf|vimrc|\.config/fish|autostart|systemd|\.local/bin|\.mcp\.json|\.claude\.json` +
 		`|\b(user|owner|human)'?s?\b.{0,40}\b(wish|wants?|ok with|fine with)\b` +
-		`|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b|cadre[\W_]*conf` +
+		`|\baccess list\b|\b(their|its) own access\b|\bdot\W*claude\b|cadrei[\W_]*conf` +
 		`|\b(user|owner|human|you)\b.{0,40}\b(approv|consent|authori[sz]|agree)`)
 
-var cadreAllow = regexp.MustCompile(`cadre\W*allow`)
+var cadreiAllow = regexp.MustCompile(`cadrei\W*allow`)
 
 func set(words string) map[string]bool {
 	m := map[string]bool{}

@@ -11,7 +11,7 @@ var ErrUnclosed = errors.New("unclosed quote or trailing backslash")
 // double quotes keep everything except that a backslash escapes " and \;
 // outside quotes a backslash escapes any character. # is an ordinary
 // character: there are no comments. This matches shlex.split in posix
-// mode, which the bash version of cadre used.
+// mode, which the bash version of cadrei used.
 func Split(s string) ([]string, error) {
 	var words []string
 	var cur []rune

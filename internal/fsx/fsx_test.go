@@ -59,7 +59,7 @@ func TestLockIsExclusive(t *testing.T) {
 func TestLockIsFreedWhenItsHolderDies(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "x.lock")
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperHoldLock")
-	cmd.Env = append(os.Environ(), "CADRE_TEST_HOLD_LOCK="+p)
+	cmd.Env = append(os.Environ(), "CADREI_TEST_HOLD_LOCK="+p)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestLockIsFreedWhenItsHolderDies(t *testing.T) {
 }
 
 func TestHelperHoldLock(t *testing.T) {
-	p := os.Getenv("CADRE_TEST_HOLD_LOCK")
+	p := os.Getenv("CADREI_TEST_HOLD_LOCK")
 	if p == "" {
 		t.Skip("helper for TestLockIsFreedWhenItsHolderDies")
 	}

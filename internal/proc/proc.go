@@ -1,4 +1,4 @@
-// Package proc tells whether a process is still the one cadre started:
+// Package proc tells whether a process is still the one cadrei started:
 // alive, with the same start time, so a reused pid is never taken for it.
 package proc
 

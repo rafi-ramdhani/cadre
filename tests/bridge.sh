@@ -3,10 +3,11 @@
 # said (install.sh on stdin, with the orchestrator hook), from tag v0.1.1
 # and from main as it is before the release, then pulls a new main that
 # merges this commit, as a 0.1.x user's git pull would. The old hook
-# must then exit 0 and print nothing, and the old cadre command must print
-# the install line and exit 1. Everything runs in a throwaway HOME, from a
-# local copy of this repository; nothing is fetched. It tests the last
-# commit, so commit before running it.
+# must then exit 0 and print nothing, the old cadre command must print the
+# Cadrei line and exit 1, and the old skill link must reach the bridge
+# skill. Everything runs in a throwaway HOME, from a local copy of this
+# repository; nothing is fetched. It tests the last commit, so commit
+# before running it.
 #
 #   tests/bridge.sh
 
@@ -17,7 +18,7 @@ T=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"
 mkdir -p "$HOME" "$T/bin"
-unset CADRE_HOME CADRE_MEMBER CADRE_PERSONA CADRE_OFF CADRE_ORCHESTRATOR CLAUDE_CONFIG_DIR XDG_CONFIG_HOME XDG_CACHE_HOME
+unset CADRE_HOME CADRE_MEMBER CADRE_PERSONA CADRE_OFF CADRE_ORCHESTRATOR CADREI_HOME CADREI_MEMBER CADREI_OFF CADREI_ORCHESTRATOR CLAUDE_CONFIG_DIR XDG_CONFIG_HOME XDG_CACHE_HOME
 export GIT_CONFIG_GLOBAL="$T/gitconfig"
 git config --global user.name "Cadre Test"
 git config --global user.email "test@example.com"
@@ -75,15 +76,18 @@ bridge() {
     code=0
     # shellcheck disable=SC2086 # each word is an argument
     out=$("$HOME/.local/bin/cadre" $args 2>&1) || code=$?
-    if [ "$code" != 1 ] || [ "$out" != "$want" ]; then fail "cadre $args prints the install line and exits 1 (exit $code, output: $out)"; fi
+    if [ "$code" != 1 ] || [ "$out" != "$want" ]; then fail "cadre $args prints the Cadrei line and exits 1 (exit $code, output: $out)"; fi
   done
-  ok "the old cadre command prints the install line and exits 1, whatever it is given"
+  ok "the old cadre command prints the Cadrei line and exits 1, whatever it is given"
 
-  [ -f "$HOME/.claude/skills/cadre/SKILL.md" ] || fail "the old skill link still resolves"
-  ok "the old skill link still resolves"
+  skill="$HOME/.claude/skills/cadre/SKILL.md"
+  if ! grep -qx "name: cadre" "$skill" || ! grep -q "brew install rafi-ramdhani/cadrei/cadrei" "$skill"; then
+    fail "the old skill link resolves to the bridge skill"
+  fi
+  ok "the old skill link resolves to the bridge skill"
 }
 
-want="cadre 0.2.0 is a new program: brew install rafi-ramdhani/cadre/cadre"
+want="Cadre is now Cadrei: brew install rafi-ramdhani/cadrei/cadrei"
 bridge v0.1.1 tag
 # main as it is before the release merge, when this clone has it (CI does).
 if git -C "$ROOT" rev-parse -q --verify 'refs/remotes/origin/main^{commit}' >/dev/null; then

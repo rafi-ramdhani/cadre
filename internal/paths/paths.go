@@ -1,4 +1,4 @@
-// Package paths resolves physical paths and the folders cadre uses.
+// Package paths resolves physical paths and the folders cadrei uses.
 package paths
 
 import (
@@ -77,7 +77,7 @@ func Within(path, dir string) bool {
 // Inside reports whether path is the folder dir or inside it. Folders are
 // compared by identity (os.SameFile) as well as by spelling, so another
 // spelling of the same folder matches: on macOS's case-insensitive disk,
-// ~/.CADRE/WORK is ~/.cadre/work.
+// ~/.CADREI/WORK is ~/.cadrei/work.
 func Inside(path, dir string) bool {
 	if Within(path, dir) {
 		return true

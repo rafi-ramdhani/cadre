@@ -1,12 +1,12 @@
 # Playbook
 
-This cadre's teams and routing rules. The orchestrator reads this file at the start of every session.
+This cadrei's teams and routing rules. The orchestrator reads this file at the start of every session.
 
 ## Teams
 
 | Team | Members | Use for |
 |---|---|---|
-| dev | engineer, reviewer | features and fixes in a project (`cadre up dev <project>`) |
+| dev | engineer, reviewer | features and fixes in a project (`cadrei up dev <project>`) |
 
 ## Pipelines
 

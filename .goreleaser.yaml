@@ -1,14 +1,14 @@
-# Release builds for cadre: a static binary for macOS and Linux, amd64 and
+# Release builds for cadrei: a static binary for macOS and Linux, amd64 and
 # arm64, with SHA-256 checksums. The Homebrew formula is made from those
 # checksums by packaging/homebrew/formula.sh (see .github/workflows/release.yml),
 # not by goreleaser, so a release never needs write access to the tap.
 version: 2
-project_name: cadre
+project_name: cadrei
 
 builds:
-  - id: cadre
-    main: ./cmd/cadre
-    binary: cadre
+  - id: cadrei
+    main: ./cmd/cadrei
+    binary: cadrei
     env:
       - CGO_ENABLED=0
     goos: [darwin, linux]
@@ -35,4 +35,4 @@ changelog:
 release:
   github:
     owner: rafi-ramdhani
-    name: cadre
+    name: cadrei

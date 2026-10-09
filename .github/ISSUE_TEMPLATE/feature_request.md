@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: An idea for cadre
+about: An idea for cadrei
 labels: enhancement
 ---
 
@@ -8,4 +8,4 @@ labels: enhancement
 
 **What you have in mind**
 
-**Could it live in your own cadre instead?** (a member, a playbook rule, a team)
+**Could it live in your own cadrei instead?** (a member, a playbook rule, a team)

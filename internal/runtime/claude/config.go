@@ -3,15 +3,15 @@ package claude
 import (
 	"path/filepath"
 
-	"github.com/rafi-ramdhani/cadre/internal/jsonx"
-	"github.com/rafi-ramdhani/cadre/internal/shellwords"
+	"github.com/rafi-ramdhani/cadrei/internal/jsonx"
+	"github.com/rafi-ramdhani/cadrei/internal/shellwords"
 )
 
 // Edits of Claude Code's own JSON files, ~/.claude.json and
 // ~/.claude/settings.json, through jsonx.Edit's safe write.
 
 // TrustEntry names a project and the folder keys to trust it under (its
-// physical path and, when different, the path as cadre spells it).
+// physical path and, when different, the path as cadrei spells it).
 type TrustEntry struct {
 	Name string
 	Dirs []string
@@ -155,10 +155,10 @@ func commandOf(h *jsonx.Value) (string, bool) {
 	return h.Get("command").Text()
 }
 
-// AddHook makes command the SessionStart hook for which isCadre is true:
+// AddHook makes command the SessionStart hook for which isCadrei is true:
 // groups holding any such hook are dropped and one group with command is
 // added. Unchanged when command is already the only one.
-func AddHook(command string, isCadre func(command string) bool) jsonx.Op {
+func AddHook(command string, isCadrei func(command string) bool) jsonx.Op {
 	return func(root *jsonx.Value) ([]string, bool, error) {
 		_, groups, err := sessionStart(root, true)
 		if err != nil {
@@ -167,7 +167,7 @@ func AddHook(command string, isCadre func(command string) bool) jsonx.Op {
 		var found []string
 		for _, g := range groups.Items {
 			for _, h := range g.Get("hooks").Items {
-				if c, ok := commandOf(h); ok && isCadre(c) {
+				if c, ok := commandOf(h); ok && isCadrei(c) {
 					found = append(found, c)
 				}
 			}
@@ -179,7 +179,7 @@ func AddHook(command string, isCadre func(command string) bool) jsonx.Op {
 		for _, g := range groups.Items {
 			ours := false
 			for _, h := range g.Get("hooks").Items {
-				if c, ok := commandOf(h); ok && isCadre(c) {
+				if c, ok := commandOf(h); ok && isCadrei(c) {
 					ours = true
 				}
 			}
@@ -196,9 +196,9 @@ func AddHook(command string, isCadre func(command string) bool) jsonx.Op {
 
 // Unhook removes the SessionStart hooks for which isOurs is true, and
 // groups left empty by that. It reports "removed\t<command>" for each, and
-// "kept\t<command>" for hooks isCadre recognises as another cadre
+// "kept\t<command>" for hooks isCadrei recognises as another cadrei
 // framework's.
-func Unhook(isOurs, isCadre func(command string) bool) jsonx.Op {
+func Unhook(isOurs, isCadrei func(command string) bool) jsonx.Op {
 	return func(root *jsonx.Value) ([]string, bool, error) {
 		hooks, groups, err := sessionStart(root, false)
 		if err != nil || groups == nil {
@@ -214,7 +214,7 @@ func Unhook(isOurs, isCadre func(command string) bool) jsonx.Op {
 				switch {
 				case ok && isOurs(c):
 					removed = append(removed, c)
-				case ok && isCadre(c):
+				case ok && isCadrei(c):
 					others = append(others, c)
 					rest = append(rest, h)
 				default:
@@ -250,9 +250,9 @@ func Unhook(isOurs, isCadre func(command string) bool) jsonx.Op {
 	}
 }
 
-// OrchestratorHook returns the program a cadre orchestrator hook command
+// OrchestratorHook returns the program a cadrei orchestrator hook command
 // runs: the script of a 0.1.x `bash <framework>/bin/orchestrator-hook.sh`
-// entry, or the binary of a `<cadre binary> hook orchestrator` entry. The
+// entry, or the binary of a `<cadrei binary> hook orchestrator` entry. The
 // command is split as the shell splits it, so a quoted path with a space
 // is read whole.
 func OrchestratorHook(command string) (string, bool) {
@@ -263,7 +263,7 @@ func OrchestratorHook(command string) (string, bool) {
 	switch {
 	case len(words) == 2 && words[0] == "bash" && filepath.Base(words[1]) == "orchestrator-hook.sh":
 		return words[1], true
-	case len(words) == 3 && filepath.Base(words[0]) == "cadre" && words[1] == "hook" && words[2] == "orchestrator":
+	case len(words) == 3 && filepath.Base(words[0]) == "cadrei" && words[1] == "hook" && words[2] == "orchestrator":
 		return words[0], true
 	}
 	return "", false

@@ -1,7 +1,7 @@
-// Package settings handles a cadre's member settings file
-// (<cadre>/.claude/member-settings.json): the grants every member gets.
+// Package settings handles a cadrei's member settings file
+// (<cadrei>/.claude/member-settings.json): the grants every member gets.
 // It validates the file, writes the copy each member starts with, keeps
-// fingerprints that reveal edits made outside cadre allow, and adds and
+// fingerprints that reveal edits made outside cadrei allow, and adds and
 // removes grants.
 package settings
 
@@ -17,41 +17,41 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/fsx"
-	"github.com/rafi-ramdhani/cadre/internal/jsonx"
-	"github.com/rafi-ramdhani/cadre/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/fsx"
+	"github.com/rafi-ramdhani/cadrei/internal/jsonx"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
 )
 
 // Protect are the deny rules a file must hold: they keep members from
-// editing it or running cadre allow. The fixed entries name the file by a
-// pattern, not its path, so they stay valid when the cadre is cloned. Edit
+// editing it or running cadrei allow. The fixed entries name the file by a
+// pattern, not its path, so they stay valid when the cadrei is cloned. Edit
 // rules also cover the Write tool; Claude Code ignores Write(path) rules.
-var Protect = []string{"Edit(//**/.claude/member-settings.json)", "Bash(cadre allow:*)"}
+var Protect = []string{"Edit(//**/.claude/member-settings.json)", "Bash(cadrei allow:*)"}
 
-// cadreDeny keeps members off cadre's own files under ~/.cadre (N.7).
-// Team folders (~/.cadre/<name>/teams) stay writable: members work there.
-// Edit rules also cover the Write tool. The //**/.cadre globs also match a
-// folder named .cadre inside a project, which is harmless: cadre's own
-// files do not live in projects. They do not match a cadre named by a
-// CADRE_HOME elsewhere or a ~/.cadre reached through a symlink, so Export
+// cadreiDeny keeps members off cadrei's own files under ~/.cadrei (N.7).
+// Team folders (~/.cadrei/<name>/teams) stay writable: members work there.
+// Edit rules also cover the Write tool. The //**/.cadrei globs also match a
+// folder named .cadrei inside a project, which is harmless: cadrei's own
+// files do not live in projects. They do not match a cadrei named by a
+// CADREI_HOME elsewhere or a ~/.cadrei reached through a symlink, so Export
 // adds the same rules spelled with physical paths (Places).
-var cadreDeny = []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/framework/**)",
-	"Edit(//**/.cadre/*/.claude/**)", "Edit(//**/.cadre/*/cadre.conf)", "Edit(//**/.cadre/*/members/**)",
-	"Edit(//**/.cadre/*/playbook.md)", "Edit(//**/.cadre/*/protocol.md)", "Edit(//**/.cadre/*/projects.yaml)",
-	"Edit(//**/.cadre/*/.git/**)"}
+var cadreiDeny = []string{"Edit(//**/.cadrei/config/**)", "Edit(//**/.cadrei/framework/**)",
+	"Edit(//**/.cadrei/*/.claude/**)", "Edit(//**/.cadrei/*/cadrei.conf)", "Edit(//**/.cadrei/*/members/**)",
+	"Edit(//**/.cadrei/*/playbook.md)", "Edit(//**/.cadrei/*/protocol.md)", "Edit(//**/.cadrei/*/projects.yaml)",
+	"Edit(//**/.cadrei/*/.git/**)"}
 
 // FixedDeny is added to every member's copy: Protect, the commands that
-// register or switch cadres, and cadre's own files.
-var FixedDeny = append(append(append([]string{}, Protect...), "Bash(cadre use:*)", "Bash(cadre cadres:*)", "Bash(cadre init:*)"), cadreDeny...)
+// register or switch cadreis, and cadrei's own files.
+var FixedDeny = append(append(append([]string{}, Protect...), "Bash(cadrei use:*)", "Bash(cadrei cadreis:*)", "Bash(cadrei init:*)"), cadreiDeny...)
 
 // FixedSoft is the autoMode.soft_deny entry a file must hold.
-const FixedSoft = "Changing member permissions (editing a cadre's .claude/member-settings.json " +
-	"or running cadre allow) is only done by the user through the orchestrator"
+const FixedSoft = "Changing member permissions (editing a cadrei's .claude/member-settings.json " +
+	"or running cadrei allow) is only done by the user through the orchestrator"
 
-// CadreSoft is added to every copy's autoMode.soft_deny: Edit rules do not
+// CadreiSoft is added to every copy's autoMode.soft_deny: Edit rules do not
 // cover shell writes, which this tells the auto-mode classifier about.
-const CadreSoft = "Changing cadre's own files under ~/.cadre (settings, members, playbook, registry, " +
-	"cadre.conf, build files), other than team folders, is only done by the user through the orchestrator"
+const CadreiSoft = "Changing cadrei's own files under ~/.cadrei (settings, members, playbook, registry, " +
+	"cadrei.conf, build files), other than team folders, is only done by the user through the orchestrator"
 
 // legacy entries are dropped from the copy: Claude Code ignores Write(path)
 // rules and warns about them at startup.
@@ -184,12 +184,12 @@ func contains(list []string, s string) bool {
 }
 
 // Places are the physical folders the deny rules name besides the
-// //**/.cadre globs: ~/.cadre as resolved, and every known cadre.
+// //**/.cadrei globs: ~/.cadrei as resolved, and every known cadrei.
 type Places struct {
-	Root   string
-	Cadres []string
+	Root    string
+	Cadreis []string
 	// SessionHook is the command a member's session runs when it starts
-	// (cadre hook session), to keep its recorded conversation id current
+	// (cadrei hook session), to keep its recorded conversation id current
 	// across /clear and /compact; "" for none.
 	SessionHook string
 }
@@ -201,8 +201,8 @@ func (p Places) deny() []string {
 		root := escapeGlob(p.Root)
 		out = append(out, "Edit(/"+root+"/config/**)", "Edit(/"+root+"/framework/**)")
 	}
-	for _, c := range p.Cadres {
-		for _, f := range []string{"/.claude/**", "/cadre.conf", "/members/**", "/playbook.md", "/protocol.md", "/projects.yaml", "/.git/**"} {
+	for _, c := range p.Cadreis {
+		for _, f := range []string{"/.claude/**", "/cadrei.conf", "/members/**", "/playbook.md", "/protocol.md", "/projects.yaml", "/.git/**"} {
 			out = append(out, "Edit(/"+escapeGlob(c)+f+")")
 		}
 	}
@@ -294,8 +294,8 @@ func write(root *jsonx.Value, dir string, places Places) (string, error) {
 	if !ok {
 		soft = []string{Defaults}
 	}
-	if !contains(soft, CadreSoft) {
-		soft = append(soft, CadreSoft)
+	if !contains(soft, CadreiSoft) {
+		soft = append(soft, CadreiSoft)
 	}
 	mode.Set("soft_deny", strs(soft...))
 	if places.SessionHook != "" {
@@ -342,7 +342,7 @@ func readHashes(hashFile string) map[string]string {
 	return found
 }
 
-// Record remembers the file's current hash. Two cadres can record at the
+// Record remembers the file's current hash. Two cadreis can record at the
 // same time, so the hash file is changed under a machine-wide lock.
 func Record(path, hashFile string) error {
 	sum, err := digest(path)
@@ -373,7 +373,7 @@ func Record(path, hashFile string) error {
 
 // Fingerprint states, from Verify.
 const (
-	Same    = iota // the file is as cadre last recorded it
+	Same    = iota // the file is as cadrei last recorded it
 	Differs        // it changed since
 	Unknown        // no hash is recorded for it
 )
@@ -394,20 +394,20 @@ func Verify(path, hashFile string) (int, error) {
 	return Differs, nil
 }
 
-// Rel is the settings file's path inside its cadre.
+// Rel is the settings file's path inside its cadrei.
 const Rel = ".claude/member-settings.json"
 
-// commitSubjects are the commit messages cadre writes for this file.
+// commitSubjects are the commit messages cadrei writes for this file.
 var commitSubjects = []string{"Add the member settings file", "Allow for members: ", "Allow for members once: ",
 	"Remove grant for members: ", "Remove one-time grants for members"}
 
-// FromCadre reports whether the cadre's settings file is exactly as cadre
+// FromCadrei reports whether the cadrei's settings file is exactly as cadrei
 // last committed it: equal to HEAD, with nothing pending, and the last
-// commit that touched it is one cadre makes. Such a file (for example a
+// commit that touched it is one cadrei makes. Such a file (for example a
 // grant pulled from another machine) is accepted and re-recorded.
-func FromCadre(cadre string) bool {
+func FromCadrei(cadrei string) bool {
 	git := func(args ...string) ([]byte, error) {
-		return exec.Command("git", append([]string{"-C", cadre}, args...)...).Output()
+		return exec.Command("git", append([]string{"-C", cadrei}, args...)...).Output()
 	}
 	if _, err := git("rev-parse", "--git-dir"); err != nil {
 		return false
@@ -431,14 +431,14 @@ func FromCadre(cadre string) bool {
 	return false
 }
 
-// ChangedOutside reports whether the file was changed outside cadre allow:
-// its hash is unknown or differs, and it is not what cadre last committed.
-// A file cadre committed is re-recorded and accepted.
-func ChangedOutside(cadre, path, hashFile string) bool {
+// ChangedOutside reports whether the file was changed outside cadrei allow:
+// its hash is unknown or differs, and it is not what cadrei last committed.
+// A file cadrei committed is re-recorded and accepted.
+func ChangedOutside(cadrei, path, hashFile string) bool {
 	if state, err := Verify(path, hashFile); err == nil && state == Same {
 		return false
 	}
-	if FromCadre(cadre) {
+	if FromCadrei(cadrei) {
 		Record(path, hashFile)
 		return false
 	}

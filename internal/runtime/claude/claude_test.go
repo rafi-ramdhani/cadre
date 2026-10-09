@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
 )
 
 func TestLaunch(t *testing.T) {
@@ -54,18 +54,18 @@ func TestSessions(t *testing.T) {
 		t.Error("a conversation with no transcript exists")
 	}
 	// Only the transcript in the session's own folder counts, as
-	// claude --resume looks there: /Users/me/.cadre/w is -Users-me--cadre-w.
+	// claude --resume looks there: /Users/me/.cadrei/w is -Users-me--cadrei-w.
 	os.MkdirAll(filepath.Join(cfg, "projects", "-Users-me-app"), 0o755)
 	os.WriteFile(filepath.Join(cfg, "projects", "-Users-me-app", id+".jsonl"), []byte("{}\n"), 0o600)
-	if !ops.Exists(id, "/Users/me/app") || ops.Exists(id, "/Users/me/.cadre/w") || ops.Exists("../../etc/passwd", "/Users/me/app") {
+	if !ops.Exists(id, "/Users/me/app") || ops.Exists(id, "/Users/me/.cadrei/w") || ops.Exists("../../etc/passwd", "/Users/me/app") {
 		t.Error("Exists")
 	}
-	os.MkdirAll(filepath.Join(cfg, "projects", "-Users-me--cadre-w"), 0o755)
-	os.WriteFile(filepath.Join(cfg, "projects", "-Users-me--cadre-w", id+".jsonl"), []byte("{}\n"), 0o600)
-	if !ops.Exists(id, "/Users/me/.cadre/w") {
+	os.MkdirAll(filepath.Join(cfg, "projects", "-Users-me--cadrei-w"), 0o755)
+	os.WriteFile(filepath.Join(cfg, "projects", "-Users-me--cadrei-w", id+".jsonl"), []byte("{}\n"), 0o600)
+	if !ops.Exists(id, "/Users/me/.cadrei/w") {
 		t.Error("a folder with a dot")
 	}
-	if _, size, ok := ops.Transcript(id, "/Users/me/.cadre/w"); !ok || size != 3 {
+	if _, size, ok := ops.Transcript(id, "/Users/me/.cadrei/w"); !ok || size != 3 {
 		t.Errorf("Transcript: %v %d", ok, size)
 	}
 	if _, _, ok := ops.Transcript(id, "/Users/me/other"); ok {

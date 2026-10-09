@@ -5,7 +5,7 @@ import (
 	"io"
 )
 
-// StopTeam stops the session that runs key for this cadre (its own, else
+// StopTeam stops the session that runs key for this cadrei (its own, else
 // a legacy one) and returns the line to print.
 func (s Scope) StopTeam(team, project string) string {
 	if live := s.Live(team, project); live != "" && s.T.KillSession(live) == nil {
@@ -22,13 +22,13 @@ func (s Scope) insteadNote(team, project string) string {
 	return ""
 }
 
-// StopRole stops one member: its window in this cadre's session, or in a
+// StopRole stops one member: its window in this cadrei's session, or in a
 // legacy one.
 func (s Scope) StopRole(team, project, role string) string {
 	key := Key(team, project)
 	for _, session := range []string{s.mine(team, project), s.legacy(key)} {
 		if session != "" && s.T.KillWindow(session, role) == nil {
-			return "  " + session[len("cadre-"):] + "-" + role + " stopped"
+			return "  " + Bare(session) + "-" + role + " stopped"
 		}
 	}
 	return "  " + MemberName(s.Name, key, role) + " not running" + s.insteadNote(team, project)

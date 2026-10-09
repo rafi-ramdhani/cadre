@@ -11,7 +11,7 @@ func TestSplit(t *testing.T) {
 		want []string
 	}{
 		{`a b  c`, []string{"a", "b", "c"}},
-		{`bash /x/my\ cadre/bin/orchestrator-hook.sh`, []string{"bash", "/x/my cadre/bin/orchestrator-hook.sh"}},
+		{`bash /x/my\ cadrei/bin/orchestrator-hook.sh`, []string{"bash", "/x/my cadrei/bin/orchestrator-hook.sh"}},
 		{`'a b' "c d"`, []string{"a b", "c d"}},
 		{`'it''s'`, []string{"its"}},
 		{`"x\"y" "a\\b" "a\b"`, []string{`x"y`, `a\b`, `a\b`}},

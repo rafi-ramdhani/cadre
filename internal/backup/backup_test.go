@@ -40,25 +40,25 @@ func commit(t *testing.T, dir string, files map[string]string) string {
 
 func TestInstall(t *testing.T) {
 	dir := repo(t)
-	if wrote, err := Install(dir, "/opt/cadre/bin/cadre"); err != nil || !wrote {
+	if wrote, err := Install(dir, "/opt/cadrei/bin/cadrei"); err != nil || !wrote {
 		t.Fatalf("install: %v %v", wrote, err)
 	}
 	hook := filepath.Join(dir, ".git", "hooks", "pre-push")
 	raw, _ := os.ReadFile(hook)
-	if !strings.Contains(string(raw), "exec '/opt/cadre/bin/cadre' hook pre-push \"$@\"") {
+	if !strings.Contains(string(raw), "exec '/opt/cadrei/bin/cadrei' hook pre-push \"$@\"") {
 		t.Errorf("hook %q", raw)
 	}
 	if st, _ := os.Stat(hook); st.Mode().Perm()&0o100 == 0 {
 		t.Error("the hook is not executable")
 	}
-	if wrote, _ := Install(dir, "/opt/cadre/bin/cadre"); wrote {
+	if wrote, _ := Install(dir, "/opt/cadrei/bin/cadrei"); wrote {
 		t.Error("a current hook was written again")
 	}
-	if wrote, _ := Install(dir, "/new/cadre"); !wrote {
-		t.Error("cadre's hook for another binary was not updated")
+	if wrote, _ := Install(dir, "/new/cadrei"); !wrote {
+		t.Error("cadrei's hook for another binary was not updated")
 	}
 	os.WriteFile(hook, []byte("#!/bin/sh\nmy own hook\n"), 0o755)
-	if _, err := Install(dir, "/new/cadre"); err == nil || !strings.Contains(err.Error(), "not cadre's") {
+	if _, err := Install(dir, "/new/cadrei"); err == nil || !strings.Contains(err.Error(), "not cadrei's") {
 		t.Errorf("a hook of the user's: %v", err)
 	}
 	if raw, _ := os.ReadFile(hook); string(raw) != "#!/bin/sh\nmy own hook\n" {
@@ -119,13 +119,13 @@ func TestReadUpdates(t *testing.T) {
 
 func TestRemove(t *testing.T) {
 	dir := repo(t)
-	Install(dir, "/opt/cadre/bin/cadre")
+	Install(dir, "/opt/cadrei/bin/cadrei")
 	if removed, err := Remove(dir); !removed || err != nil {
 		t.Errorf("remove: %v %v", removed, err)
 	}
 	hook := filepath.Join(dir, ".git", "hooks", "pre-push")
 	if _, err := os.Stat(hook); err == nil {
-		t.Error("cadre's hook is still there")
+		t.Error("cadrei's hook is still there")
 	}
 	os.WriteFile(hook, []byte("#!/bin/sh\nmine\n"), 0o755)
 	if removed, _ := Remove(dir); removed {
@@ -134,14 +134,14 @@ func TestRemove(t *testing.T) {
 	if removed, _ := Remove(t.TempDir()); removed {
 		t.Error("a folder that is not a repository")
 	}
-	// A binary whose path holds a quote is still cadre's own text.
+	// A binary whose path holds a quote is still cadrei's own text.
 	os.Remove(hook)
-	Install(dir, "/opt/it's/cadre")
+	Install(dir, "/opt/it's/cadrei")
 	if removed, err := Remove(dir); !removed || err != nil {
 		t.Errorf("a quoted path: %v %v", removed, err)
 	}
-	// Lines the user added to cadre's hook are theirs: the file stays.
-	Install(dir, "/opt/cadre/bin/cadre")
+	// Lines the user added to cadrei's hook are theirs: the file stays.
+	Install(dir, "/opt/cadrei/bin/cadrei")
 	raw, _ := os.ReadFile(hook)
 	changed := string(raw) + "echo my own check\n"
 	os.WriteFile(hook, []byte(changed), 0o755)
@@ -233,18 +233,18 @@ func TestMoreCredentialNamesAndTokens(t *testing.T) {
 	}
 }
 
-// With the cadre program gone, the hook stops the push and says why.
-func TestTheHookStopsAPushWhenCadreIsGone(t *testing.T) {
+// With the cadrei program gone, the hook stops the push and says why.
+func TestTheHookStopsAPushWhenCadreiIsGone(t *testing.T) {
 	dir := repo(t)
 	commit(t, dir, map[string]string{"playbook.md": "# Playbook\n"})
 	bare := t.TempDir()
 	git(t, bare, "init", "-q", "--bare")
 	git(t, dir, "remote", "add", "backup", bare)
-	if _, err := Install(dir, filepath.Join(t.TempDir(), "gone", "cadre")); err != nil {
+	if _, err := Install(dir, filepath.Join(t.TempDir(), "gone", "cadrei")); err != nil {
 		t.Fatal(err)
 	}
 	out, err := exec.Command("git", "-C", dir, "push", "-q", "backup", "main").CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "the check for credentials could not run, since") || !strings.Contains(string(out), "gone/cadre is missing") {
+	if err == nil || !strings.Contains(string(out), "the check for credentials could not run, since") || !strings.Contains(string(out), "gone/cadrei is missing") {
 		t.Errorf("push: %v %s", err, out)
 	}
 }

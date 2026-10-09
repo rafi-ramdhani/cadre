@@ -7,12 +7,12 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/fsx"
-	"github.com/rafi-ramdhani/cadre/internal/paths"
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/fsx"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
 )
 
-// Record is what cadre keeps of a session's conversation, to resume it on
+// Record is what cadrei keeps of a session's conversation, to resume it on
 // the next start: the conversation id, the folder it ran in, and when.
 type Record struct {
 	ID    string    `json:"id"`
@@ -20,12 +20,12 @@ type Record struct {
 	Since time.Time `json:"since"`
 }
 
-// nameRule is a session name as cadre makes them; anything else names no
+// nameRule is a session name as cadrei makes them; anything else names no
 // record (the hook gets its name from the environment).
 var nameRule = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// RecordPath is a session's record in a cadre's build folder, or "" for a
-// name cadre does not make.
+// RecordPath is a session's record in a cadrei's build folder, or "" for a
+// name cadrei does not make.
 func RecordPath(build, name string) string {
 	if !nameRule.MatchString(name) {
 		return ""
@@ -33,7 +33,7 @@ func RecordPath(build, name string) string {
 	return filepath.Join(build, "sessions", name+".json")
 }
 
-// ReadRecord reads a record cadre wrote, or nil.
+// ReadRecord reads a record cadrei wrote, or nil.
 func ReadRecord(path string) *Record {
 	raw, err := fsx.ReadOwn(path, 4096)
 	if err != nil {

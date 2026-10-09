@@ -1,4 +1,4 @@
-// Package conf reads a cadre's cadre.conf: KEY=VALUE lines. It is parsed,
+// Package conf reads a cadrei's cadrei.conf: KEY=VALUE lines. It is parsed,
 // never run as shell code (section N.1), so a line that would run a command
 // is ignored with a warning instead.
 package conf
@@ -33,7 +33,7 @@ func Parse(data string) (map[string]string, []string) {
 			value, ok = unquote(m[2])
 		}
 		if !ok {
-			warnings = append(warnings, fmt.Sprintf("cadre.conf line %d ignored (only KEY=VALUE lines are read): %s", i+1, line))
+			warnings = append(warnings, fmt.Sprintf("cadrei.conf line %d ignored (only KEY=VALUE lines are read): %s", i+1, line))
 			continue
 		}
 		values[m[1]] = value

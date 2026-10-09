@@ -1,6 +1,6 @@
 // Package allow decides whether a grant may be added to the member
 // settings: it refuses rules that are too broad or that reach files which
-// run code outside a member's session or hold cadre's own state, warns
+// run code outside a member's session or hold cadrei's own state, warns
 // about others, and checks plain-English --auto entries.
 //
 // It is a port of the bash 0.2.0 checker, which nine review rounds shaped.
@@ -21,34 +21,34 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/rafi-ramdhani/cadre/internal/paths"
-	"github.com/rafi-ramdhani/cadre/internal/shellwords"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/shellwords"
 )
 
-// Refused is the reason a grant was refused, as cadre prints it.
+// Refused is the reason a grant was refused, as cadrei prints it.
 type Refused string
 
 func (r Refused) Error() string { return string(r) }
 
 // Checker holds the folders a check needs, all physical.
 type Checker struct {
-	Root   string   // ~/.cadre, where cadres live (section N)
-	Home   string   // the user's home folder
-	Cache  string   // $XDG_CACHE_HOME, or ~/.cache
-	Cadre  string   // the cadre whose members get the grant
-	Cadres []string // every known cadre, this one included
+	Root    string   // ~/.cadrei, where cadreis live (section N)
+	Home    string   // the user's home folder
+	Cache   string   // $XDG_CACHE_HOME, or ~/.cache
+	Cadrei  string   // the cadrei whose members get the grant
+	Cadreis []string // every known cadrei, this one included
 }
 
-// New makes a Checker for cadre, with the user's home and cache folders
-// from the environment. known lists the other known cadres.
-func New(cadre string, known []string) *Checker {
+// New makes a Checker for cadrei, with the user's home and cache folders
+// from the environment. known lists the other known cadreis.
+func New(cadrei string, known []string) *Checker {
 	home := paths.Home()
 	cache := os.Getenv("XDG_CACHE_HOME")
 	if cache == "" {
 		cache = home + "/.cache"
 	}
-	c := &Checker{Root: home + "/.cadre", Home: home, Cache: paths.Real(cache), Cadre: paths.Real(cadre)}
-	c.Cadres = append([]string{c.Cadre}, known...)
+	c := &Checker{Root: home + "/.cadrei", Home: home, Cache: paths.Real(cache), Cadrei: paths.Real(cadrei)}
+	c.Cadreis = append([]string{c.Cadrei}, known...)
 	return c
 }
 
@@ -110,7 +110,7 @@ func (c *Checker) rule(rule string) string {
 	m := ruleShape.FindStringSubmatchIndex(rule)
 	if m == nil || strings.Contains(rule, "\n") {
 		refuse("refused: '%s' is not a permission rule (Tool or Tool(specifier)); "+
-			"for a plain-English allowance use: cadre allow add --auto \"<sentence>\"", rule)
+			"for a plain-English allowance use: cadrei allow add --auto \"<sentence>\"", rule)
 	}
 	tool := rule[m[2]:m[3]]
 	hasSpec := m[4] >= 0
@@ -119,11 +119,11 @@ func (c *Checker) rule(rule string) string {
 		spec = rule[m[4]:m[5]]
 	}
 	n := normText(rule)
-	if strings.Contains(n, "member-settings") || strings.Contains(n, "member_settings") || cadreAllow.MatchString(n) {
-		refuse("refused: %s targets the member settings or cadre allow, which only the user changes", rule)
+	if strings.Contains(n, "member-settings") || strings.Contains(n, "member_settings") || cadreiAllow.MatchString(n) {
+		refuse("refused: %s targets the member settings or cadrei allow, which only the user changes", rule)
 	}
-	if strings.Contains(n, "cadre.conf") {
-		refuse("refused: %s reaches cadre.conf, which sets the permission mode of members and the orchestrator; make that edit yourself", rule)
+	if strings.Contains(n, "cadrei.conf") {
+		refuse("refused: %s reaches cadrei.conf, which sets the permission mode of members and the orchestrator; make that edit yourself", rule)
 	}
 	if strings.Contains(tool, "*") {
 		refuse("refused: %s puts a wildcard in the tool name; name one tool", rule)
@@ -212,13 +212,13 @@ func (c *Checker) command(rule, spec string) string {
 	if wild && (runners[base] || versioned.MatchString(base)) {
 		refuse("refused: %s lets %s run anything; allow the exact command instead", rule, base)
 	}
-	if base == "cadre" && (len(rest) == 0 || strings.Contains(rest[0], "*") || normText(rest[0]) == "allow") {
-		refuse("refused: %s would include cadre allow; name the cadre command, such as Bash(cadre up:*)", rule)
+	if base == "cadrei" && (len(rest) == 0 || strings.Contains(rest[0], "*") || normText(rest[0]) == "allow") {
+		refuse("refused: %s would include cadrei allow; name the cadrei command, such as Bash(cadrei up:*)", rule)
 	}
-	if base == "cadre" {
+	if base == "cadrei" {
 		switch normText(rest[0]) {
-		case "use", "cadres", "init":
-			refuse("refused: %s lets a member register or switch cadres, which only the user does", rule)
+		case "use", "cadreis", "init":
+			refuse("refused: %s lets a member register or switch cadreis, which only the user does", rule)
 		}
 	}
 	sub := ""
@@ -285,7 +285,7 @@ func fixedPart(p string) string {
 }
 
 // path refuses Edit rules that reach protected or code-running files and
-// cadre's own state, and warns on Read rules that reach secrets.
+// cadrei's own state, and warns on Read rules that reach secrets.
 func (c *Checker) path(rule, tool, spec string) string {
 	if trailing := len(spec) - len(strings.TrimRight(spec, `\`)); trailing%2 == 1 {
 		refuse("refused: %s ends in a backslash; write the path without it", rule)
@@ -314,7 +314,7 @@ func (c *Checker) path(rule, tool, spec string) string {
 	}
 	for _, seg := range segments(spec) {
 		if _, err := compile(segRegex(seg)); err != nil {
-			refuse("refused: %s has a pattern cadre cannot read; write the path literally", rule)
+			refuse("refused: %s has a pattern cadrei cannot read; write the path literally", rule)
 		}
 	}
 	if strings.HasPrefix(spec, "/") && !strings.HasPrefix(spec, "//") {
@@ -380,7 +380,7 @@ func (c *Checker) path(rule, tool, spec string) string {
 	if tool != "Read" {
 		for _, suffix := range outsideSuffixes {
 			if named(strings.Split(suffix, "/")...) {
-				refuse("refused: %s reaches %s, which runs code outside a member's session or holds cadre's own state; make that edit yourself", rule, suffix)
+				refuse("refused: %s reaches %s, which runs code outside a member's session or holds cadrei's own state; make that edit yourself", rule, suffix)
 			}
 		}
 	}
@@ -400,13 +400,13 @@ func (c *Checker) path(rule, tool, spec string) string {
 	if named(".claude") || hit(c.Home+"/.claude/") || hit(c.Home+"/.config/git/") {
 		refuse("refused: Claude Code never pre-approves writes under .claude or .config/git; make that edit yourself")
 	}
-	// A relative rule is read from the member's folder, which may be the cadre itself.
-	if named("cadre.conf") || (full == "" && reaches(spec, "cadre.conf")) {
-		refuse("refused: %s reaches %s/cadre.conf, which sets the permission mode of members and the orchestrator; make that edit yourself", rule, c.Cadre)
+	// A relative rule is read from the member's folder, which may be the cadrei itself.
+	if named("cadrei.conf") || (full == "" && reaches(spec, "cadrei.conf")) {
+		refuse("refused: %s reaches %s/cadrei.conf, which sets the permission mode of members and the orchestrator; make that edit yourself", rule, c.Cadrei)
 	}
-	for _, cadre := range c.Cadres {
-		if hit(cadre + "/cadre.conf") {
-			refuse("refused: %s reaches %s/cadre.conf, which sets the permission mode of members and the orchestrator; make that edit yourself", rule, cadre)
+	for _, cadrei := range c.Cadreis {
+		if hit(cadrei + "/cadrei.conf") {
+			refuse("refused: %s reaches %s/cadrei.conf, which sets the permission mode of members and the orchestrator; make that edit yourself", rule, cadrei)
 		}
 	}
 	for _, f := range forms {
@@ -417,8 +417,8 @@ func (c *Checker) path(rule, tool, spec string) string {
 	}
 	for _, t := range c.outside() {
 		if hit(t) {
-			shown := strings.ReplaceAll(strings.TrimSuffix(t, "/"), anyName, "<cadre>")
-			refuse("refused: %s lets a member change %s, which runs code outside its session or holds cadre's own state; make that edit yourself", rule, shown)
+			shown := strings.ReplaceAll(strings.TrimSuffix(t, "/"), anyName, "<cadrei>")
+			refuse("refused: %s lets a member change %s, which runs code outside its session or holds cadrei's own state; make that edit yourself", rule, shown)
 		}
 	}
 	for _, x := range outsideNames {
@@ -426,9 +426,9 @@ func (c *Checker) path(rule, tool, spec string) string {
 			refuse("refused: %s lets a member change files that run code outside its session; make that edit yourself", rule)
 		}
 	}
-	for _, cadre := range c.Cadres {
-		if cadre != c.Cadre && hit(cadre+"/teams/") {
-			return fmt.Sprintf("warning: %s reaches the team folders of the cadre at %s; this cadre's members would change that cadre's work", rule, cadre)
+	for _, cadrei := range c.Cadreis {
+		if cadrei != c.Cadrei && hit(cadrei+"/teams/") {
+			return fmt.Sprintf("warning: %s reaches the team folders of the cadrei at %s; this cadrei's members would change that cadrei's work", rule, cadrei)
 		}
 	}
 	return ""
@@ -437,18 +437,18 @@ func (c *Checker) path(rule, tool, spec string) string {
 // redirect is a redirection written onto its file (>x, 2>>x, <x).
 var redirect = regexp.MustCompile(`^[0-9]*[<>]+&?`)
 
-// ownNames are the names of a cadre's own files and folders, as a
+// ownNames are the names of a cadrei's own files and folders, as a
 // relative path climbing out of a team folder (../../members) names them.
-var ownNames = []string{"members", "personas", ".claude", ".git", "playbook.md", "protocol.md", "projects.yaml", "cadre.conf"}
+var ownNames = []string{"members", "personas", ".claude", ".git", "playbook.md", "protocol.md", "projects.yaml", "cadrei.conf"}
 
 // foldCase compares paths without letter case, as macOS's default
-// case-insensitive volumes do (~/.CADRE/W/PLAYBOOK.MD is the playbook).
+// case-insensitive volumes do (~/.CADREI/W/PLAYBOOK.MD is the playbook).
 var foldCase = runtime.GOOS == "darwin"
 
-// commandPath refuses a word of a Bash rule that reaches one of cadre's
+// commandPath refuses a word of a Bash rule that reaches one of cadrei's
 // own files: a member's shell could otherwise change what the fixed Edit
-// denies keep it from editing. Only words at or inside ~/.cadre or a known
-// cadre count, so a command on a folder that merely holds them (ls ~)
+// denies keep it from editing. Only words at or inside ~/.cadrei or a known
+// cadrei count, so a command on a folder that merely holds them (ls ~)
 // stays allowed. A relative word counts when two or more ".." lead
 // straight to an own name (../../members from a team folder); a word that
 // starts with a variable counts when it names an own file after it.
@@ -464,9 +464,9 @@ func (c *Checker) commandPath(rule, word string) {
 }
 
 func (c *Checker) commandWord(rule, w string) {
-	for _, v := range []string{"$CADRE_HOME", "${CADRE_HOME}"} {
+	for _, v := range []string{"$CADREI_HOME", "${CADREI_HOME}"} {
 		if w == v || strings.HasPrefix(w, v+"/") {
-			w = c.Cadre + w[len(v):]
+			w = c.Cadrei + w[len(v):]
 		}
 	}
 	for _, v := range []string{"$HOME", "${HOME}"} {
@@ -493,28 +493,28 @@ func (c *Checker) commandWord(rule, w string) {
 	case w == "~" || strings.HasPrefix(w, "~/"):
 		full = c.Home + w[1:]
 	case strings.HasPrefix(w, "$") || strings.HasPrefix(w, "`"):
-		// Another variable, or a command, could be any cadre.
+		// Another variable, or a command, could be any cadrei.
 		parts := strings.Split(w, "/")
 		for _, p := range parts[1:] {
 			if name := c.ownName(p); name != "" {
-				refuse("refused: %s reaches %s in whatever folder %s names, and a cadre's %s is its own file; only the user changes those, through the orchestrator", rule, name, parts[0], name)
+				refuse("refused: %s reaches %s in whatever folder %s names, and a cadrei's %s is its own file; only the user changes those, through the orchestrator", rule, name, parts[0], name)
 			}
 		}
 		return
 	default:
 		// Cleaned first, so ../../teams/../members and ..//../members
 		// read as ../../members. A member works in teams/<team>, two
-		// folders below its cadre: k leading ".." climb k-2 folders above
-		// the cadre, so an own name within the next k-1 parts may be the
-		// cadre's (../../members, ../../../w/members).
+		// folders below its cadrei: k leading ".." climb k-2 folders above
+		// the cadrei, so an own name within the next k-1 parts may be the
+		// cadrei's (../../members, ../../../w/members).
 		// The word is read both cleaned and as written: the kernel follows
 		// a link before "..", so a/../../members climbs twice when a is a
 		// link to the team folder, though it cleans to one climb.
 		for _, form := range []string{path.Clean(w), w} {
 			parts := strings.Split(form, "/")
 			for _, p := range parts {
-				if spells(normText(p), ".cadre") {
-					refuse("refused: %s reaches a .cadre folder, which holds cadre's own files; only the user changes those, through the orchestrator", rule)
+				if spells(normText(p), ".cadrei") {
+					refuse("refused: %s reaches a .cadrei folder, which holds cadrei's own files; only the user changes those, through the orchestrator", rule)
 				}
 			}
 			for i := 0; i < len(parts); {
@@ -529,7 +529,7 @@ func (c *Checker) commandWord(rule, w string) {
 				if k >= 2 {
 					for _, p := range parts[i+k : min(len(parts), i+2*k-1)] {
 						if name := c.ownName(p); name != "" {
-							refuse("refused: %s climbs out to %s, a cadre's own file; only the user changes those, through the orchestrator", rule, name)
+							refuse("refused: %s climbs out to %s, a cadrei's own file; only the user changes those, through the orchestrator", rule, name)
 						}
 					}
 				}
@@ -550,7 +550,7 @@ func (c *Checker) commandWord(rule, w string) {
 		return s
 	}
 	forms := []string{full, strings.TrimRight(paths.Real(head), "/") + "/" + full[len(head):]}
-	scopes := append([]string{c.Root}, c.Cadres...)
+	scopes := append([]string{c.Root}, c.Cadreis...)
 	for _, f := range forms {
 		f = fold(f)
 		fixed := strings.TrimRight(fixedPart(f), "/")
@@ -569,8 +569,8 @@ func (c *Checker) commandWord(rule, w string) {
 				real += "/"
 			}
 			if reaches(f, fold(t)) || reaches(f, fold(real)) {
-				shown := strings.ReplaceAll(strings.TrimSuffix(t, "/"), anyName, "<cadre>")
-				refuse("refused: %s reaches %s, one of cadre's own files; only the user changes those, through the orchestrator", rule, shown)
+				shown := strings.ReplaceAll(strings.TrimSuffix(t, "/"), anyName, "<cadrei>")
+				refuse("refused: %s reaches %s, one of cadrei's own files; only the user changes those, through the orchestrator", rule, shown)
 			}
 		}
 	}
@@ -588,43 +588,43 @@ func (c *Checker) ownName(part string) string {
 	return ""
 }
 
-// own lists cadre's own files and folders (ending in /): the config and
-// framework folders, and in every cadre (also ones made later) all but
+// own lists cadrei's own files and folders (ending in /): the config and
+// framework folders, and in every cadrei (also ones made later) all but
 // its team folders. The fixed Edit denies cover the same set.
 func (c *Checker) own() []string {
 	var out []string
-	cadres := c.Cadres
+	cadreis := c.Cadreis
 	if c.Root != "" {
 		out = append(out, c.Root+"/config/", c.Root+"/framework/")
-		cadres = append(append([]string{}, cadres...), c.Root+"/"+anyName)
+		cadreis = append(append([]string{}, cadreis...), c.Root+"/"+anyName)
 	}
-	for _, cadre := range cadres {
-		out = append(out, cadre+"/.claude/", cadre+"/members/", cadre+"/personas/", cadre+"/playbook.md",
-			cadre+"/protocol.md", cadre+"/projects.yaml", cadre+"/.git/", cadre+"/cadre.conf")
+	for _, cadrei := range cadreis {
+		out = append(out, cadrei+"/.claude/", cadrei+"/members/", cadrei+"/personas/", cadrei+"/playbook.md",
+			cadrei+"/protocol.md", cadrei+"/projects.yaml", cadrei+"/.git/", cadrei+"/cadrei.conf")
 	}
 	return out
 }
 
 // outside lists files and folders (ending in /) that run code outside a
-// member's session, and cadre's own state.
+// member's session, and cadrei's own state.
 func (c *Checker) outside() []string {
 	h := c.Home
 	out := []string{h + "/.ssh/", h + "/.config/fish/", h + "/.tmux.conf", h + "/.vimrc",
 		h + "/Library/LaunchAgents/", h + "/.config/autostart/", h + "/.config/systemd/user/",
-		h + "/.local/bin/", h + "/.config/cadre/", c.Cache + "/cadre/",
+		h + "/.local/bin/", h + "/.config/cadre/", c.Cache + "/cadrei/",
 		"/var/spool/cron/", "/usr/lib/cron/tabs/", "/etc/crontab"}
-	cadres := c.Cadres
+	cadreis := c.Cadreis
 	if c.Root != "" {
-		// Cadre's own files under ~/.cadre (N.7), for any cadre there, also
+		// Cadrei's own files under ~/.cadrei (N.7), for any cadrei there, also
 		// ones made later.
 		any := c.Root + "/" + anyName
-		out = append(out, c.Root+"/config/", c.Root+"/framework/", any+"/cadre.conf")
-		cadres = append(append([]string{}, cadres...), any)
+		out = append(out, c.Root+"/config/", c.Root+"/framework/", any+"/cadrei.conf")
+		cadreis = append(append([]string{}, cadreis...), any)
 	}
-	for _, cadre := range cadres {
-		// A cadre's own files: everything but its team folders.
-		out = append(out, cadre+"/.claude/build/", cadre+"/.claude/", cadre+"/members/", cadre+"/personas/", cadre+"/playbook.md",
-			cadre+"/protocol.md", cadre+"/projects.yaml", cadre+"/.git/")
+	for _, cadrei := range cadreis {
+		// A cadrei's own files: everything but its team folders.
+		out = append(out, cadrei+"/.claude/build/", cadrei+"/.claude/", cadrei+"/members/", cadrei+"/personas/", cadrei+"/playbook.md",
+			cadrei+"/protocol.md", cadrei+"/projects.yaml", cadrei+"/.git/")
 	}
 	return out
 }
@@ -661,7 +661,7 @@ func auto(text string) string {
 		refuse("refused: $defaults is already there")
 	}
 	if autoRefused.MatchString(n) || strings.Contains(n, "member-settings") {
-		refuse("refused: an --auto entry may not speak about permissions, settings, grants, cadre allow " +
+		refuse("refused: an --auto entry may not speak about permissions, settings, grants, cadrei allow " +
 			"or the user's approval; describe the work that is expected instead")
 	}
 	for _, w := range blanket {

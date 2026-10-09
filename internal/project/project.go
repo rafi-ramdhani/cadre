@@ -10,9 +10,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/rafi-ramdhani/cadre/internal/cadres"
-	"github.com/rafi-ramdhani/cadre/internal/paths"
-	"github.com/rafi-ramdhani/cadre/internal/registry"
+	"github.com/rafi-ramdhani/cadrei/internal/cadreis"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/registry"
 )
 
 // CheckName refuses a project name that could leave its folder.
@@ -168,7 +168,7 @@ type Added struct {
 // records that folder as the project's place on this machine. A folder
 // already there is used when it is the same repository and refused
 // otherwise. The clone comes first, so a failed clone registers nothing.
-func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added, error) {
+func Add(c cadreis.Cadrei, s Spec, projectsDir string, protected []string) (Added, error) {
 	var a Added
 	if err := CheckName(s.Name); err != nil {
 		return a, err
@@ -186,7 +186,7 @@ func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added,
 	}
 	if st, err := os.Stat(dir); err == nil && st.IsDir() {
 		if !SameRepo(Origin(dir), s.Repo) {
-			return a, fmt.Errorf("%s exists and is not a clone of %s; link it with cadre project add %s --path %s, or choose another name", dir, s.Repo, s.Name, dir)
+			return a, fmt.Errorf("%s exists and is not a clone of %s; link it with cadrei project add %s --path %s, or choose another name", dir, s.Repo, s.Name, dir)
 		}
 		a.Where = "already at " + dir
 	} else {
@@ -201,22 +201,22 @@ func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added,
 	if err := reg.Save(c.Registry()); err != nil {
 		return a, err
 	}
-	if err := cadres.SetPlace(c, s.Name, dir); err != nil {
+	if err := cadreis.SetPlace(c, s.Name, dir); err != nil {
 		return a, err
 	}
-	note, err := cadres.Commit(c.Path, "Add project "+s.Name, "projects.yaml")
+	note, err := cadreis.Commit(c.Path, "Add project "+s.Name, "projects.yaml")
 	if note != "" {
 		a.Notes = append(a.Notes, note)
 	}
 	return a, err
 }
 
-// oldCadre refuses the top folder of a 0.1.x cadre, which is brought in,
+// oldCadrei refuses the top folder of a 0.1.x cadre, which is brought in,
 // not linked or trusted as a project; its projects/<name> folders are
 // projects like any other.
-func oldCadre(dir string) string {
-	if cadres.OldCadre(dir) {
-		return "it is a cadre from 0.1.x; to bring it in, tell the orchestrator: bring in my old cadre from " + cadres.Tilde(dir)
+func oldCadrei(dir string) string {
+	if cadreis.OldCadre(dir) {
+		return "it is a cadre from 0.1.x; to bring it in, tell the orchestrator: bring in my old cadre from " + cadreis.Tilde(dir)
 	}
 	return ""
 }
@@ -224,7 +224,7 @@ func oldCadre(dir string) string {
 // LinkRefusal says why a folder (physical) cannot be linked as a project,
 // or "".
 func LinkRefusal(dir string, protected []string) string {
-	if why := oldCadre(dir); why != "" {
+	if why := oldCadrei(dir); why != "" {
 		return why
 	}
 	if why := DestRefusal(dir, protected); why != "" {
@@ -242,42 +242,42 @@ func LinkRefusal(dir string, protected []string) string {
 // from (a project there would be loaded as a skill, for example).
 func DestRefusal(dir string, protected []string) string {
 	home := paths.Home()
-	root := paths.Real(cadres.Root())
+	root := paths.Real(cadreis.Root())
 	switch {
 	case dir == "/":
 		return "it is the root folder"
 	case dir == home:
 		return "it is your home folder"
 	case paths.Within(dir, root):
-		return "it is inside ~/.cadre, where cadre keeps its own files"
+		return "it is inside ~/.cadrei, where cadrei keeps its own files"
 	case paths.Within(root, dir):
-		return "it contains ~/.cadre"
+		return "it contains ~/.cadrei"
 	}
 	for _, p := range protected {
 		switch {
 		case paths.Within(dir, p):
-			return "it is inside " + cadres.Tilde(p)
+			return "it is inside " + cadreis.Tilde(p)
 		case paths.Within(p, dir):
-			return "it contains " + cadres.Tilde(p)
+			return "it contains " + cadreis.Tilde(p)
 		}
 	}
-	list, _ := cadres.List()
+	list, _ := cadreis.List()
 	for _, c := range list {
 		if paths.Within(c.Path, dir) {
-			return "it contains the cadre " + c.Name
+			return "it contains the cadrei " + c.Name
 		}
 		if paths.Within(dir, c.Path) {
-			return "it is inside the cadre " + c.Name
+			return "it is inside the cadrei " + c.Name
 		}
 	}
 	return ""
 }
 
 // Link registers a folder the user already has: it must be the top folder
-// of a git repository and not cadre's own. The repo is the one given, else
+// of a git repository and not cadrei's own. The repo is the one given, else
 // the folder's origin. The folder is recorded as the project's place on
 // this machine, never in the registry.
-func Link(c cadres.Cadre, s Spec, dir string, protected []string) (Added, error) {
+func Link(c cadreis.Cadrei, s Spec, dir string, protected []string) (Added, error) {
 	var a Added
 	if err := CheckName(s.Name); err != nil {
 		return a, err
@@ -298,13 +298,13 @@ func Link(c cadres.Cadre, s Spec, dir string, protected []string) (Added, error)
 		return a, fmt.Errorf("project '%s' is already in projects.yaml", s.Name)
 	}
 	for _, e := range reg.Entries() {
-		if d := cadres.ProjectDir(c, e); d != "" && paths.Real(d) == phys {
+		if d := cadreis.ProjectDir(c, e); d != "" && paths.Real(d) == phys {
 			return a, fmt.Errorf("%s is already linked as %s", dir, e.Name)
 		}
 	}
-	for _, other := range cadres.Linking(phys) {
+	for _, other := range cadreis.Linking(phys) {
 		if other.Path != c.Path {
-			a.Notes = append(a.Notes, "note: the cadre "+other.Name+" links this folder too")
+			a.Notes = append(a.Notes, "note: the cadrei "+other.Name+" links this folder too")
 		}
 	}
 	repo := s.Repo
@@ -312,17 +312,17 @@ func Link(c cadres.Cadre, s Spec, dir string, protected []string) (Added, error)
 		repo = Origin(phys)
 	}
 	if repo == "" {
-		a.Notes = append(a.Notes, "note: it has no repo, so cadre project sync cannot clone it on another machine")
+		a.Notes = append(a.Notes, "note: it has no repo, so cadrei project sync cannot clone it on another machine")
 	}
 	reg.Add(s.Name, registry.Field{Key: "repo", Value: repo}, registry.Field{Key: "team", Value: s.Team},
 		registry.Field{Key: "about", Value: s.About})
 	if err := reg.Save(c.Registry()); err != nil {
 		return a, err
 	}
-	if err := cadres.SetPlace(c, s.Name, phys); err != nil {
+	if err := cadreis.SetPlace(c, s.Name, phys); err != nil {
 		return a, err
 	}
-	note, err := cadres.Commit(c.Path, "Add project "+s.Name, "projects.yaml")
+	note, err := cadreis.Commit(c.Path, "Add project "+s.Name, "projects.yaml")
 	if note != "" {
 		a.Notes = append(a.Notes, note)
 	}
@@ -342,15 +342,15 @@ type SyncResult struct {
 // A clone of the same repository already there is used as it is. A place
 // on a drive that is not connected is left alone. Parent folders are made
 // under the home folder only.
-func Sync(c cadres.Cadre, projectsDir string, protected []string) ([]SyncResult, error) {
+func Sync(c cadreis.Cadrei, projectsDir string, protected []string) ([]SyncResult, error) {
 	reg, err := registry.Load(c.Registry())
 	if err != nil {
 		return nil, err
 	}
 	var out []SyncResult
 	for _, e := range reg.Entries() {
-		d := cadres.ProjectDir(c, e)
-		where := cadres.Where(d)
+		d := cadreis.ProjectDir(c, e)
+		where := cadreis.Where(d)
 		if d == "" && projectsDir != "" {
 			d = filepath.Join(projectsDir, e.Name)
 			// Entries hold valid names only; a clone still never goes
@@ -375,7 +375,7 @@ func Sync(c cadres.Cadre, projectsDir string, protected []string) ([]SyncResult,
 			r.State, r.Err = "failed", fmt.Errorf("not cloned into %s: %s", d, DestRefusal(paths.Real(d), protected))
 		case statErr == nil && st.IsDir():
 			if !SameRepo(Origin(d), e.Get("repo")) {
-				r.State, r.Err = "failed", fmt.Errorf("%s exists and is not a clone of %s; link the project's folder with cadre project link %s <dir>", d, e.Get("repo"), e.Name)
+				r.State, r.Err = "failed", fmt.Errorf("%s exists and is not a clone of %s; link the project's folder with cadrei project link %s <dir>", d, e.Get("repo"), e.Name)
 				break
 			}
 			r.State = "found"
@@ -392,7 +392,7 @@ func Sync(c cadres.Cadre, projectsDir string, protected []string) ([]SyncResult,
 			r.State = "cloned"
 		}
 		if r.State == "cloned" || r.State == "found" {
-			if err := cadres.SetPlace(c, e.Name, d); err != nil {
+			if err := cadreis.SetPlace(c, e.Name, d); err != nil {
 				r.State, r.Err = "failed", err
 			}
 		}
@@ -403,16 +403,16 @@ func Sync(c cadres.Cadre, projectsDir string, protected []string) ([]SyncResult,
 
 // Relink sets where a registered project is on this machine: a folder
 // that moved, or a clone made somewhere else. The folder must be the top
-// of a git repository, not cadre's own, and, when both are known, a clone
+// of a git repository, not cadrei's own, and, when both are known, a clone
 // of the project's repo.
-func Relink(c cadres.Cadre, name, dir string, protected []string) (string, error) {
+func Relink(c cadreis.Cadrei, name, dir string, protected []string) (string, error) {
 	reg, err := registry.Load(c.Registry())
 	if err != nil {
 		return "", err
 	}
 	e := reg.Get(name)
 	if e == nil {
-		return "", fmt.Errorf("'%s' is not a registered project (see cadre ls)", name)
+		return "", fmt.Errorf("'%s' is not a registered project (see cadrei ls)", name)
 	}
 	st, err := os.Stat(dir)
 	if err != nil || !st.IsDir() {
@@ -426,34 +426,34 @@ func Relink(c cadres.Cadre, name, dir string, protected []string) (string, error
 		return "", fmt.Errorf("%s is a clone of %s, not of %s", dir, origin, repo)
 	}
 	for _, other := range reg.Entries() {
-		if other.Name != name && cadres.ProjectDir(c, other) != "" && paths.Real(cadres.ProjectDir(c, other)) == phys {
+		if other.Name != name && cadreis.ProjectDir(c, other) != "" && paths.Real(cadreis.ProjectDir(c, other)) == phys {
 			return "", fmt.Errorf("%s is already linked as %s", dir, other.Name)
 		}
 	}
-	return phys, cadres.SetPlace(c, name, phys)
+	return phys, cadreis.SetPlace(c, name, phys)
 }
 
 // Unlink removes a project from the registry and forgets its place on
 // this machine. Its folder is never touched. It returns the folder it
 // had, for untrusting.
-func Unlink(c cadres.Cadre, name string) (dir string, notes []string, err error) {
+func Unlink(c cadreis.Cadrei, name string) (dir string, notes []string, err error) {
 	reg, err := registry.Load(c.Registry())
 	if err != nil {
 		return "", nil, err
 	}
 	e := reg.Get(name)
 	if e == nil {
-		return "", nil, fmt.Errorf("'%s' is not a registered project (see cadre ls)", name)
+		return "", nil, fmt.Errorf("'%s' is not a registered project (see cadrei ls)", name)
 	}
-	dir = cadres.ProjectDir(c, e)
+	dir = cadreis.ProjectDir(c, e)
 	reg.Remove(name)
 	if err := reg.Save(c.Registry()); err != nil {
 		return "", nil, err
 	}
-	if err := cadres.SetPlace(c, name, ""); err != nil {
+	if err := cadreis.SetPlace(c, name, ""); err != nil {
 		return "", nil, err
 	}
-	note, err := cadres.Commit(c.Path, "Remove project "+name, "projects.yaml")
+	note, err := cadreis.Commit(c.Path, "Remove project "+name, "projects.yaml")
 	if note != "" {
 		notes = append(notes, note)
 	}

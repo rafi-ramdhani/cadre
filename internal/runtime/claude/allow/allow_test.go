@@ -11,8 +11,8 @@ import (
 )
 
 // layout builds the fake HOME the golden outcomes were recorded in (see
-// testdata/golden.tsv): a cadre named demo, a second known cadre, a symlink
-// into the cadre, and for "stow", ~/.config and ~/.ssh as symlinks into
+// testdata/golden.tsv): a cadrei named demo, a second known cadrei, a symlink
+// into the cadrei, and for "stow", ~/.config and ~/.ssh as symlinks into
 // ~/dotfiles.
 func layout(t *testing.T, kind string) (*Checker, map[string]string) {
 	t.Helper()
@@ -21,9 +21,9 @@ func layout(t *testing.T, kind string) (*Checker, map[string]string) {
 		t.Fatal(err)
 	}
 	home := root + "/home"
-	cadre := home + "/work/demo"
+	cadrei := home + "/work/demo"
 	other := root + "/multi/b"
-	for _, d := range []string{cadre + "/.claude", cadre + "/members", other + "/members", home + "/Documents"} {
+	for _, d := range []string{cadrei + "/.claude", cadrei + "/members", other + "/members", home + "/Documents"} {
 		os.MkdirAll(d, 0o755)
 	}
 	if kind == "stow" {
@@ -36,15 +36,15 @@ func layout(t *testing.T, kind string) (*Checker, map[string]string) {
 		os.MkdirAll(home+"/.config/cadre", 0o755)
 		os.MkdirAll(home+"/.ssh", 0o755)
 	}
-	os.Symlink(cadre, home+"/Documents/link")
-	c := &Checker{Root: home + "/.cadre", Home: home, Cache: home + "/.cache", Cadre: cadre, Cadres: []string{cadre, cadre, other}}
-	return c, map[string]string{"{CADRE}": cadre, "{OTHER}": other, "{PARENT}": home + "/work", "{HOME}": home, "{ROOT}": root}
+	os.Symlink(cadrei, home+"/Documents/link")
+	c := &Checker{Root: home + "/.cadrei", Home: home, Cache: home + "/.cache", Cadrei: cadrei, Cadreis: []string{cadrei, cadrei, other}}
+	return c, map[string]string{"{CADREI}": cadrei, "{OTHER}": other, "{PARENT}": home + "/work", "{HOME}": home, "{ROOT}": root}
 }
 
 // fill puts the layout's paths into a placeholder text, and mask takes
 // them out again, longest first.
 func fill(s string, ph map[string]string) string {
-	for _, k := range []string{"{CADRE}", "{OTHER}", "{PARENT}", "{HOME}", "{ROOT}"} {
+	for _, k := range []string{"{CADREI}", "{OTHER}", "{PARENT}", "{HOME}", "{ROOT}"} {
 		s = strings.ReplaceAll(s, k, ph[k])
 	}
 	return s
@@ -152,11 +152,11 @@ func TestDifferences(t *testing.T) {
 
 func TestNorm(t *testing.T) {
 	for in, want := range map[string]string{
-		"CADRE":         "cadre",
-		"c\u200badre":   "cadre", // a zero-width space (Cf) is dropped
+		"CADREI":        "cadrei",
+		"c\u200badrei":  "cadrei", // a zero-width space (Cf) is dropped
 		"member\u2011x": "member-x",
 		"a\u00a0b":      "a b",
-		"ｃａｄｒｅ":         "cadre", // fullwidth letters fold under NFKC
+		"ｃａｄｒｅｉ":        "cadrei", // fullwidth letters fold under NFKC
 		"Straße":        "strasse",
 		"ﬁle":           "file",
 		"\u2014":        "-",
@@ -172,7 +172,7 @@ func TestNewReadsTheEnvironment(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", "")
 	c := New(home+"/work/demo", []string{"/x/other"})
-	if c.Home != home || c.Cache != home+"/.cache" || c.Cadre != home+"/work/demo" || len(c.Cadres) != 2 {
+	if c.Home != home || c.Cache != home+"/.cache" || c.Cadrei != home+"/work/demo" || len(c.Cadreis) != 2 {
 		t.Errorf("New: %+v", c)
 	}
 	t.Setenv("XDG_CACHE_HOME", home+"/cache")
@@ -188,7 +188,7 @@ func FuzzRule(f *testing.F) {
 	// A real folder: on macOS /home is an automount point, where resolving
 	// a path can block.
 	home, _ := filepath.EvalSymlinks(f.TempDir())
-	c := &Checker{Home: home, Cache: home + "/.cache", Cadre: home + "/work/demo", Cadres: []string{home + "/work/demo"}}
+	c := &Checker{Home: home, Cache: home + "/.cache", Cadrei: home + "/work/demo", Cadreis: []string{home + "/work/demo"}}
 	f.Fuzz(func(t *testing.T, rule string) {
 		c.Rule(rule)
 		c.Auto(rule)
@@ -223,11 +223,11 @@ func TestNeverWeakerThanBash(t *testing.T) {
 	t.Logf("%d rules: %d weaker, %d stricter than bash", len(rows), weaker, stricter)
 }
 
-// A Bash rule that names one of cadre's own files is refused like an Edit
+// A Bash rule that names one of cadrei's own files is refused like an Edit
 // rule would be (spec 3.5): the fixed Edit denies would mean little if a
 // member's shell could change the same files. Commands on other folders,
-// or on a folder that only holds a cadre, stay allowed.
-func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
+// or on a folder that only holds a cadrei, stay allowed.
+func TestBashRulesCannotReachCadreisOwnFiles(t *testing.T) {
 	c, ph := layout(t, "plain")
 	defer func(f bool) { foldCase = f }(foldCase)
 	foldCase = true
@@ -236,38 +236,38 @@ func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rule := range []string{
-		"Bash(rm {CADRE}/members/dev/engineer.md)",
-		"Bash(rm {CADRE}/personas/dev/engineer.md)",
-		"Bash(cp x {CADRE}/members/dev/x.md)",
-		"Bash(echo x > {CADRE}/members/dev/x.md)",
-		"Bash(echo x >>{CADRE}/protocol.md)",
-		"Bash(rm {CADRE}/playbook.md)",
-		"Bash(tee {CADRE}/projects.yaml)",
-		"Bash(rm -rf {CADRE}/.git)",
-		"Bash(rm -rf {CADRE}/.claude/build)",
-		"Bash(rm -rf {CADRE})",
-		"Bash(rm ~/.cadre/w/members/dev/engineer.md)",
-		"Bash(rm ~/.cadre/w/playbook.md)",
-		"Bash(rm -rf ~/.cadre/w)",
-		"Bash(ls ~/.cadre)",
-		"Bash(cp x ~/.cadre/config/default)",
-		"Bash(rm -rf ~/.cadre/framework)",
-		"Bash(cp x $HOME/.cadre/w/playbook.md)",
+		"Bash(rm {CADREI}/members/dev/engineer.md)",
+		"Bash(rm {CADREI}/personas/dev/engineer.md)",
+		"Bash(cp x {CADREI}/members/dev/x.md)",
+		"Bash(echo x > {CADREI}/members/dev/x.md)",
+		"Bash(echo x >>{CADREI}/protocol.md)",
+		"Bash(rm {CADREI}/playbook.md)",
+		"Bash(tee {CADREI}/projects.yaml)",
+		"Bash(rm -rf {CADREI}/.git)",
+		"Bash(rm -rf {CADREI}/.claude/build)",
+		"Bash(rm -rf {CADREI})",
+		"Bash(rm ~/.cadrei/w/members/dev/engineer.md)",
+		"Bash(rm ~/.cadrei/w/playbook.md)",
+		"Bash(rm -rf ~/.cadrei/w)",
+		"Bash(ls ~/.cadrei)",
+		"Bash(cp x ~/.cadrei/config/default)",
+		"Bash(rm -rf ~/.cadrei/framework)",
+		"Bash(cp x $HOME/.cadrei/w/playbook.md)",
 		"Bash(mv x {HOME}/Documents/link/protocol.md)",
-		"Bash(cp --target-directory={CADRE}/members/dev x)",
-		"Bash(dd if=x of=~/.cadre/w/playbook.md)",
+		"Bash(cp --target-directory={CADREI}/members/dev x)",
+		"Bash(dd if=x of=~/.cadrei/w/playbook.md)",
 		"Bash(rm {OTHER}/members/x.md)",
-		"Bash(rm {CADRE}/members/*)",
-		// The variable every member has, pinned to its cadre.
-		"Bash(rm $CADRE_HOME/playbook.md)",
-		"Bash(rm ${CADRE_HOME}/members/dev/engineer.md)",
-		"Bash(rm -rf $CADRE_HOME)",
-		// Any other variable could be a cadre.
+		"Bash(rm {CADREI}/members/*)",
+		// The variable every member has, pinned to its cadrei.
+		"Bash(rm $CADREI_HOME/playbook.md)",
+		"Bash(rm ${CADREI_HOME}/members/dev/engineer.md)",
+		"Bash(rm -rf $CADREI_HOME)",
+		// Any other variable could be a cadrei.
 		"Bash(rm $X/playbook.md)",
 		"Bash(rm ${WORK}/members/dev/x.md)",
 		// The current user's home by name, and another spelling of the case.
-		"Bash(rm ~" + me.Username + "/.cadre/w/playbook.md)",
-		"Bash(rm ~/.CADRE/W/PLAYBOOK.MD)",
+		"Bash(rm ~" + me.Username + "/.cadrei/w/playbook.md)",
+		"Bash(rm ~/.CADREI/W/PLAYBOOK.MD)",
 		// Two or more .. straight to an own name: out of a team folder.
 		"Bash(sed -i s/a/b/ ../../members/dev/x.md)",
 		"Bash(rm ../../playbook.md)",
@@ -278,7 +278,7 @@ func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
 		"Bash(rm ../.././members/dev/engineer.md)",
 		"Bash(rm ..//../members/dev/engineer.md)",
 		"Bash(rm ../../../w/members/dev/engineer.md)",
-		"Bash(rm ../../../../.cadre/w/playbook.md)",
+		"Bash(rm ../../../../.cadrei/w/playbook.md)",
 		// Through a link (a, to the team folder) the kernel climbs twice.
 		"Bash(rm a/../../members/dev/engineer.md)",
 		"Bash(rm a/../../playbook.md)",
@@ -288,8 +288,8 @@ func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
 		}
 	}
 	for _, rule := range []string{
-		"Bash(ls ~)", "Bash(du -sh ~/work)", "Bash(npm test)", "Bash(cat {CADRE}/teams/dev/notes.md)",
-		"Bash(rm {CADRE}/teams/dev/old.md)", "Bash(cp a ../b/c.md)", "Bash(ls ~/.cadre-notes)", "Bash(cat members/dev/x.md)",
+		"Bash(ls ~)", "Bash(du -sh ~/work)", "Bash(npm test)", "Bash(cat {CADREI}/teams/dev/notes.md)",
+		"Bash(rm {CADREI}/teams/dev/old.md)", "Bash(cp a ../b/c.md)", "Bash(ls ~/.cadrei-notes)", "Bash(cat members/dev/x.md)",
 		// A project's own subfolders, one .. up.
 		"Bash(cat ../.git/config)", "Bash(ls ../.claude)", "Bash(cat ../docs/playbook.md)",
 		"Bash(cat src/../README.md)", "Bash(cat ../x/../.git/config)",

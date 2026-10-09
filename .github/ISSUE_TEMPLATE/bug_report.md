@@ -11,7 +11,7 @@ labels: bug
 **What happened** (paste any output)
 
 **Environment**
-- `cadre --version`:
+- `cadrei --version`:
 - OS:
 - `claude --version`:
 - `tmux -V`:

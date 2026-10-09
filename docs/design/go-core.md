@@ -1,11 +1,11 @@
-# Cadre 0.2.0 in Go: package layout and core design
+# Cadrei 0.2.0 in Go: package layout and core design
 
 Status: draft, written before Go was installed. Section N is read and
 folded in; parts marked **(O)** wait for section O.
 
 ## Goals
 
-- One static binary, `cadre`, with no Python, jq or shell helpers at run time.
+- One static binary, `cadrei`, with no Python, jq or shell helpers at run time.
 - The behaviour the bash 0.2.0 work settled after nine review rounds, kept
   exactly where the spec does not change it. The bug classes those reviews
   kept finding (quoting into tmux and shells, `python3 -I`, escapes, bash 3.2,
@@ -22,7 +22,7 @@ glob reader inside it), and `shellwords` (word splitting for the checker and
 the hook matcher). The sketch below is the earlier plan.
 
 ```
-cmd/cadre/main.go          flags, dispatch, exit codes; nothing else
+cmd/cadrei/main.go          flags, dispatch, exit codes; nothing else
 internal/
   cli/         command table (visible, advanced, old names), help text
   paths/       HOME, config and cache folders, physical paths (realpath)
@@ -34,16 +34,16 @@ internal/
   shellwords/  POSIX word splitting and operator detection for Bash(...) rules
   glob/        gitignore-style segment matcher and reaches()
   tmux/        exact targets, options, sessions and windows, argv commands only
-  sessions/    names, attribution (@cadre_home), legacy, start, stop, ls data
-  conf/        cadre.conf parsed as KEY=VALUE, never sourced (N.1)
-  home/        the ~/.cadre layout: config/, framework/, <name>/
-  cadres/      the cadre list, reserved names, resolution (N.3), and
-               what cadre recognizes of 0.1.x (read only)
+  sessions/    names, attribution (@cadrei_home), legacy, start, stop, ls data
+  conf/        cadrei.conf parsed as KEY=VALUE, never sourced (N.1)
+  home/        the ~/.cadrei layout: config/, framework/, <name>/
+  cadreis/      the cadrei list, reserved names, resolution (N.3), and
+               what cadrei recognizes of 0.1.x (read only)
   registry/    projects.yaml: projects linked by path, the projects folder
-  orchestrator/ plain cadre, its lock, --tmux                      (M-T2)
+  orchestrator/ plain cadrei, its lock, --tmux                      (M-T2)
   health/      fast and full checks                                (M-T3)
   update/, uninstall/, install/   by install kind, Homebrew         (M-T4)
-  hooks/       SessionStart and statusLine as cadre subcommands    (O)
+  hooks/       SessionStart and statusLine as cadrei subcommands    (O)
   assets/      go:embed of skill, protocol.md and template/         (O)
 testdata/
   allow/       regression inputs from every review (see Testing)
@@ -51,7 +51,7 @@ testdata/
 tests/smoke.sh               acceptance suite, unchanged harness
 ```
 
-Only `cmd/cadre` and `internal/cli` know about argv. Every other package
+Only `cmd/cadrei` and `internal/cli` know about argv. Every other package
 takes typed values and returns errors with the user-facing message, so the
 tests call them directly.
 
@@ -64,70 +64,70 @@ Dependencies, kept small and vendored:
 ## The runtime boundary
 
 Built in O-T4, trimmed in O-T5b:
-- `internal/runtime` holds the interface (`Runtime`, `Capabilities`, `LaunchSpec`, `Command`, `PermissionOps`, `TrustOps`), the registry, the default runtime and `Usable` (fixed denies, messaging, permission mode). Claude Code is the only runtime and there is no user-facing choice (no `.runtime` files, no `RUNTIME` or `ORCHESTRATOR_RUNTIME`); a test build alone may name the fake with `CADRE_TEST_RUNTIME` (`cmd/cadre/runtime_cadretest.go`).
+- `internal/runtime` holds the interface (`Runtime`, `Capabilities`, `LaunchSpec`, `Command`, `PermissionOps`, `TrustOps`), the registry, the default runtime and `Usable` (fixed denies, messaging, permission mode). Claude Code is the only runtime and there is no user-facing choice (no `.runtime` files, no `RUNTIME` or `ORCHESTRATOR_RUNTIME`); a test build alone may name the fake with `CADREI_TEST_RUNTIME` (`cmd/cadrei/runtime_cadreitest.go`).
 - `internal/runtime/claude` is the only adapter, and the only code that names Claude Code: its command and flags, `.claude` folders, `~/.claude.json` trust and hooks. It holds `settings` and `allow` (moved there) and the trust and hook edits that used to be in `jsonx`, which is now a generic editor.
-- `internal/runtime/fake` (`-tags cadretest` only) is the test adapter.
+- `internal/runtime/fake` (`-tags cadreitest` only) is the test adapter.
 - `session.Up` runs what `Launch` returns, as argv with `-e` environment, never through a shell. The prompt goes into the runtime's `BuildDir`.
 - A Go test parses every other source file and fails on Claude Code names in string literals.
 - Operations of later steps (health, hooks and instructions, sessions, context) join the interface in those steps.
 
 ## First run and the health check
 
-Built in O-T5c (`cmd/cadre/setup.go`, `health.go`, `hook.go`):
-- **First run**: plain `cadre` with no cadre asks "new or restore". New asks a name (the login name suggested), creates `~/.cadre/<name>` with the starter team (dev: engineer, reviewer) as the default, and offers to link the git repository the user is in. Then it offers the hook, runs the full health check (which offers the skill link), prints the greeting and opens the orchestrator. Restore is O-T6b. Without a terminal it says what to run and changes nothing.
-- **Health check** on every plain `cadre`, silent unless something is wrong. Fast checks look only at files and `PATH`; the full check (first run, a version change recorded in `state.json`, a fast finding, `cadre --check`) also runs the runtime (`Health(full)`: `--version`, and `auth status` from the version whose docs list it). Each finding has a fix; the skill link and the hook are fixed only after a yes, and a kept hook is remembered per pair of programs. Fatal: the runtime or git missing.
-- **Framework folder**: `~/.cadre/framework` holds the skill written out from the binary, with `VERSION`; it is rewritten when the version differs (always, for a build from source). The skill link (`InstructionOps`) points at it; the hook (`HookOps`) runs `framework.Binary()`, the Homebrew opt path rather than the Cellar one.
-- **`cadre hook orchestrator`** (hidden) prints the runtime's hook answer with `orchestrator.md`, and nothing under `CADRE_MEMBER`, `CADRE_OFF` or `CADRE_ORCHESTRATOR`. It never fails.
+Built in O-T5c (`cmd/cadrei/setup.go`, `health.go`, `hook.go`):
+- **First run**: plain `cadrei` with no cadrei asks "new or restore". New asks a name (the login name suggested), creates `~/.cadrei/<name>` with the starter team (dev: engineer, reviewer) as the default, and offers to link the git repository the user is in. Then it offers the hook, runs the full health check (which offers the skill link), prints the greeting and opens the orchestrator. Restore is O-T6b. Without a terminal it says what to run and changes nothing.
+- **Health check** on every plain `cadrei`, silent unless something is wrong. Fast checks look only at files and `PATH`; the full check (first run, a version change recorded in `state.json`, a fast finding, `cadrei --check`) also runs the runtime (`Health(full)`: `--version`, and `auth status` from the version whose docs list it). Each finding has a fix; the skill link and the hook are fixed only after a yes, and a kept hook is remembered per pair of programs. Fatal: the runtime or git missing.
+- **Framework folder**: `~/.cadrei/framework` holds the skill written out from the binary, with `VERSION`; it is rewritten when the version differs (always, for a build from source). The skill link (`InstructionOps`) points at it; the hook (`HookOps`) runs `framework.Binary()`, the Homebrew opt path rather than the Cellar one.
+- **`cadrei hook orchestrator`** (hidden) prints the runtime's hook answer with `orchestrator.md`, and nothing under `CADREI_MEMBER`, `CADREI_OFF` or `CADREI_ORCHESTRATOR`. It never fails.
 
 ## Backup and restore
 
-Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
-- **Restore** is the first run's other choice: the repository (owner/repo or a URL) is cloned into `~/.cadre/<name>` (the repository's name without `cadre-`, confirmed by the user), refused and removed when it has no `members/`, made the default, and given the pre-push guard; then `project sync` asks for the projects folder when needed, clones, records places and trusts.
-- **The pre-push guard**: `.git/hooks/pre-push` in each cadre (written on init and restore, and kept on every plain `cadre`; a hook of the user's own is left alone and reported) runs `cadre hook pre-push`. It reads git's ref updates, lists every object the push carries that no remote has (`rev-list --objects <sha> --not --remotes`), and through one `cat-file --batch` checks names (`.credentials.json`, `.env` and `.env.*` but templates, private keys, key stores), sizes over 50 MB, and contents up to 8 MB for tokens (`sk-ant-`, `ghp_`, `github_pat_`, `gh[ousr]_`, private key headers). A finding, or any error, stops the push.
-- **The cadre's `.gitignore`** tracks `teams/` and leaves out dependency folders, build output and logs.
-- **Backing up** is the orchestrator's job (the skill): a private `<user>/cadre-<name>` with `gh repo create`, only after the user's yes, then a push after each commit. No cadre command is involved.
+Built in O-T6b (`internal/backup`, `cmd/cadrei/setup.go`):
+- **Restore** is the first run's other choice: the repository (owner/repo or a URL) is cloned into `~/.cadrei/<name>` (the repository's name without `cadrei-`, confirmed by the user), refused and removed when it has no `members/`, made the default, and given the pre-push guard; then `project sync` asks for the projects folder when needed, clones, records places and trusts.
+- **The pre-push guard**: `.git/hooks/pre-push` in each cadrei (written on init and restore, and kept on every plain `cadrei`; a hook of the user's own is left alone and reported) runs `cadrei hook pre-push`. It reads git's ref updates, lists every object the push carries that no remote has (`rev-list --objects <sha> --not --remotes`), and through one `cat-file --batch` checks names (`.credentials.json`, `.env` and `.env.*` but templates, private keys, key stores), sizes over 50 MB, and contents up to 8 MB for tokens (`sk-ant-`, `ghp_`, `github_pat_`, `gh[ousr]_`, private key headers). A finding, or any error, stops the push.
+- **The cadrei's `.gitignore`** tracks `teams/` and leaves out dependency folders, build output and logs.
+- **Backing up** is the orchestrator's job (the skill): a private `<user>/cadrei-<name>` with `gh repo create`, only after the user's yes, then a push after each commit. No cadrei command is involved.
 
 ## Data model (section N)
 
 ```
-~/.cadre/config/{default, projects-dir, member-settings.sha256, state.json}
-~/.cadre/framework/            install.sh installs only
-~/.cadre/<name>/               one cadre, its own git repository
+~/.cadrei/config/{default, projects-dir, member-settings.sha256, state.json}
+~/.cadrei/framework/            install.sh installs only
+~/.cadrei/<name>/               one cadrei, its own git repository
 ```
 
-- `home.Root()` is `~/.cadre`. Every path below it is built by one function
-  each (`home.Config("default")`, `home.Cadre(name)`, `home.Build(name)`), so
+- `home.Root()` is `~/.cadrei`. Every path below it is built by one function
+  each (`home.Config("default")`, `home.Cadrei(name)`, `home.Build(name)`), so
   no package concatenates paths by hand.
-- **The cadre list** is the directory listing of `~/.cadre` (entries with
+- **The cadrei list** is the directory listing of `~/.cadrei` (entries with
   `members/`, minus the reserved `config`, `framework`, dot names and
-  symlinks). Cadres live only there. A cadre's name is its folder's
+  symlinks). Cadreis live only there. A cadrei's name is its folder's
   basename, compared case-insensitively for clashes (I-T1 review).
-- **Resolution** (`cadres.Resolve(cwd)`) returns the cadre, how it was found
+- **Resolution** (`cadreis.Resolve(cwd)`) returns the cadrei, how it was found
   and the default:
-  1. `CADRE_HOME`;
-  2. cwd inside `~/.cadre/<name>/`;
+  1. `CADREI_HOME`;
+  2. cwd inside `~/.cadrei/<name>/`;
   3. cwd inside a linked project (deepest match, by physical path); several
-     linking cadres means a prompt with a terminal and a refusal without one;
+     linking cadreis means a prompt with a terminal and a refusal without one;
   4. the default from `config/default`.
 
-  Configuration is only ever read from `~/.cadre/` or `CADRE_HOME`, never
+  Configuration is only ever read from `~/.cadrei/` or `CADREI_HOME`, never
   from a folder the user is in.
-- **Coming from 0.1.x** (O-T6e): cadre never changes a 0.1.x cadre or
+- **Coming from 0.1.x** (O-T6e): cadrei never changes a 0.1.x cadre or
   `~/.config/cadre`. It reads `~/.config/cadre/home` for one line on the
   first run, and recognizes an old cadre's top folder (`personas/` and
-  `projects.yaml`, not a known cadre: `cadres.OldCadre`) to point to the
+  `projects.yaml`, not a known cadrei: `cadreis.OldCadre`) to point to the
   bring-in and to refuse linking or trusting it. Bringing an old cadre in is
   the orchestrator's job, guided by the skill.
-- **`cadre.conf`** (`conf.Parse`) reads `KEY=VALUE` lines, `#` comments and
+- **`cadrei.conf`** (`conf.Parse`) reads `KEY=VALUE` lines, `#` comments and
   optional single or double quotes, with no expansion. Any other line is
   ignored with a warning naming it. Only `PERMISSION_MODE` is read (for the
   members and the orchestrator alike), so a stray key never changes
   behaviour.
-- **The registry** (`projects.yaml`) keeps its flat format (written by cadre,
+- **The registry** (`projects.yaml`) keeps its flat format (written by cadrei,
   read by the orchestrator): each project's `repo`, `team` and `about`, and
   no local path, so it works on any machine. A `path` line from an older
   build or another machine is not read.
-- **Places** (`cadres.Place`, O-T6a): `~/.cadre/config/places/<cadre>.json`
+- **Places** (`cadreis.Place`, O-T6a): `~/.cadrei/config/places/<cadrei>.json`
   maps each project to its folder on this machine (`~/...` under home,
   absolute otherwise), written under the config lock. `project add` and
   `--path` record it, `project link` changes it, `project unlink` removes the
@@ -137,7 +137,7 @@ Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
   `not here`, `missing` or `drive` (on a `/Volumes`, `/media`, `/run/media`
   or `/mnt` drive that is not mounted); `up`, `attach` and `project path`
   refuse a project that is not present, saying how to get it back, and
-  cadre never unlinks one by itself.
+  cadrei never unlinks one by itself.
 
 ## Core primitives
 
@@ -145,9 +145,9 @@ Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
 
 - `Real(p)` resolves symlinks in the longest existing prefix and joins the
   rest, the way Python's `os.path.realpath` does. `filepath.EvalSymlinks`
-  fails on missing paths, which `cadre allow` and `cadres check` both need.
-- Every stored path is physical (I-T1 review): the known-cadres list, the
-  default pointer, `@cadre_home` and `CADRE_HOME` for members.
+  fails on missing paths, which `cadrei allow` and `cadreis check` both need.
+- Every stored path is physical (I-T1 review): the known-cadreis list, the
+  default pointer, `@cadrei_home` and `CADREI_HOME` for members.
 - The macOS `/System/Volumes/Data` firmlink prefix is stripped before
   comparing.
 
@@ -156,14 +156,14 @@ Built in O-T6b (`internal/backup`, `cmd/cadre/setup.go`):
 - `WriteAtomic(target, data, mode)`: a temp file in the target's own (real)
   folder, `fchmod`, write, `fsync`, `rename`. Shared by every writer.
 - `Lock(dir)`: `mkdir` lock (macOS has no `flock(1)`, and mkdir works on
-  every filesystem cadre meets).
+  every filesystem cadrei meets).
   - A lock older than 60 s is taken over by renaming it to a unique name
     (`.stale-<pid>-<ns>`) and retrying the acquire; it is never renamed back
     (PR #10 review).
   - A lock that vanishes between `mkdir` and `stat` is retried, not an error.
   - Release ignores a missing lock.
-- Used for: the known-cadres list, the fingerprint file (machine-wide, I.5),
-  `cadre allow` (per cadre), the orchestrator lock (M.3, which adds pid,
+- Used for: the known-cadreis list, the fingerprint file (machine-wide, I.5),
+  `cadrei allow` (per cadrei), the orchestrator lock (M.3, which adds pid,
   start time and command checks).
 
 ### JSON that is not ours (`jsonx`, `jsonedit`)
@@ -187,19 +187,19 @@ number formats survive. Duplicate keys are an error for member settings
   untouched (exit 5);
 - nothing to change: exit 3, no write and no backup;
 - a backup of the original before the first change, never overwritten
-  (`.bak-cadre`); unhook writes its own (`.bak-cadre-uninstall`);
+  (`.bak-cadrei`); unhook writes its own (`.bak-cadrei-uninstall`);
 - the file's mode is kept, and its owner is checked;
 - size, mtime and sha256 are re-checked just before the rename; on change,
   retry up to 3 times, then exit 6 with the file untouched;
 - a write failure is exit 7 with no temp file left;
-- the test hook `CADRE_TEST_JSON_EDIT_HOOK` runs between the write and the
+- the test hook `CADREI_TEST_JSON_EDIT_HOOK` runs between the write and the
   re-check, as now;
 - a symlinked config: the target is edited and the link kept.
 
 Hook detection for unhook parses the hook `command` with `shellwords`, never
 `strings.Fields` (the quoted-path bug from PR #4). **(O)** hooks become
-`cadre hook session-start` and friends, so detection matches the command by
-the cadre binary path instead of `bash .../orchestrator-hook.sh`; old entries
+`cadrei hook session-start` and friends, so detection matches the command by
+the cadrei binary path instead of `bash .../orchestrator-hook.sh`; old entries
 are still recognised for upgrades.
 
 ### Member settings (`psettings`)
@@ -207,11 +207,11 @@ are still recognised for upgrades.
 FIXED_DENY gains the N.7 entries, as `Edit` rules only (Claude Code ignores
 `Write(path)` rules and warns about them, PR #5 review, so N.7's "the same for
 `Write`" is left out):
-`Edit(//**/.cadre/config/**)`, `Edit(//**/.cadre/framework/**)`,
-`Edit(//**/.cadre/*/.claude/**)`, `Edit(//**/.cadre/*/cadre.conf)`,
-`Edit(//**/.cadre/*/members/**)`, `Edit(//**/.cadre/*/playbook.md)`,
-`Edit(//**/.cadre/*/protocol.md)`, `Edit(//**/.cadre/*/projects.yaml)` and
-`Edit(//**/.cadre/*/.git/**)`. The soft_deny line from N.7 is added the same
+`Edit(//**/.cadrei/config/**)`, `Edit(//**/.cadrei/framework/**)`,
+`Edit(//**/.cadrei/*/.claude/**)`, `Edit(//**/.cadrei/*/cadrei.conf)`,
+`Edit(//**/.cadrei/*/members/**)`, `Edit(//**/.cadrei/*/playbook.md)`,
+`Edit(//**/.cadrei/*/protocol.md)`, `Edit(//**/.cadrei/*/projects.yaml)` and
+`Edit(//**/.cadrei/*/.git/**)`. The soft_deny line from N.7 is added the same
 way. As with today's newer entries, a file must hold only the `PROTECT`
 entries; the rest are added to every copy.
 
@@ -220,22 +220,22 @@ Otherwise it is a straight port of today's rules: only `permissions.{allow,deny}
 required, `FIXED_DENY` added to every copy, strict decode with duplicate keys
 refused, the export written fresh at every start (mode 0400, named by hash),
 fingerprints keyed by real path under a machine-wide lock, and the
-"changed outside cadre allow" check against `git show HEAD:` with cadre's
+"changed outside cadrei allow" check against `git show HEAD:` with cadrei's
 commit subjects. Git runs as `exec.Command("git", ...)` with argv.
 
 ### tmux (`tmux`)
 
 - Every call is `exec.Command("tmux", args...)` with `-L <socket>` when
-  `CADRE_TMUX_SOCKET` is set. No shell is ever involved on cadre's side.
+  `CADREI_TMUX_SOCKET` is set. No shell is ever involved on cadrei's side.
 - Targets are always exact: `=session`, `=session:=window`, and `=session:` for
   options. Helpers take a session and a window, never a target string.
 - Members start with the command as separate arguments
-  (`new-session -d -s S -n R -c DIR -e CADRE_HOME=... -e CADRE_MEMBER=... -- claude --name ...`).
+  (`new-session -d -s S -n R -c DIR -e CADREI_HOME=... -e CADREI_MEMBER=... -- claude --name ...`).
   With more than one argument, tmux 3.0 and newer execs the command directly
   with no shell, and `-e` sets the environment, so paths with quotes, spaces
   or `$` need no quoting at all. That removes the whole `sq()` class.
   - Cost: the user's shell no longer starts first, so a `PATH` set only in
-    shell startup files is not applied. cadre resolves `claude` with
+    shell startup files is not applied. cadrei resolves `claude` with
     `exec.LookPath` in its own environment and passes the absolute path.
   - Requires tmux 3.0 (2019). The health check (M-T3) reports an older tmux.
 - A start is confirmed by the window existing and its pane not dead, after a
@@ -243,7 +243,7 @@ commit subjects. Git runs as `exec.Command("git", ...)` with argv.
 
 ### Bash rule parsing (`shellwords`)
 
-What `cadre allow` needs from a `Bash(...)` specifier:
+What `cadrei allow` needs from a `Bash(...)` specifier:
 - the program word after leading `NAME=value` words, and the words after it;
 - whether there is an operator outside quotes (`&& || ; | |& &` and
   newlines), reading escapes in pairs (`\;` is an argument, `\\;` is a
@@ -290,14 +290,14 @@ ASCII-only.
 
 Targets from section N (N.7):
 - refused, as OUTSIDE entries:
-  - `~/.cadre/config/` and `~/.cadre/framework/`;
-  - for every cadre under `~/.cadre`: `.claude/`,
-    `cadre.conf`, `members/`, `playbook.md`, `protocol.md`, `projects.yaml`
+  - `~/.cadrei/config/` and `~/.cadrei/framework/`;
+  - for every cadrei under `~/.cadrei`: `.claude/`,
+    `cadrei.conf`, `members/`, `playbook.md`, `protocol.md`, `projects.yaml`
     and `.git/`;
-- warned: another cadre's `teams/`;
-- allowed: the cadre's own `teams/`.
+- warned: another cadrei's `teams/`;
+- allowed: the cadrei's own `teams/`.
 
-`cadre.conf` is no longer shell code (N.1), but the refusal stays as a
+`cadrei.conf` is no longer shell code (N.1), but the refusal stays as a
 second layer, as N.7 says.
 
 ## Testing
@@ -308,7 +308,7 @@ second layer, as N.7 says.
   `accept`, `warn` or `secret-warn`. The reviewer's rules*.txt, narrow.txt,
   extra.txt and autos*.txt are imported as they are, with the expectation
   each review recorded.
-  - Symlink cases (stow-style `~/.config`, a symlink into the cadre) are
+  - Symlink cases (stow-style `~/.config`, a symlink into the cadrei) are
     built in `t.TempDir()` with a fake HOME.
 - **Fuzz tests** (`go test -fuzz`) for `glob`, `shellwords` and `jsonx`:
   - never panic;
@@ -333,17 +333,17 @@ The remaining tasks are in section 12 of the spec
 ## Known pitfalls carried from the bash reviews
 
 Open in the last bash PR (#11) when it was frozen; the Go code must get them right:
-- **Restart commands for another cadre** (`update`, `allow`) must carry that
-  cadre: `CADRE_HOME=<path> cadre stop ... && CADRE_HOME=<path> cadre up ...`,
-  or a form that names the cadre, since the user runs them from anywhere.
+- **Restart commands for another cadrei** (`update`, `allow`) must carry that
+  cadrei: `CADREI_HOME=<path> cadrei stop ... && CADREI_HOME=<path> cadrei up ...`,
+  or a form that names the cadrei, since the user runs them from anywhere.
 - **Claude session names can collide through hyphens, in different tmux
-  sessions.** In one cadre, team `dev` with role `x-y` and team `dev-x` with
-  role `y` are both `c-dev-x-y`. Across cadres, cadre `a` with team `x` and
-  role `y-z` and cadre `a-x` with team `y` and role `z` are both `a-x-y-z`
+  sessions.** In one cadrei, team `dev` with role `x-y` and team `dev-x` with
+  role `y` are both `c-dev-x-y`. Across cadreis, cadrei `a` with team `x` and
+  role `y-z` and cadrei `a-x` with team `y` and role `z` are both `a-x-y-z`
   (the reviewer's exp32). The tmux join check does not catch these, since the
   sessions differ. Attribution uses tmux options, never name parsing, and `up`
   refuses when the Claude name it would use is already taken by another
-  (cadre, team, project, role); both cases are tests.
+  (cadrei, team, project, role); both cases are tests.
 - **Stale-lock takeover race.** Renaming a stale mkdir lock aside can take
   over a lock another process has just re-created. Built: `fsx.Acquire` uses
   `flock` on a lock file, which the kernel releases when its holder exits, so
@@ -365,7 +365,7 @@ Open in the last bash PR (#11) when it was frozen; the Go code must get them rig
 
 - N.7 lists `Write(...)` deny entries; this design leaves them out (see
   Member settings). The PM should confirm.
-- Whether hooks and the status line run as `cadre hook ...` (O), and how the
+- Whether hooks and the status line run as `cadrei hook ...` (O), and how the
   SessionStart hook finds the binary after `brew upgrade` (opt path, M.1).
 - The minimum tmux version (3.0, for argv commands and `-e`).
 - Whether `mvdan.cc/sh` is acceptable as a dependency.

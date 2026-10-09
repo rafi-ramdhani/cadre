@@ -1,6 +1,6 @@
-// Package framework writes out the files the cadre binary carries to
-// ~/.cadre/framework, where tools that read files find them (the
-// orchestrator skill), and says which binary cadre names in hooks.
+// Package framework writes out the files the cadrei binary carries to
+// ~/.cadrei/framework, where tools that read files find them (the
+// orchestrator skill), and says which binary cadrei names in hooks.
 package framework
 
 import (
@@ -16,16 +16,16 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/rafi-ramdhani/cadre/internal/cadres"
-	"github.com/rafi-ramdhani/cadre/internal/fsx"
-	"github.com/rafi-ramdhani/cadre/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/cadreis"
+	"github.com/rafi-ramdhani/cadrei/internal/fsx"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
 )
 
-// Dir is ~/.cadre/framework.
-func Dir() string { return filepath.Join(cadres.Root(), "framework") }
+// Dir is ~/.cadrei/framework.
+func Dir() string { return filepath.Join(cadreis.Root(), "framework") }
 
 // SkillDir is the written-out orchestrator skill.
-func SkillDir() string { return filepath.Join(Dir(), "skills", "cadre") }
+func SkillDir() string { return filepath.Join(Dir(), "skills", "cadrei") }
 
 // Version is the version the framework folder was written for, or "".
 func Version() string {
@@ -38,15 +38,15 @@ func Version() string {
 
 // Sync makes the framework folder hold exactly the embedded skill and this
 // version: a file that differs from the embedded one is rewritten, a file
-// that is not cadre's is removed, and a link where a folder or file belongs
-// is replaced. It runs on every plain cadre, since the skill carries the
+// that is not cadrei's is removed, and a link where a folder or file belongs
+// is replaced. It runs on every plain cadrei, since the skill carries the
 // orchestrator's consent rules and members can write files with their
 // shell. It returns what it restored when VERSION already named this
-// version (a change made outside cadre), and nothing for an upgrade.
+// version (a change made outside cadrei), and nothing for an upgrade.
 func Sync(assets fs.FS, version string) (restored []string, err error) {
 	current := Version() == version
 	want := map[string][]byte{}
-	err = fs.WalkDir(assets, "skills/cadre", func(p string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(assets, "skills/cadrei", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -57,7 +57,7 @@ func Sync(assets fs.FS, version string) (restored []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	// The folders themselves are cadre's: a link in their place goes.
+	// The folders themselves are cadrei's: a link in their place goes.
 	for _, d := range []string{Dir(), filepath.Join(Dir(), "skills"), SkillDir()} {
 		if st, err := os.Lstat(d); err == nil && !st.IsDir() {
 			os.Remove(d)
@@ -69,7 +69,7 @@ func Sync(assets fs.FS, version string) (restored []string, err error) {
 	if err := os.MkdirAll(SkillDir(), 0o755); err != nil {
 		return nil, err
 	}
-	// Anything in the skill folder that is not cadre's goes.
+	// Anything in the skill folder that is not cadrei's goes.
 	filepath.WalkDir(SkillDir(), func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
@@ -78,7 +78,7 @@ func Sync(assets fs.FS, version string) (restored []string, err error) {
 		if _, ok := want[filepath.ToSlash(rel)]; !ok {
 			os.Remove(p)
 			if current {
-				restored = append(restored, filepath.ToSlash(rel)+" (not cadre's)")
+				restored = append(restored, filepath.ToSlash(rel)+" (not cadrei's)")
 			}
 		}
 		return nil
@@ -111,21 +111,21 @@ func Sync(assets fs.FS, version string) (restored []string, err error) {
 	return restored, nil
 }
 
-// cellar matches a Homebrew keg's binary: <prefix>/Cellar/cadre/<version>/bin/cadre.
-var cellar = regexp.MustCompile(`^(.*)/Cellar/cadre/[^/]+/bin/cadre$`)
+// cellar matches a Homebrew keg's binary: <prefix>/Cellar/cadrei/<version>/bin/cadrei.
+var cellar = regexp.MustCompile(`^(.*)/Cellar/cadrei/[^/]+/bin/cadrei$`)
 
-// Binary is the path cadre persists wherever it names itself (hooks,
-// restart commands): for a Homebrew install, <prefix>/opt/cadre/bin/cadre,
+// Binary is the path cadrei persists wherever it names itself (hooks,
+// restart commands): for a Homebrew install, <prefix>/opt/cadrei/bin/cadrei,
 // which survives brew upgrade, never the Cellar path; otherwise the
 // running binary, symlinks resolved.
 func Binary() string {
 	exe, err := os.Executable()
 	if err != nil {
-		return "cadre"
+		return "cadrei"
 	}
 	real := paths.Real(exe)
 	if m := cellar.FindStringSubmatch(real); m != nil {
-		return m[1] + "/opt/cadre/bin/cadre"
+		return m[1] + "/opt/cadrei/bin/cadrei"
 	}
 	return real
 }

@@ -1,7 +1,7 @@
-// Package cadre holds the files the cadre binary carries with it: the
-// orchestrator skill, the member protocol and the template a new cadre
+// Package cadrei holds the files the cadrei binary carries with it: the
+// orchestrator skill, the member protocol and the template a new cadrei
 // starts from. They are written out where they are needed (section O.2).
-package cadre
+package cadrei
 
 import "embed"
 
@@ -10,5 +10,5 @@ import "embed"
 // teams/.gitkeep) come along. orchestrator.md is the one source of the
 // orchestrator's instructions, for its prompt and for the hook (K.3).
 //
-//go:embed skills/cadre/SKILL.md protocol.md orchestrator.md all:template
+//go:embed skills/cadrei/SKILL.md protocol.md orchestrator.md all:template
 var Assets embed.FS

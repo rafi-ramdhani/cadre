@@ -1,6 +1,6 @@
-// Package backup keeps credentials and bulky files out of a cadre's
-// backups: the pre-push hook cadre installs in each cadre repository, and
-// the check it runs (cadre hook pre-push).
+// Package backup keeps credentials and bulky files out of a cadrei's
+// backups: the pre-push hook cadrei installs in each cadrei repository, and
+// the check it runs (cadrei hook pre-push).
 package backup
 
 import (
@@ -19,8 +19,8 @@ import (
 	"strings"
 )
 
-// marker is the line that makes a pre-push hook cadre's own.
-const marker = "# cadre: refuses to push credentials and large files (cadre hook pre-push)"
+// marker is the line that makes a pre-push hook cadrei's own.
+const marker = "# cadrei: refuses to push credentials and large files (cadrei hook pre-push)"
 
 // MaxSize is the largest file a push may carry (a variable for tests).
 var MaxSize int64 = 50 << 20
@@ -28,7 +28,7 @@ var MaxSize int64 = 50 << 20
 // scanSize is the largest file whose content is searched for tokens.
 const scanSize = 8 << 20
 
-// hookFile is the cadre repository's pre-push hook, as git finds it
+// hookFile is the cadrei repository's pre-push hook, as git finds it
 // (core.hooksPath included).
 func hookFile(repo string) (string, error) {
 	out, err := exec.Command("git", "-C", repo, "rev-parse", "--git-path", "hooks/pre-push").Output()
@@ -48,16 +48,16 @@ func hookText(binary string) string {
 	q := "'" + strings.ReplaceAll(binary, "'", `'\''`) + "'"
 	return "#!/bin/sh\n" + marker + "\n" +
 		"if [ -x " + q + " ]; then exec " + q + " hook pre-push \"$@\"; fi\n" +
-		"printf 'cadre: this push was stopped: the check for credentials could not run, since %s is missing; run cadre again, then push\\n' " + q + " >&2\n" +
+		"printf 'cadrei: this push was stopped: the check for credentials could not run, since %s is missing; run cadrei again, then push\\n' " + q + " >&2\n" +
 		"exit 1\n"
 }
 
 // ErrForeign is returned when the repository has a pre-push hook that is
-// not cadre's: cadre leaves it alone.
-var ErrForeign = errors.New("has a pre-push hook that is not cadre's")
+// not cadrei's: cadrei leaves it alone.
+var ErrForeign = errors.New("has a pre-push hook that is not cadrei's")
 
-// Install makes cadre's pre-push hook run binary in the cadre repository
-// repo. It reports whether it wrote anything. A hook that is not cadre's is
+// Install makes cadrei's pre-push hook run binary in the cadrei repository
+// repo. It reports whether it wrote anything. A hook that is not cadrei's is
 // left as it is, with ErrForeign.
 func Install(repo, binary string) (bool, error) {
 	file, err := hookFile(repo)
@@ -77,7 +77,7 @@ func Install(repo, binary string) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		return false, err
 	}
-	tmp := file + ".cadre-new"
+	tmp := file + ".cadrei-new"
 	if err := os.WriteFile(tmp, []byte(want), 0o755); err != nil {
 		return false, err
 	}
@@ -321,8 +321,8 @@ func Scan(repo, remote string, updates []Update) ([]Finding, error) {
 	return findings, nil
 }
 
-// Remove takes out cadre's pre-push hook from a cadre repository: only a
-// hook cadre wrote (its marker line), never one of the user's. It reports
+// Remove takes out cadrei's pre-push hook from a cadrei repository: only a
+// hook cadrei wrote (its marker line), never one of the user's. It reports
 // whether it removed one.
 func Remove(repo string) (bool, error) {
 	file, err := hookFile(repo)
@@ -333,7 +333,7 @@ func Remove(repo string) (bool, error) {
 	if err != nil || !bytes.Contains(raw, []byte(marker)) {
 		return false, nil
 	}
-	// Only the file exactly as cadre writes it goes: lines the user added
+	// Only the file exactly as cadrei writes it goes: lines the user added
 	// to it are theirs.
 	if !ours(string(raw)) {
 		return false, ErrChanged
@@ -341,11 +341,11 @@ func Remove(repo string) (bool, error) {
 	return true, os.Remove(file)
 }
 
-// ErrChanged is returned when cadre's pre-push hook holds lines cadre did
-// not write: cadre leaves the file as it is.
-var ErrChanged = errors.New("cadre's pre-push hook holds lines of your own, so it was left as it is; remove cadre's lines from it yourself")
+// ErrChanged is returned when cadrei's pre-push hook holds lines cadrei did
+// not write: cadrei leaves the file as it is.
+var ErrChanged = errors.New("cadrei's pre-push hook holds lines of your own, so it was left as it is; remove cadrei's lines from it yourself")
 
-// ours reports whether text is exactly the hook cadre writes, for the
+// ours reports whether text is exactly the hook cadrei writes, for the
 // binary it names.
 func ours(text string) bool {
 	const lead = "if [ -x '"
@@ -362,7 +362,7 @@ func ours(text string) bool {
 	return text == hookText(binary)
 }
 
-// Installed reports whether a cadre repository has cadre's pre-push hook.
+// Installed reports whether a cadrei repository has cadrei's pre-push hook.
 func Installed(repo string) bool {
 	file, err := hookFile(repo)
 	if err != nil {

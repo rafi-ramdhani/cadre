@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/jsonx"
-	"github.com/rafi-ramdhani/cadre/internal/paths"
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/jsonx"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
 )
 
 // ConfigDir is Claude Code's config folder: CLAUDE_CONFIG_DIR, else
@@ -66,7 +66,7 @@ func output(bin string, args ...string) ([]byte, error) {
 	return cmd.Output()
 }
 
-func (c Claude) Health(full bool, cadreDirs []string) []runtime.Problem {
+func (c Claude) Health(full bool, cadreiDirs []string) []runtime.Problem {
 	var out []runtime.Problem
 	in, err := c.Detect()
 	if err != nil {
@@ -97,14 +97,14 @@ func (c Claude) Health(full bool, cadreDirs []string) []runtime.Problem {
 			}
 		}
 	}
-	// Once a cadre folder is trusted, Claude Code loads these for its
-	// orchestrator; cadre never writes them (N.7).
-	for _, d := range cadreDirs {
+	// Once a cadrei folder is trusted, Claude Code loads these for its
+	// orchestrator; cadrei never writes them (N.7).
+	for _, d := range cadreiDirs {
 		for _, f := range []string{"settings.json", "settings.local.json"} {
 			p := filepath.Join(d, ".claude", f)
 			if _, err := os.Lstat(p); err == nil {
 				out = append(out, runtime.Problem{
-					What: p + " exists: Claude Code loads it for this cadre's orchestrator, and cadre never writes it",
+					What: p + " exists: Claude Code loads it for this cadrei's orchestrator, and cadrei never writes it",
 					Fix:  "look at what it holds, and remove it unless you added it yourself"})
 			}
 		}
@@ -117,8 +117,8 @@ func (Claude) Hooks() runtime.HookOps               { return hooks{} }
 
 type instructions struct{}
 
-// Path is the user skill folder Claude Code reads cadre's skill from.
-func (instructions) Path() string { return filepath.Join(ConfigDir(), "skills", "cadre") }
+// Path is the user skill folder Claude Code reads cadrei's skill from.
+func (instructions) Path() string { return filepath.Join(ConfigDir(), "skills", "cadrei") }
 
 func (i instructions) Target() (string, error) {
 	p := i.Path()
@@ -148,7 +148,7 @@ func (i instructions) Link(dir string) error {
 		return err
 	}
 	// A new link renamed over the old one, so the skill is never missing.
-	tmp := fmt.Sprintf("%s.cadre-%d", p, os.Getpid())
+	tmp := fmt.Sprintf("%s.cadrei-%d", p, os.Getpid())
 	os.Remove(tmp)
 	if err := os.Symlink(dir, tmp); err != nil {
 		return err
@@ -212,7 +212,7 @@ func (h hooks) Find() ([]string, error) {
 	return found, nil
 }
 
-// HookCommand is the hook command for a cadre binary.
+// HookCommand is the hook command for a cadrei binary.
 func HookCommand(binary string) string { return quote(binary) + " hook orchestrator" }
 
 func quote(w string) string {
@@ -240,7 +240,7 @@ func (h hooks) Set(binary string) (bool, error) {
 			return false, err
 		}
 	}
-	code, _ := jsonx.Edit(file, jsonx.Options{Backup: file + ".bak-cadre"}, AddHook(HookCommand(binary), isOrchestratorHook))
+	code, _ := jsonx.Edit(file, jsonx.Options{Backup: file + ".bak-cadrei"}, AddHook(HookCommand(binary), isOrchestratorHook))
 	switch code {
 	case jsonx.Changed:
 		return true, nil
@@ -251,7 +251,7 @@ func (h hooks) Set(binary string) (bool, error) {
 	case jsonx.WriteFailed:
 		return false, fmt.Errorf("could not write next to %s, so it was left unchanged", file)
 	}
-	return false, fmt.Errorf("%s is not a file cadre can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user), so it was left unchanged", file)
+	return false, fmt.Errorf("%s is not a file cadrei can safely edit (unreadable, not valid JSON, an unexpected shape, or owned by another user), so it was left unchanged", file)
 }
 
 func (h hooks) Remove(binary string) (bool, error) {
@@ -264,7 +264,7 @@ func (h hooks) Remove(binary string) (bool, error) {
 		prog, ok := OrchestratorHook(c)
 		return ok && paths.Real(prog) == bin
 	}
-	code, _ := jsonx.Edit(file, jsonx.Options{Backup: file + ".bak-cadre"}, Unhook(isOurs, isOrchestratorHook))
+	code, _ := jsonx.Edit(file, jsonx.Options{Backup: file + ".bak-cadrei"}, Unhook(isOurs, isOrchestratorHook))
 	switch code {
 	case jsonx.Changed:
 		return true, nil
@@ -275,7 +275,7 @@ func (h hooks) Remove(binary string) (bool, error) {
 	case jsonx.WriteFailed:
 		return false, fmt.Errorf("could not write next to %s, so it was left unchanged", file)
 	}
-	return false, fmt.Errorf("%s is not a file cadre can safely edit, so it was left unchanged", file)
+	return false, fmt.Errorf("%s is not a file cadrei can safely edit, so it was left unchanged", file)
 }
 
 // Output is a SessionStart hook's answer: text added to the new session's

@@ -7,22 +7,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/cadres"
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
-	"github.com/rafi-ramdhani/cadre/internal/runtime/claude/settings"
+	"github.com/rafi-ramdhani/cadrei/internal/cadreis"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime/claude/settings"
 )
 
-// Open reads the cadre's member settings file. With create, a missing
+// Open reads the cadrei's member settings file. With create, a missing
 // file is made (with no grants), recorded and committed.
-func (p permissions) Open(cadre string, create bool) (runtime.GrantStore, error) {
-	file := p.GrantsFile(cadre)
+func (p permissions) Open(cadrei string, create bool) (runtime.GrantStore, error) {
+	file := p.GrantsFile(cadrei)
 	if _, err := os.Stat(file); err != nil && create {
 		os.MkdirAll(filepath.Dir(file), 0o755)
 		if err := settings.Create(file); err != nil {
 			return nil, err
 		}
 		settings.Record(file, hashFile())
-		cadres.Commit(cadre, "Add the member settings file", settings.Rel)
+		cadreis.Commit(cadrei, "Add the member settings file", settings.Rel)
 	}
 	g, err := settings.OpenGrants(file)
 	if err != nil {
@@ -31,11 +31,11 @@ func (p permissions) Open(cadre string, create bool) (runtime.GrantStore, error)
 	return store{g}, nil
 }
 
-func (p permissions) Unchanged(cadre string) bool {
-	return !settings.ChangedOutside(cadre, p.GrantsFile(cadre), hashFile())
+func (p permissions) Unchanged(cadrei string) bool {
+	return !settings.ChangedOutside(cadrei, p.GrantsFile(cadrei), hashFile())
 }
 
-func (p permissions) Record(cadre string) { settings.Record(p.GrantsFile(cadre), hashFile()) }
+func (p permissions) Record(cadrei string) { settings.Record(p.GrantsFile(cadrei), hashFile()) }
 
 func (permissions) BuiltIn() string {
 	return "Built in, not listed: deny rules and a soft_deny entry that keep members from changing these grants."

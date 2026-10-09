@@ -1,4 +1,4 @@
-// Package registry reads and edits a cadre's projects.yaml: a flat list of
+// Package registry reads and edits a cadrei's projects.yaml: a flat list of
 // entries, each a "name:" line followed by indented "key: value" lines.
 // It is not general YAML. Edits change only the lines they must, so the
 // user's comments and blank lines survive (section L.5).
@@ -13,7 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/rafi-ramdhani/cadre/internal/fsx"
+	"github.com/rafi-ramdhani/cadrei/internal/fsx"
 )
 
 // Entry is one project.

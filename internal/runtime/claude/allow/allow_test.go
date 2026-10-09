@@ -221,3 +221,47 @@ func TestNeverWeakerThanBash(t *testing.T) {
 	}
 	t.Logf("%d rules: %d weaker, %d stricter than bash", len(rows), weaker, stricter)
 }
+
+// A Bash rule that names one of cadre's own files is refused like an Edit
+// rule would be (spec 3.5): the fixed Edit denies would mean little if a
+// member's shell could change the same files. Commands on other folders,
+// or on a folder that only holds a cadre, stay allowed.
+func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
+	c, ph := layout(t, "plain")
+	for _, rule := range []string{
+		"Bash(rm {CADRE}/members/dev/engineer.md)",
+		"Bash(rm {CADRE}/personas/dev/engineer.md)",
+		"Bash(cp x {CADRE}/members/dev/x.md)",
+		"Bash(echo x > {CADRE}/members/dev/x.md)",
+		"Bash(echo x >>{CADRE}/protocol.md)",
+		"Bash(rm {CADRE}/playbook.md)",
+		"Bash(tee {CADRE}/projects.yaml)",
+		"Bash(rm -rf {CADRE}/.git)",
+		"Bash(rm -rf {CADRE}/.claude/build)",
+		"Bash(rm -rf {CADRE})",
+		"Bash(rm ~/.cadre/w/members/dev/engineer.md)",
+		"Bash(rm ~/.cadre/w/playbook.md)",
+		"Bash(rm -rf ~/.cadre/w)",
+		"Bash(cp x ~/.cadre/config/default)",
+		"Bash(rm -rf ~/.cadre/framework)",
+		"Bash(cp x $HOME/.cadre/w/playbook.md)",
+		"Bash(mv x {HOME}/Documents/link/protocol.md)",
+		"Bash(cp --target-directory={CADRE}/members/dev x)",
+		"Bash(sed -i s/a/b/ ../../members/dev/x.md)",
+		"Bash(rm ../../playbook.md)",
+		"Bash(rm {OTHER}/members/x.md)",
+		"Bash(rm {CADRE}/members/*)",
+	} {
+		if got, msg := check(c, "R", fill(rule, ph)); got != "refuse" || !strings.Contains(msg, "only the user changes") {
+			t.Errorf("%s: %s %q", rule, got, mask(msg, ph))
+		}
+	}
+	for _, rule := range []string{
+		"Bash(ls ~)", "Bash(du -sh ~/work)", "Bash(npm test)", "Bash(cat {CADRE}/teams/dev/notes.md)",
+		"Bash(rm {CADRE}/teams/dev/old.md)", "Bash(cp a ../b/c.md)", "Bash(ls ~/.cadre-notes)", "Bash(cat members/dev/x.md)",
+	} {
+		if got, msg := check(c, "R", fill(rule, ph)); got == "refuse" {
+			t.Errorf("%s was refused: %q", rule, mask(msg, ph))
+		}
+	}
+}

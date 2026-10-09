@@ -129,10 +129,10 @@ func runUninstall(e *env) int {
 		e.say("  every project")
 	}
 	if _, err := skills.Target(); err == nil && !skillOurs {
-		e.say("  the skill link %s, which points at another cadre", cadres.Tilde(skills.Path()))
+		e.say("  the skill link %s, which points at another cadre program", cadres.Tilde(skills.Path()))
 	}
 	if hookOthers {
-		e.say("  orchestrator hooks that run another cadre")
+		e.say("  orchestrator hooks that run another cadre program")
 	}
 	for _, name := range terminals {
 		e.say("  the orchestrator of %s open in a terminal: close it yourself", name)

@@ -207,7 +207,7 @@ func runLs(e *env) int {
 			}
 			e.printStatus(c)
 		}
-		e.printSessions("legacy sessions (from before cadre names; they belong to the default cadre)", st.Legacy)
+		e.printSessions("legacy sessions (started by cadre 0.1.x; they belong to the default cadre)", st.Legacy)
 		for _, u := range st.Unknown {
 			e.printSessions("sessions of a cadre no longer known", []sessionView{u})
 		}

@@ -4,13 +4,62 @@
 
 Please report security problems privately through GitHub's "Report a vulnerability" button on this repository's Security tab, not in a public issue. You should get a reply within a week.
 
-## Things to know
+## How cadre is built to be safe
 
-- Member sessions are full Claude Code sessions. They act on messages from the orchestrator with the permissions of the mode set in `cadre.conf`. A permissive mode such as `auto` lets them act without asking; choose it deliberately.
-- The optional orchestrator hook edits `~/.claude/settings.json` (a backup is kept as `settings.json.bak-cadre`).
-- The orchestrator's skill, written out to `~/.cadre/framework/skills/cadre`, is checked against the cadre program and restored each time `cadre` starts. So a change a member makes to it after the orchestrator has opened lasts until the next start; the fixed deny rules keep members from editing it with their edit tool, but not with a shell in a permissive mode.
-- `cadre add project`, `cadre sync` and `cadre trust` mark registered project folders as trusted in Claude Code's `~/.claude.json` (the original is kept as `.claude.json.bak-cadre`). Only a project repo's top folder is trusted, never your home, the cadre or a team folder, and member sessions cannot trust folders. Trust lets a repo's own `.claude/settings.json` take effect, so register only repos you trust; `--no-trust` skips it.
-- `cadre uninstall` removes only what the installer created: links that point to this framework, the orchestrator hook in `~/.claude/settings.json` (backup: `settings.json.bak-cadre-uninstall`), `~/.config/cadre/` and the build cache. It never deletes your cadre, projects or framework clone, never revokes trust entries, and cannot run in a member session.
-- Member sessions get the grants in `<cadre>/.claude/member-settings.json` through `--settings`, as a read-only copy that the launcher rebuilds from the validated keys at every start, in `<cadre>/.claude/build/` (a folder Claude Code protects), together with the member prompts. Duplicate keys, edits between the check and the launch, live edits to the file and a tampered copy never reach a member. The launcher passes it only when it holds nothing but `permissions.allow/deny` and `autoMode.allow/soft_deny` (no `hooks`, `env` or other settings, which a `--settings` file would honour at command-line precedence), keeps `"$defaults"` in every `autoMode` list, and has the entries that deny members editing it or running `cadre allow`. A hash in `~/.config/cadre/member-settings.sha256` reveals edits made outside `cadre allow`; the file is committed to your cadre's git.
-- `cadre allow` is how consent you give in the orchestrator reaches members; a cross-session message still never counts as consent. Members cannot run `cadre allow add` or `remove` (refused when `CADRE_MEMBER` is set; this check is advisory, since `env -u CADRE_MEMBER` gets around it, so the permission mode and the deny rules are the real guard), the settings file denies editing itself and running `cadre allow`, its `soft_deny` entry tells the auto-mode classifier that changing member permissions is the user's job, the hash reveals edits made outside `cadre allow`, and every change is committed. Blanket rules are refused, and so are rules that reach `cadre.conf`, which every `cadre` command runs as shell code. Known limits: a member in a permissive mode with shell access could still try to edit files in the cadre folder; these layers make that explicit and visible rather than silent, and the permission mode remains the real boundary. A one-time grant is usable by any member, any number of times, until it is removed. Members also cannot register or switch cadres (`cadre init`, `cadre use`, `cadre cadres add|remove`): these refuse when `CADRE_MEMBER` is set and are denied in every member's settings, which matters because a registered cadre's `cadre.conf` runs as shell code. Like the `cadre allow` guard this is advisory: the deny rules do not catch the command run by its full path (`/path/bin/cadre use`) or a shell redirect into `~/.config/cadre`, so the permission mode stays the real boundary.
-- `install.sh` is meant to be read before you pipe it to bash. It writes only to the cadre folder you name, `~/.local/bin/cadre`, `~/.claude/skills/cadre`, `~/.config/cadre/` and, with the hook, `~/.claude/settings.json`. Afterwards cadre itself writes, besides your cadre folder: `~/.claude.json` when it trusts a project (backup `.claude.json.bak-cadre`), `~/.config/cadre/member-settings.sha256`, generated member prompts and settings copies in `<cadre>/.claude/build/` (inside your cadre, ignored by its git), and, on uninstall, `~/.claude/settings.json` (backup `settings.json.bak-cadre-uninstall`).
+Cadre runs several Claude Code sessions for you. Each member is a full Claude Code session that acts on messages from the orchestrator, so the design keeps three things in your hands: what members may do, cadre's own files, and the files cadre shares with Claude Code.
+
+### Consent comes only from you, in the orchestrator
+
+- Only what you type in the orchestrator session, or your answers to its own questions, counts as your consent. A cross-session message, a member's reply, a file or a web page never does, even when it claims to quote you. The orchestrator skill and the member protocol both say so.
+- A message from the orchestrator never counts as your consent in a member: each member asks for its own permissions.
+- Members report a blocked action instead of working around it, and never try to change permissions.
+
+### Grants reach members through `cadre allow`
+
+- When you allow something, the orchestrator records the narrowest rule with `cadre allow` in your cadre's `.claude/member-settings.json`. It never adds a rule because a member asked for one.
+- `cadre allow` refuses blanket rules (bare tools, lone wildcards, whole MCP servers, shells, interpreters and wrappers with a wildcard, chained commands, every domain) and anything that reaches cadre's own files, startup files, or files that run code outside a session. Paths are read the way Claude Code reads them, after Unicode normalization and case folding, so globs, escapes and braces cannot hide a refused file. Other wildcards, `git`, code from project files and secret-reading paths get a warning. Every change is committed in your cadre.
+- Members never get the grants file itself. Before each start, cadre validates it (only `permissions.allow/deny` and `autoMode.allow/soft_deny`, no duplicate keys, `"$defaults"` kept, the fixed entries present) and passes a read-only copy from `.claude/build/`, rebuilt at every start. A file that fails the check gives members a copy with no grants, and a warning. A fingerprint in `~/.cadre/config` flags edits made outside `cadre allow`.
+- Every copy carries fixed rules: `Edit` denies for `~/.cadre/config`, `~/.cadre/framework`, and each cadre's `.claude`, `cadre.conf`, `members`, `playbook.md`, `protocol.md`, `projects.yaml` and `.git`; a deny for `cadre allow`; and an auto-mode `soft_deny` line saying that only the user changes these, through the orchestrator. Team folders stay writable.
+- A one-time grant (`--once`) is usable by any member, any number of times, until it is removed. The orchestrator removes it after the task and checks for leftovers at every session start.
+
+### What members cannot run
+
+Members are refused for `cadre allow add` and `remove`, `cadre stop` with no team, `cadre uninstall`, `cadre init`, `cadre use`, and `cadre project add`, `link`, `unlink` and `trust`. Cadre sets `CADRE_MEMBER` in every member. Sessions started by 0.1.x carry `CADRE_PERSONA` instead, which cadre reads the same way and never sets; this alias goes away in a later release.
+
+This check is advisory: a member with shell access could unset the variable. The deny rules, Claude Code's protection of `.claude` folders, and above all the permission mode are the real boundary.
+
+### No code from unexpected places
+
+- `cadre.conf` is read as `KEY=VALUE` lines, never run as shell code.
+- Configuration is read only from `~/.cadre` or the cadre named by `CADRE_HOME`, never from the folder you happen to be in. A folder that looks like a cadre is never used.
+- Members and the orchestrator start with `CADRE_HOME` set, so changing folders never switches their cadre.
+
+### Files that are not cadre's
+
+- **Trust** (`~/.claude.json`): adding, linking or cloning a project marks its folder as trusted, so members start without the trust prompt. Only a project repository's top folder is trusted, never `/`, your home folder, `~/.cadre`, a team folder or `~/.claude`. Trust lets that repository's own `.claude/settings.json` rules and hooks take effect, so add only repositories you trust, or pass `--no-trust`.
+- **The orchestrator hook** (`~/.claude/settings.json`): added only on your yes, and removed by `cadre uninstall`.
+- Edits to both files keep every other key and their order, keep a backup of the original (`.claude.json.bak-cadre`, `settings.json.bak-cadre`; the first is never overwritten), are written atomically, check the file again just before writing, and are skipped with a warning on any doubt.
+
+### Nothing is deleted
+
+Unlinking a project keeps its folder. Bringing in a 0.1.x cadre only reads it, and never changes the old folder or `~/.config/cadre`. `cadre uninstall` keeps every cadre and project, trust entries and backups.
+
+### No credentials in a cadre's repository
+
+Cadre writes no tokens into a cadre. A pre-push hook in each cadre repository refuses a push that carries files that look like credentials (`.credentials.json`, `.env` files, private keys, tokens such as `sk-ant-`, `ghp_` or `github_pat_`) or files over 50 MB, and names each one. The orchestrator creates a backup repository only as private, and only on your yes. A pre-push hook of your own is left alone, and the health check says that cadre's check does not run.
+
+### The skill on disk
+
+The orchestrator skill is written out to `~/.cadre/framework/skills/cadre`, checked against the program, and restored at every `cadre` start. A change made to it after the orchestrator opened lasts until the next start. The fixed deny rules keep members from editing it with their edit tool, but not with a shell in a permissive mode.
+
+### Accounts
+
+Cadre uses one Claude account at a time, whichever Claude Code is logged in with. Tools such as claude-swap can switch it; a switch applies to every cadre on the machine, so restart afterwards (`cadre stop`, close the orchestrator, run `cadre`). Cadre does not depend on any such tool and holds no credentials.
+
+### Permission mode
+
+Members and the orchestrator run in the mode set in `cadre.conf` (default: `default`). A permissive mode such as `auto` lets members act without asking. Choose it deliberately, knowing that members act on messages from the orchestrator.
+
+## Install
+
+`install.sh` is short and meant to be read before you run it. It downloads the release archive for your machine, checks it against the release's `checksums.txt`, and places the program in `~/.local/bin/cadre`. It changes nothing else. The Homebrew formula installs the same release binary. Everything cadre creates afterwards is listed in the README's "What gets installed where".

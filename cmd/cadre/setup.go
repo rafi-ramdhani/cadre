@@ -31,7 +31,7 @@ func (e *env) firstRun(rt runtime.Runtime) bool {
 		e.fail("no cadre yet; run cadre in a terminal to set one up, or create one with cadre init <name>")
 		return false
 	}
-	e.say("Welcome to cadre: a team of %s sessions that you lead from one conversation.", rt.Title())
+	e.say("Welcome to cadre: a team of %s sessions you lead from one conversation.", rt.Title())
 	choice, ok := e.answer("Start a new cadre, or restore one from GitHub? [new/restore] ")
 	if !ok {
 		e.fail("input ended; nothing was changed")

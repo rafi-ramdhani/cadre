@@ -40,7 +40,7 @@ func TestUninstall(t *testing.T) {
 	for _, want := range []string{"stop 1 member sessions: cadre-work-dev", "remove the skill link ~/.claude/skills/cadre",
 		"remove the orchestrator hook from ~/.claude/settings.json (other hooks stay)", "remove cadre's pre-push check from ~/.cadre/work",
 		"remove ~/.cadre/config", "remove ~/.cadre/framework", "every cadre (work, in ~/.cadre) and every project",
-		"orchestrator hooks that run another cadre", "Then: delete the cadre you built"} {
+		"orchestrator hooks that run another cadre program", "Then: delete the cadre you built"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plan lacks %q:\n%s", want, out)
 		}
@@ -92,7 +92,7 @@ func TestUninstallKeepsWhatIsNotItsOwn(t *testing.T) {
 	os.Remove(home + "/.claude/skills/cadre")
 	os.Symlink("/elsewhere/skills/cadre", home+"/.claude/skills/cadre")
 	out := must(t, "uninstall", "--yes")
-	if !strings.Contains(out, "the skill link ~/.claude/skills/cadre, which points at another cadre") {
+	if !strings.Contains(out, "the skill link ~/.claude/skills/cadre, which points at another cadre program") {
 		t.Errorf("plan: %q", out)
 	}
 	if to, _ := os.Readlink(home + "/.claude/skills/cadre"); to != "/elsewhere/skills/cadre" {

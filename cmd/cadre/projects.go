@@ -24,7 +24,7 @@ func (e *env) projectsDir(protected []string) (string, bool) {
 	}
 	suggest := cadres.Tilde(cadres.SuggestProjectsDir())
 	if !e.interactive() {
-		e.fail("the projects folder is not set; ask the user and run cadre project dir <folder> (suggested: %s)", suggest)
+		e.fail("the projects folder is not set; set it with cadre project dir <folder> (suggested: %s)", suggest)
 		return "", false
 	}
 	answer := e.ask(fmt.Sprintf("Where do you keep your projects? [%s] ", suggest))
@@ -175,7 +175,7 @@ func runProjectAdd(e *env) int {
 		res := results[0]
 		switch res.State {
 		case "trusted":
-			e.say("%s and trusted in %s (registered projects are trusted; use --no-trust to skip)", head, rt.Title())
+			e.say("%s and trusted in %s (--no-trust skips this)", head, rt.Title())
 		case "already":
 			e.say("%s; its folder was already trusted in %s", head, rt.Title())
 		case "refused":
@@ -400,7 +400,7 @@ func runProjectTrust(e *env) int {
 		for _, entry := range reg.Entries() {
 			d := cadres.ProjectDir(r.Cadre, entry)
 			if st, err := os.Stat(d); d == "" || err != nil || !st.IsDir() {
-				e.say("  %s: missing locally, skipped (run cadre project sync)", entry.Name)
+				e.say("  %s: not on this machine, skipped (run cadre project sync)", entry.Name)
 				continue
 			}
 			folders = append(folders, runtime.Folder{Name: entry.Name, Dir: d})
@@ -408,7 +408,7 @@ func runProjectTrust(e *env) int {
 	} else {
 		entry := reg.Get(e.args[0])
 		if entry == nil {
-			return e.fail("'%s' is not a registered project (only registry projects are trusted; see cadre ls)", e.args[0])
+			return e.fail("'%s' is not a registered project (only registered projects are trusted; see cadre ls)", e.args[0])
 		}
 		d := cadres.ProjectDir(r.Cadre, entry)
 		if st, err := os.Stat(d); d == "" || err != nil || !st.IsDir() {

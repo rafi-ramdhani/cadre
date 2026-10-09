@@ -4,57 +4,59 @@ All notable changes are listed here. The project follows [Semantic Versioning](h
 
 ## Unreleased
 
-## 0.2.0 - 2026-10-08
+## 0.2.0 - Unreleased
 
-- `cadre update` updates the framework (fast-forward only, refuses on local changes, local commits or another branch), prints the CHANGELOG since your version and lists the persona sessions to restart. `cadre update --check` only reports. It relinks only when the command and skill point to this framework, prints the exact restart command for each running persona, shows the CHANGELOG's Unreleased entries, and refuses in persona sessions (`--check` still works there).
-- Several cadres at once: a `cadre` command acts on `CADRE_HOME`, else the nearest registered cadre at or above the current folder, else the default. `cadre which` shows which one and why; `cadre cadres` lists, adds and removes known cadres (`~/.config/cadre/cadres`); same-name cadres are refused; `cadre init` no longer moves a present default. A folder that only looks like a cadre is never used.
-- `cadre add project` and `cadre sync` mark each registered project's folder as trusted in Claude Code, so personas start there without the trust prompt (`--no-trust` skips it, also on `install.sh --from`). `cadre trust <project> | --all` does the same for projects registered earlier. The config edit keeps a backup of the original, the file mode and every other key, and leaves a missing, unreadable or foreign-owned file alone. Only a project repo's top folder is trusted, and persona sessions cannot trust folders. Project names are now validated (letters, digits, `.`, `-`, `_`).
-- `cadre down --all` lists every running cadre session with its personas, asks y/N (`--yes` skips), and stops them all, the session it runs in last. Persona sessions cannot run it.
-- `cadre uninstall` shows its plan, asks y/N (`--yes`, `--dry-run`), stops every cadre session, removes this framework's hook, the command and skill links (only when they point to this framework), `~/.config/cadre/` and the build cache, and keeps your cadre, projects, framework clone, backups and trust entries, printing their paths. Run from a clone other than the installed one, it refuses and names the right one (`--force` overrides).
-- Every persona starts with the grants in `<cadre>/.claude/persona-settings.json`, a plain Claude Code settings file (created and committed by the first `cadre up`), passed with `--settings` as a read-only copy rebuilt from the validated keys at every start. Generated prompts and copies now live in `<cadre>/.claude/build/` (protected by Claude Code, ignored by git) instead of `~/.cache/cadre/`. The file may hold only `permissions.allow/deny` and `autoMode.allow/soft_deny`, with `"$defaults"` and fixed entries that stop personas from changing it, and no duplicate keys; a file that breaks these rules is not passed (with a warning), and one changed outside `cadre allow` is flagged.
-- `cadre allow` grants narrow permissions to every persona: `add <rule>`, `add --auto "<sentence>"`, `--once`, `list`, `remove <rule | number | --once>`. It refuses blanket rules (bare tools, lone wildcards, wildcards in the program name, shells, interpreters and wrappers with a wildcard, whole MCP servers, every domain), anything aimed at the persona settings or `cadre allow`, and anything that reaches `cadre.conf` (run as shell code) (checked after Unicode normalization and case folding), warns about other wildcards, commits every change, lists the running personas to restart, and cannot be run from a persona session. Full list of refusals and warnings (chained or computed commands, runners, protected and code-running dotfiles, cadre's own state, ASCII-only `--auto` entries, secret reads) in docs/guide.md.
-- The orchestrator skill defines what counts as the user's consent (only what the user types in the orchestrator session, or answers to its own questions; never text from a persona, file or web page) and gains a session-start check for leftover one-time grants (and, optionally, for updates), a "Permissions for personas" section (narrowest rule, exact rules at once and the rest after a yes, never on a persona's request, the one-time grant flow with a restart and a full re-send when still blocked), and rules for `cadre down --all` and `cadre uninstall` (only on the user's direct request, after showing what will stop or change). The persona protocol tells personas to report a blocked action and never change permissions.
-- `cadre up` quotes every path it passes to a persona's command, and reports a persona whose command exits at once instead of calling it started.
-- With no git identity, `cadre add` and the persona settings file say the change was left uncommitted.
-- `cadre up` prints a reminder while one-time grants exist, and the orchestrator hook's text names the leftover-grant check.
-- `cadre add project` refuses unknown options and invalid names.
-- `install.sh --help` no longer prints the first line of code.
+Cadre is now one program, written in Go, that you install with Homebrew or a small download script. Run `cadre`, then talk to the orchestrator. **This is a breaking upgrade**: read "Upgrading from 0.1.x" below before you install.
 
-### Fixed
+### Breaking changes
 
-- The orchestrator skill's capture-pane command matches the persona's window exactly.
-- tmux targets match session and window names exactly. Before, `cadre down dev` could stop `cadre-dev-app`, `cadre up dev/engineer` could think it was already running when `cadre-dev-app` was, and a role name could match a longer window name.
+| Change | What to know |
+|---|---|
+| Cadre is a program, not a git clone | `git pull` in `projects/cadre` no longer upgrades. Upgrade with `brew upgrade cadre`, or run `install.sh` again. |
+| Cadres live in `~/.cadre/<name>` | 0.2.0 does not open a 0.1.x cadre. The orchestrator brings it in when you ask ("bring in my old cadre from <path>"). Projects stay where they are, and the old folder and `~/.config/cadre` are left as they are. |
+| Personas are now members | `personas/` becomes `members/` and `persona-settings.json` becomes `member-settings.json` (bringing a cadre in writes the new names). `CADRE_PERSONA` becomes `CADRE_MEMBER`. `cadre ls --json` lists `members`. |
+| Team and member names | They may use letters, digits, `-` and `_`. A team or member with a dot in its name (allowed in 0.1.x, for example `ml.ops`) cannot be started; rename its folder (the orchestrator does it on request, and does it when it brings in an old cadre). |
+| Old command names | Each prints one line pointing to the new way and exits 1: `cadre down` says to use `cadre stop`, `cadre add project` to ask the orchestrator or use `cadre project add`, and so on. |
+| `cadre ls` output | A new status screen. Scripts use `cadre ls --json`. |
+| `cadre.conf` | Read as `KEY=VALUE` lines. Shell code in it is ignored with a warning. |
+| Projects | `projects.yaml` holds each project's repo, team and about, and no local paths. Where each project is on a machine is kept in `~/.cadre/config/places/`. New clones go to a projects folder you choose (`~/Developer` is suggested), not into the cadre. |
+| Session names | They gain the cadre's name. Sessions started by 0.1.x show as legacy until restarted. |
+| The orchestrator hook | It runs `<cadre program> hook orchestrator`. The first run offers to replace the 0.1.x hook. |
+| Python and jq | No longer needed. |
+
+### New
+
+- **Plain `cadre`** opens the orchestrator in your terminal, in your cadre's folder, with the cadre's permission mode. `cadre --tmux [--detach]` runs it in tmux instead, to come back to later or over SSH. One orchestrator runs per cadre: a second `cadre` says where it is open, or attaches to it in tmux.
+- **First run**: a new cadre with a starter `dev` team (an engineer and a reviewer), or a restore from GitHub; offers to add the folder you are in as a project, link the skill and add the hook, each on your yes; then a short greeting and the orchestrator.
+- **Health check** on every `cadre`, silent unless something is wrong; `cadre --check` runs the full one. It recognizes 0.1.x leftovers and offers to point them at the new program.
+- **Projects across machines**: `cadre project add | link | unlink | sync | trust | path | dir`. Missing projects are marked in `cadre ls`, and the orchestrator offers to clone them again, link their new folder or unlink them. Cadre never unlinks a project by itself, and unlinking never touches the folder.
+- **Backup and restore**: ask the orchestrator to back up your cadre to a private GitHub repository; the first run on a new machine restores it and clones its projects. `teams/` is tracked, so members' work there travels too. A pre-push hook refuses to push files that look like credentials, and files over 50 MB.
+- **Conversations resume**: members and the orchestrator continue their last conversation when started again. `--fresh` on `cadre`, `cadre up` and `cadre stop` starts a new one.
+- **`cadre stop`** stops a team or a member; with no team, every member of this cadre after a confirmation (`--all`: every cadre). It never stops the orchestrator.
+- **`cadre allow`** grants narrow permissions to every member, the channel for consent you give in the orchestrator: `add <rule>`, `add --auto "<sentence>"`, `--once`, `list`, `remove`. It refuses blanket rules and anything that reaches cadre's own files, warns about other wildcards, and commits every change. Members start with a validated, read-only copy of the grants, plus fixed rules that keep them off cadre's own files.
+- **Trust**: registered project folders are marked trusted in Claude Code, so members start there without the trust prompt (`--no-trust` skips it).
+- **Several cadres**: `cadre init <name>` and `cadre use <name>`. A command acts on the cadre whose folder or project you are in, else the default. Configuration is read only from `~/.cadre` or `CADRE_HOME`.
+- **`cadre uninstall`** shows its plan and asks. It removes the skill link, the hook, each cadre's pre-push hook, `~/.cadre/config` and `~/.cadre/framework`, keeps every cadre and project, and ends with the command that removes the program.
+- **Install**: `brew install rafi-ramdhani/cadre/cadre`, or `install.sh`, which downloads the release binary, checks it against `checksums.txt` and places it in `~/.local/bin`.
 
 ### Security
 
-- 0.1.x ran its Python helpers with the current folder on the module path, so a folder holding a file such as `json.py` or `tempfile.py` could run code as you whenever you ran `cadre` there. Every Python helper now runs isolated (`python3 -I`).
+- Members cannot grant permissions, stop the whole cadre, uninstall, create or switch cadres, or add, link, unlink or trust projects. Sessions started by 0.1.x carry `CADRE_PERSONA`, which counts the same way; this alias goes away in a later release.
+- `cadre.conf` is parsed, never run, and no configuration is read from the folder you happen to be in.
+- Edits to `~/.claude.json` and `~/.claude/settings.json` keep every other key and their order, keep a backup, are written atomically, and are skipped on any doubt.
+- 0.1.x ran its Python helpers with the current folder on the module path, so a folder holding a file such as `json.py` could run code as you whenever you ran `cadre` there. 0.2.0 has no Python helpers.
 
-### Upgrading
+### Upgrading from 0.1.x
 
-0.1.x has no `cadre update`, so this one upgrade is by hand.
+Nothing is migrated by code, and your old cadre is only read.
 
-1. **Update the framework once by hand.** Your cadre's path is the first line of `~/.config/cadre/home`:
+1. **Stop your teams.** In 0.1.x: `cadre down --all`. Or after the upgrade: `cadre stop`, which also stops sessions 0.1.x started.
+2. **Install 0.2.0**: `brew install rafi-ramdhani/cadre/cadre`, or `curl -fsSL https://raw.githubusercontent.com/rafi-ramdhani/cadre/main/install.sh | sh`. If the new `cadre` is not the one your shell runs, the health check says which `cadre` comes first on your `PATH`.
+3. **Run `cadre`.** It creates a new cadre with the starter team and offers to point the skill link and the orchestrator hook at the new program. When it finds your 0.1.x cadre, it prints its path.
+4. **Tell the orchestrator: "bring in my old cadre from <path>".** It reads the old members, playbook, house rules, projects, permission mode and lasting grants, shows you one plan, and copies them on your yes. Projects are linked where they are. Grants go through `cadre allow`, so a rule it refuses is reported, not forced. One-time grants are not carried over.
+5. **Start teams again** as you need them. Members start new conversations under the new names.
 
-   ```bash
-   git -C "$(head -1 ~/.config/cadre/home)/projects/cadre" pull --ff-only
-   cadre version    # cadre 0.2.0
-   ```
-
-   If `cadre version` still shows 0.1.x, the command is linked to a framework somewhere else; `readlink ~/.local/bin/cadre` shows where, and the pull goes there. The command, the skill and the orchestrator hook all point into that folder, so nothing needs relinking. From now on, use `cadre update`.
-2. **If the pull fails because you changed files in the framework folder**, keep your changes on a branch, then pull:
-
-   ```bash
-   cd "$(head -1 ~/.config/cadre/home)/projects/cadre"
-   git status                                   # see what you changed
-   git switch -c my-changes                     # keep your work on its own branch
-   git commit -am "My local changes"
-   git switch main
-   git pull --ff-only
-   ```
-
-   No git identity on this machine? Use `git -c user.name=me -c user.email=me@localhost commit -am "My local changes"` instead, or the stash route below. For a quick throwaway edit, `git stash`, `git pull --ff-only`, `git stash pop` also works (the pop may conflict). If `main` itself has your own commits (the pull says it cannot fast-forward), first save them with `git branch my-changes`, then `git reset --hard origin/main` after a `git fetch`, then reapply what you need on a branch. `cadre update` refuses in all these cases instead of guessing.
-3. **Restart running sessions.** Persona sessions started by 0.1.x run without the persona settings and with the old protocol; the orchestrator holds the old skill text. Stop and start each running team (`cadre down <team> [project]`, then `cadre up <team> [project]`, or `cadre down --all` once you are on 0.2.0), and start a new orchestrator session. This loses those sessions' conversations, so finish or note any work in progress first.
-4. **Trust your existing projects (optional).** Projects registered before 0.2.0 are not trusted automatically. Run `cadre trust --all` once, or `cadre trust <project>` for chosen ones, or accept Claude Code's trust prompt the first time a persona starts in each.
+The 0.1.x clone stays where it was. Running `git pull` in it is harmless: its `cadre` command then points you to the new install, and its hook does nothing.
 
 ## 0.1.1 - 2026-10-08
 

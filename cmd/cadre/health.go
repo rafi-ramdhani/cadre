@@ -125,8 +125,8 @@ func skillFindings(rt runtime.Runtime) []finding {
 		if cadres.GetState(cadres.SkillKept) == target {
 			return nil
 		}
-		return []finding{{Problem: runtime.Problem{What: "the cadre skill links to " + display(target) + ", not to this cadre's (" + display(want) + ")",
-			Fix: "run cadre in a terminal and answer yes"}, ask: "Link the skill to this cadre?", yes: true, fix: link, declined: kept(target)}}
+		return []finding{{Problem: runtime.Problem{What: "the cadre skill links to " + display(target) + ", not to this cadre program's (" + display(want) + ")",
+			Fix: "run cadre in a terminal and answer yes"}, ask: "Link the skill to this cadre program?", yes: true, fix: link, declined: kept(target)}}
 	}
 	return nil
 }
@@ -161,12 +161,12 @@ func (e *env) hookFindings(rt runtime.Runtime) []finding {
 		if cadres.GetState(cadres.HookKept) == pair {
 			continue
 		}
-		f := finding{Problem: runtime.Problem{What: "the orchestrator hook runs " + display(p) + ", not this cadre (" + cadres.Tilde(bin) + ")",
+		f := finding{Problem: runtime.Problem{What: "the orchestrator hook runs " + display(p) + ", not this cadre program (" + cadres.Tilde(bin) + ")",
 			Fix: "run cadre in a terminal and answer yes"}}
 		if placed != nil {
 			f.Fix = "install cadre (with Homebrew or install.sh) and run it from there; " + placed.Error()
 		} else {
-			f.ask = "Point the hook at this cadre?"
+			f.ask = "Point the hook at this cadre program?"
 			f.fix = func() error { _, err := hooks.Set(bin); return err }
 			f.declined = func() { cadres.SetState(cadres.HookKept, pair) }
 		}

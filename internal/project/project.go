@@ -19,7 +19,7 @@ var nameRule = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // CheckName refuses a project name that could leave its folder.
 func CheckName(name string) error {
 	if !nameRule.MatchString(name) || strings.Contains(name, "..") {
-		return errors.New("project name may use letters, digits, ., - and _ (no ..)")
+		return errors.New("a project name may use letters, digits, ., - and _ (no ..)")
 	}
 	return nil
 }

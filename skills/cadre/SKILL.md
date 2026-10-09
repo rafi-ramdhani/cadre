@@ -34,13 +34,13 @@ At the start of every orchestrator session:
 ## Launcher
 
 ```bash
-cadre ls                        # teams, roles, what is running, and projects (missing ones marked)
+cadre ls                        # what is running, projects (missing ones marked) and other cadres
 cadre ls --json                 # the same data, for you to read
 cadre project add blog me/blog  # register a project and clone it into the projects folder
 cadre project add app --path ~/src/app  # register a folder the user already has
 cadre project link app ~/src/app  # where a registered project's folder is on this machine
 cadre project unlink app        # take a project out of the registry (its folder is kept)
-cadre project sync              # clone registry projects missing on this machine (and trust them)
+cadre project sync              # clone this cadre's projects that are not on this machine yet (and trust them)
 cadre project path my-app       # a project's local folder
 cadre project trust my-app      # trust a registered project's folder in Claude Code (or --all)
 cadre up dev my-app             # a team for a registered project: sessions <cadre>-dev-my-app-<role>

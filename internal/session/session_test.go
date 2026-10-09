@@ -158,7 +158,7 @@ func TestSessionCollisions(t *testing.T) {
 	tm.KillSession("cadre-b-dev")
 	// Team dev with project x-y and team dev-x with project y join the same way.
 	up(tm, c, stub, "dev", "pm", "x-y")
-	if err := scope.CheckSession("dev-x", "y"); err == nil || !strings.Contains(err.Error(), "join to the same session name") {
+	if err := scope.CheckSession("dev-x", "y"); err == nil || !strings.Contains(err.Error(), "which gives the same session name") {
 		t.Errorf("joined names: %v", err)
 	}
 	if err := scope.CheckSession("dev", "x-y"); err != nil {

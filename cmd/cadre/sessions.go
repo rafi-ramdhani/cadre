@@ -122,7 +122,7 @@ func locate(r *cadres.Resolved, arg string) (proj, dir, target string, err error
 	}
 	st, serr := os.Stat(arg)
 	if serr != nil || !st.IsDir() {
-		return "", "", "", fmt.Errorf("'%s' is neither a registry project nor a folder", arg)
+		return "", "", "", fmt.Errorf("'%s' is not a registered project or a folder", arg)
 	}
 	abs, _ := filepath.Abs(arg)
 	name := strings.Map(func(c rune) rune {

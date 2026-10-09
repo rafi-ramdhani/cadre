@@ -273,6 +273,6 @@ func (e *env) restartNote(r *cadres.Resolved) {
 	}
 	if generic {
 		e.say("  %scadre stop <team> [project] && %scadre up <team> [project]", pin, pin)
-		e.say("  (session cadre-<team>-<project> is team <team>, project <project>)")
+		e.say("  (a 0.1.x session cadre-<team>-<project> is team <team>, project <project>)")
 	}
 }

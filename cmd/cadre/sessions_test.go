@@ -158,7 +158,7 @@ func TestLegacySessionsInLs(t *testing.T) {
 		t.Errorf("up: %q", out)
 	}
 	out = must(t, "ls", "--all")
-	if !strings.Contains(out, "legacy sessions (from before cadre names") || !strings.Contains(out, "cadre-dev: dev-engineer") {
+	if !strings.Contains(out, "legacy sessions (started by cadre 0.1.x") || !strings.Contains(out, "cadre-dev: dev-engineer") {
 		t.Errorf("ls --all:\n%s", out)
 	}
 }

@@ -105,7 +105,7 @@ func (s Scope) CheckSession(team, project string) error {
 	home := s.T.Option(name, "@cadre_home")
 	switch {
 	case home == "":
-		return fmt.Errorf("tmux session %s is a legacy session from before cadre names, not cadre %s's; stop it, or rename a team or this cadre's folder", name, s.Name)
+		return fmt.Errorf("tmux session %s is a legacy session started by cadre 0.1.x, not cadre %s's; stop it, or rename a team or this cadre's folder", name, s.Name)
 	case home != s.Path:
 		return fmt.Errorf("tmux session %s belongs to cadre %s (%s), not cadre %s (%s); rename a team or one of the cadre folders", name, filepath.Base(home), home, s.Name, s.Path)
 	}
@@ -115,7 +115,7 @@ func (s Scope) CheckSession(team, project string) error {
 		if p != "" {
 			held += " for project " + p
 		}
-		return fmt.Errorf("tmux session %s holds team %s, whose names join to the same session name; rename a team or project", name, held)
+		return fmt.Errorf("tmux session %s already holds team %s, which gives the same session name; rename a team or project", name, held)
 	}
 	return nil
 }
@@ -138,7 +138,7 @@ func (s Scope) CheckMember(session, window, member string) error {
 func Group(i Info, known map[string]string) string {
 	switch {
 	case i.Home == "":
-		return "legacy sessions (from before cadre names)"
+		return "legacy sessions (started by cadre 0.1.x)"
 	case known[i.Home] != "":
 		return "cadre " + known[i.Home]
 	}

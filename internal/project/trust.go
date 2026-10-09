@@ -49,7 +49,7 @@ func TrustRefusal(dir string, protected []string) string {
 	}
 	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 	if err != nil || paths.Real(strings.TrimSpace(string(out))) != dir {
-		return "it is not the top folder of a git repo"
+		return "it is not the top folder of a git repository"
 	}
 	return ""
 }

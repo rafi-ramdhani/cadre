@@ -2,154 +2,125 @@
 
 [![CI](https://github.com/rafi-ramdhani/cadre/actions/workflows/ci.yml/badge.svg)](https://github.com/rafi-ramdhani/cadre/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**A team of Claude Code sessions that you lead from one conversation.**
+**Plug-and-play orchestration for Claude Code.**
 
-Cadre turns Claude Code into a small standing team. You talk to one session, the orchestrator. It hands work to member sessions (a PM, an engineer, a reviewer, a researcher, a tutor, whatever you define), each a full Claude Code session in its own tmux window with its own role and working folder. It passes results between them and reports back to you. When the work is interactive, you attach to a member's window and talk to it directly.
+Run `cadre`, then talk to it. Cadre opens Claude Code as an orchestrator that runs a small team for you: an engineer that builds on a branch, a reviewer that checks the work, and any other member you ask for. Each member is its own Claude Code session in tmux. The orchestrator hands out the work, passes results between members and reports back to you.
 
-```
-you ── orchestrator ──┬── work-dev-my-app-pm         writes the spec
-                      ├── work-dev-my-app-engineer   builds it on a branch
-                      ├── work-dev-my-app-reviewer   reviews the branch
-                      └── work-research-researcher   gathers sources
-```
+<!-- The demo GIF is recorded from docs/demo.tape; see the comments at its top. -->
+<!-- ![cadre in a terminal](docs/demo.gif) -->
 
-Cadre is a starting point, not a fixed product. `install.sh` generates **your own cadre**, a folder you name, with starter members and a playbook. From there it grows with you: new teams, new members, new projects, your own routing rules.
+**Why not subagents?** Members are full, long-lived Claude Code sessions with their own context: you can open one and talk to it directly, and they keep working across days.
 
 > Cadre is an independent project. It is not affiliated with or endorsed by Anthropic.
 
-## Install
+## First steps
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rafi-ramdhani/cadre/main/install.sh | bash -s -- my-cadre
+brew install rafi-ramdhani/cadre/cadre
+cadre                     # set up your cadre and open the orchestrator, then talk to it
+cadre ls                  # what runs, and your projects
+cadre attach dev my-app   # watch a team at work, or talk to it
+cadre stop                # stop the members (asks first)
 ```
 
-One command checks your tools, generates `~/Documents/my-cadre` from the template, places the framework inside it, links the `cadre` command and the orchestrator skill, and asks whether every new Claude Code session should start as the orchestrator. Then:
+The first `cadre` asks a name and a yes or two, then opens the orchestrator with a ready team. Tell it which repo to work on ("work on github.com/you/app"), then what to do ("add CSV export"). Everything else is a request in plain words:
+
+- "add a designer to the team"
+- "allow the members to run `npm test`"
+- "back up my cadre to GitHub"
+- "stop the dev team"
+
+**Without Homebrew**, download the release binary to `~/.local/bin/cadre` (it checks the checksum, and running it again upgrades):
 
 ```bash
-cd ~/Documents/my-cadre && claude           # talk to the orchestrator
-cadre add project my-app you/my-app          # register a repo and clone it into projects/
+curl -fsSL https://raw.githubusercontent.com/rafi-ramdhani/cadre/main/install.sh | sh
 ```
 
-Ask the orchestrator for something like *"add CSV export to my-app"* and it runs the dev pipeline: spec, build, review, fix.
-
-**On a new machine**, restore your cadre and every project in it:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/rafi-ramdhani/cadre/main/install.sh | bash -s -- --from you/my-cadre
-```
-
-Installer options: `--dir <parent>` for another location, `--orchestrator-default` or `--no-hook` to answer the hook question up front, `--yes` to ask nothing, `--link-only` to relink after moving the framework. `install.sh --help` lists them all.
+**On a new machine**, run `cadre` and choose "restore": it clones your cadre from its GitHub backup and clones its projects.
 
 ### Requirements
 
-- [Claude Code](https://claude.com/claude-code) with cross-session messaging (`SendMessage`, `ListAgents`) and the `--name` and `--append-system-prompt-file` flags
-- macOS or Linux with bash, git, tmux and python3
-- jq, for the optional orchestrator hook
-- gh (optional), for cloning private repos
+- macOS or Linux
+- [Claude Code](https://claude.com/claude-code), installed and logged in
+- tmux 3.2 or newer, and git (Homebrew installs tmux with cadre, and git too on Linux)
+- gh (optional), to back up your cadre to GitHub
 
-## What you get
-
-```
-my-cadre/                     your cadre: its own git repo, yours to grow
-├── playbook.md               your teams, pipelines and routing rules
-├── projects.yaml             the project registry
-├── members/<team>/<role>.md one member per file
-├── teams/<team>/             notes and outputs of teams without a project
-├── cadre.conf                settings, such as the member permission mode
-├── .claude/                  member grants (cadre allow) and generated prompts (build/)
-└── projects/                 your project repos, each still its own git repo
-    ├── my-app/
-    └── cadre/                the framework itself
-```
-
-- **Everything you work on lives in one folder.** Projects are cloned into `projects/` but stay independent repos; your cadre's git ignores that folder and records only the links in `projects.yaml`. `cadre sync` re-clones them anywhere.
-- **The playbook is yours.** It tells the orchestrator which team handles what and in which order. The starter version has a dev team (pm, engineer, reviewer, designer) and a research team (researcher, skeptic, writer, editor).
-- **The framework stays generic.** It lives in `projects/cadre` and updates with `cadre update`; your members and playbook are never touched.
+`cadre` checks these when it starts and says how to fix anything missing.
 
 ## Commands
 
 ```bash
-cadre ls                        # teams, roles and what is running
-cadre projects                  # the registry
-cadre up dev my-app             # the dev team, working inside projects/my-app
-cadre up dev/engineer my-app    # one member
-cadre up research               # a team without a project
-cadre attach dev my-app         # watch a team or talk to it
-cadre down dev my-app           # stop it
-cadre down --all                # stop every cadre session (asks first; --yes skips)
-cadre add project <name> <repo> [team] [about]   # also trusts its folder (--no-trust skips)
-cadre trust <project> | --all   # trust registered projects added before 0.2.0
-cadre allow add '<rule>'        # grant a narrow permission to every member (list, remove, --once, --auto)
-cadre add team <team>
-cadre add member <team>/<role>
-cadre sync                      # clone registry projects missing on this machine, and trust them
-cadre init <name>               # generate another cadre from the template
-cadre use <dir>                 # make a cadre the default (used outside every cadre folder)
-cadre which                     # the cadre this folder uses, and why
-cadre cadres                    # every cadre on this machine (add <dir>, remove <name>)
-cadre update                    # update the framework (--check only looks)
-cadre version
-cadre uninstall                 # undo the install (asks first; --dry-run shows the plan)
+cadre                       # the orchestrator, in this terminal (--fresh starts a new conversation)
+cadre --tmux [--detach]     # the orchestrator in tmux, to come back to later (also over SSH)
+cadre ls [--all]            # what runs, your projects, and your other cadres
+cadre attach [team] [project]   # watch or talk to a team; with no team, the orchestrator in tmux
+cadre stop [team[/role]] [project]   # stop a team; with no team, every member of this cadre (asks first)
+cadre help [advanced]       # the commands; advanced lists the ones the orchestrator runs
+cadre --version
+cadre uninstall             # remove what cadre set up (asks first; keeps your cadres and projects)
 ```
 
-The orchestrator runs these for you; they are there when you want to drive by hand.
+The orchestrator runs the advanced commands for you (projects, starting members, permissions). `cadre help advanced` lists them, and [docs/guide.md](docs/guide.md) explains them.
 
 ## How it works
 
-- **Members** are Markdown files. At launch, the framework's shared protocol (how to receive work and reply), your cadre's house rules and the member are joined into one prompt and passed to `claude --append-system-prompt-file`, so each member keeps the full Claude Code toolset and your `CLAUDE.md`.
-- **Sessions** run in tmux: `cadre-<cadre>-<team>` or `cadre-<cadre>-<team>-<project>`, one window per role, each named `<cadre>-<team>[-<project>]-<role>` so the orchestrator can address it with `SendMessage`. The cadre's name keeps two cadres with the same team apart.
-- **The orchestrator** is any Claude Code session using the `cadre` skill. With the optional SessionStart hook, every new session starts as the orchestrator; member sessions and sessions started with `CADRE_OFF=1 claude` are skipped.
+- **Your cadre** is a folder, `~/.cadre/<name>`, and a git repository. It holds the members (`members/<team>/<role>.md`, plain Markdown), the playbook the orchestrator follows, the list of projects, and the grants members get. The orchestrator commits every change, and pushes when you have a backup.
+- **Projects stay where you keep them.** The cadre records each project's repository; each machine records where the folder is. New clones go to a projects folder you choose once (`~/Developer` is suggested).
+- **Members** run in tmux, one window each, in their project's folder. Each starts with the shared protocol (how to receive work and reply), the member's file, and the grants you gave. They keep their conversations: a member started again resumes where it was.
+- **The orchestrator** is a Claude Code session with the cadre skill. `cadre` opens it in your cadre's folder. With the optional hook, every new Claude Code session starts as the orchestrator (`CADRE_OFF=1 claude` starts a plain one).
 - **Project rules** belong in each project's own `CLAUDE.md`, so every member working there follows them.
 
-See [docs/guide.md](docs/guide.md) for writing members, shaping the playbook, the registry format, and troubleshooting.
+## Costs, permissions and accounts
 
-## Costs and permissions
+**Every member is a full Claude Code session.** Three running members use roughly three times the usage of one. The orchestrator starts only the members a task needs and offers to stop them afterwards.
 
-**Every member is a full Claude Code session.** Five running members use roughly five times the usage of one. The orchestrator starts only the members a task needs and offers to stop them afterwards.
+**Permissions stay with you.** A message from the orchestrator never counts as your consent in a member. When you tell the orchestrator "allow the members to push to main in my-app", it records a narrow rule with `cadre allow`, which every member starts with. Blanket rules, and rules that reach cadre's own files, are refused; members cannot grant themselves anything. Members run in the permission mode set in your cadre's `cadre.conf` (default: `default`); choose `auto` or another mode deliberately.
 
-**Permission mode is your call.** Members run in the mode set in `cadre.conf` (default: `default`). Cross-session messages are delivered without approval only when the orchestrator and the member run in the same permission-mode class; otherwise they wait for you in the member's window. Choose `auto` or another mode deliberately, knowing the members act on messages from the orchestrator.
+**Registered projects are trusted** in Claude Code, so members start there without the trust prompt. Trust also lets a repo's own `.claude/settings.json` take effect, so add only repos you trust (or pass `--no-trust`).
 
-**Grants reach members through `cadre allow`.** When you tell the orchestrator "allow the members to push to main in my-app", consent stays in the orchestrator: a message from it never counts as your consent in a member. `cadre allow add 'Bash(git push origin HEAD:main)'` records the rule in your cadre's member settings file, which every member starts with. It refuses blanket rules (`*`, a bare `Bash`, `Edit`, `Write`, `Read`, `WebFetch`, `NotebookEdit` or `PowerShell`, a lone wildcard, a whole MCP server, a wildcard in the program name, a shell, interpreter or wrapper with a wildcard) and anything that targets the settings or `cadre allow` itself, warns about other wildcards, and commits every change. Members cannot run it. `--once` marks a grant for removal after the task, and `--auto` adds a plain-English allowance for auto mode.
+**One Claude account at a time.** Cadre uses the account Claude Code is logged in with. Tools such as claude-swap can switch it; a switch applies to every cadre on the machine. After a switch, restart: `cadre stop`, close the orchestrator, then run `cadre` again. Conversations resume.
 
-**Registered projects are trusted.** `cadre add project` and `cadre sync` mark each project's folder as trusted in Claude Code, so members start there without the trust prompt. Trust also lets that repo's own `.claude/settings.json` rules and hooks take effect, so register only repos you trust, or pass `--no-trust`.
+[SECURITY.md](SECURITY.md) has the details.
 
-## Upgrading from 0.1.x
+## Coming from 0.1.x
 
-0.1.x has no `cadre update`, so the first upgrade is one command by hand (your cadre's path is the first line of `~/.config/cadre/home`):
+0.2.0 is a **breaking upgrade**: cadre is now one program instead of a git clone, and cadres live in `~/.cadre`. Nothing is migrated by code, and your old cadre is read, never changed.
 
-```bash
-git -C "$(head -1 ~/.config/cadre/home)/projects/cadre" pull --ff-only
-cadre version    # cadre 0.2.0
-```
+1. Stop your 0.1.x teams (`cadre down --all` in 0.1.x, or `cadre stop` after the upgrade, which also stops sessions 0.1.x started).
+2. Install 0.2.0: `brew install rafi-ramdhani/cadre/cadre` (or the `install.sh` above).
+3. Run `cadre`. It creates a new cadre with the starter team, and offers to point the skill link and the orchestrator hook at the new program.
+4. Tell the orchestrator: **"bring in my old cadre from <path>"**. It reads the old members, playbook, projects and grants, shows you one plan, and copies them on your yes. Projects stay where they are.
+5. Start teams again as you need them.
 
-If the pull fails because you changed files in the framework folder, keep them on a branch first (`git switch -c my-changes && git commit -am "My local changes" && git switch main`; with no git identity, use `git -c user.name=me -c user.email=me@localhost commit -am ...`, or `git stash` before the pull and `git stash pop` after), then pull. Then restart your running sessions (`cadre down <team> [project]` and `cadre up <team> [project]`, and a new orchestrator session), and optionally run `cadre trust --all` to trust the projects you registered before. The [CHANGELOG](CHANGELOG.md) has the full steps. From then on, `cadre update` does it.
+The [CHANGELOG](CHANGELOG.md) lists every change to know about.
 
 ## What gets installed where
 
-Cadre installs no programs or packages. `install.sh` only checks that git, tmux, python3 and Claude Code are there, notes when jq (needed for the optional hook) is missing, and says how to get what is missing. Everything cadre creates is listed below.
+Cadre needs no runtime besides Claude Code, tmux and git. Everything it creates is listed here. `$CLAUDE_CONFIG_DIR` replaces `~/.claude` (and holds `.claude.json`) when it is set.
 
 | What | Where | Created by | `cadre uninstall` |
 |---|---|---|---|
-| Your cadre: `playbook.md`, `projects.yaml`, `cadre.conf`, `members/`, `teams/`, and its own git history | the folder you named, for example `~/Documents/my-cadre` | the installer or `cadre init` | Kept: it is yours |
-| Your projects, and the framework itself at `projects/cadre` | `<cadre>/projects/` (or a project's own `path`) | the installer, `cadre add project`, `cadre sync` | Kept |
-| Member permissions: `member-settings.json` and its list of one-time grants, `member-settings.once` | `<cadre>/.claude/` | the first `cadre up` or `cadre allow` | Kept, as part of your cadre |
-| The `cadre` command (a link) | `~/.local/bin/cadre` | the installer | Removed, if it points to this framework |
-| The orchestrator skill (a link) | `~/.claude/skills/cadre` | the installer | Removed, if it points to this framework |
-| The orchestrator hook (optional) and a backup of the file before it was added | one SessionStart entry in `~/.claude/settings.json` (the file is created if missing); `~/.claude/settings.json.bak-cadre` | the installer, if you said yes | Hook removed (with a new backup, `settings.json.bak-cadre-uninstall`); backups kept |
-| The active-cadre pointer and the member settings fingerprint | `~/.config/cadre/` (`home`, `member-settings.sha256`) | the installer, `cadre use`, `cadre up`, `cadre allow` | Removed |
-| The list of known cadres | `~/.config/cadre/cadres` | the installer, `cadre init`, `cadre use`, `cadre cadres add`; seeded from the default on the first command after an upgrade | Removed (the cadre folders are kept) |
-| Generated member prompts and the settings copy each member starts with | `<cadre>/.claude/build/` (ignored by the cadre's git) | `cadre up`, rebuilt at every start | Kept, as part of your cadre (0.1.x kept them in `~/.cache/cadre/`, which uninstall removes) |
-| Workspace trust for registered projects, and a backup | entries in `~/.claude.json`; `~/.claude.json.bak-cadre` | `cadre add project`, `cadre sync`, `cadre trust` | Kept: the entries are shared with your other Claude Code sessions, and you may have trusted those folders yourself |
+| The `cadre` program | Homebrew's `bin`, or `~/.local/bin/cadre` | `brew install`, or `install.sh` | Kept: it ends by printing the command that removes it |
+| Your cadres: members, playbook, projects list, `cadre.conf`, grants (`.claude/member-settings.json`) and `teams/` | `~/.cadre/<name>/`, each its own git repository | the first run, or the orchestrator | Kept |
+| Generated files: prompts, settings copies, conversation records, locks | `~/.cadre/<name>/.claude/build/`, ignored by the cadre's git | every start | Kept, with the cadre |
+| The pre-push check that keeps credentials and large files out of backups | `~/.cadre/<name>/.git/hooks/pre-push` | the first run, and put back by every `cadre` | Removed |
+| This machine's settings: the default cadre, the projects folder, where each project is, the grants fingerprint, the health check's state | `~/.cadre/config/` | `cadre` | Removed |
+| The orchestrator skill and prompts | `~/.cadre/framework/`, rewritten when they differ from the program's | every `cadre` | Removed |
+| The skill link | `~/.claude/skills/cadre`, pointing at `~/.cadre/framework/skills/cadre` | the first run, on your yes | Removed, if it points at this cadre |
+| The orchestrator hook (optional) | one SessionStart entry in `~/.claude/settings.json`; backup `settings.json.bak-cadre` | the first run, on your yes | Removed, if it runs this cadre (other hooks stay) |
+| Workspace trust for your projects | entries in `~/.claude.json`; backup `.claude.json.bak-cadre` | adding, linking or cloning a project | Kept: the entries are shared with your own sessions |
+| Your projects | wherever you keep them; new clones in your projects folder | you, or the orchestrator | Kept |
+| Members' conversations | Claude Code's own folder | Claude Code | Kept |
 
-`cadre uninstall --dry-run` shows what would be removed on your machine without changing anything. What it keeps is printed with its path, so you can delete it by hand; deleting the cadre folder also deletes its projects and the framework inside it. `~/.cache` is `$XDG_CACHE_HOME` when that is set, and `~/.claude.json` lives in `$CLAUDE_CONFIG_DIR` when that is set.
+Backups are written before the first change and never overwritten.
 
 ## Uninstall
 
-`cadre uninstall` shows its plan, asks, then stops every cadre session and removes what the installer wired in: the `cadre` command and skill links (only when they point to this framework), the orchestrator hook in `~/.claude/settings.json` (backup: `settings.json.bak-cadre-uninstall`), `~/.config/cadre/` and the build cache 0.1.x kept in `~/.cache/cadre/`. It keeps your cadre folder, your projects, the framework clone, backups and Claude Code trust entries, and prints their paths; delete those by hand if you want them gone. `--dry-run` shows the plan only, `--yes` skips the question.
+`cadre uninstall --dry-run` shows the plan. `cadre uninstall` shows it, asks, stops the members, and removes the skill link and the hook (only where they point at this cadre), each cadre's pre-push check, `~/.cadre/config` and `~/.cadre/framework`. It keeps every cadre and project, and ends with the command that removes the program itself (`brew uninstall cadre`, or the `rm` for `install.sh`). To remove a cadre too, delete its folder in `~/.cadre`.
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Run `tests/smoke.sh` before sending a change; it needs no Claude account and never touches your own setup.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

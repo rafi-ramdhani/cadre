@@ -306,3 +306,43 @@ func TestSyncPlacesProjects(t *testing.T) {
 		t.Errorf("ls after sync:\n%s", out)
 	}
 }
+
+// A registry can come from another machine or a shared backup, and a
+// member with a shell can write it: a name that climbs out of the projects
+// folder or nests is left out everywhere, with a warning, and nothing is
+// cloned for it, whoever runs sync.
+func TestRegistryNamesNeverLeaveTheProjectsFolder(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	must(t, "project", "dir", "~/Code")
+	app := bareRepo(t, "app")
+	bad := []string{"../.vim/pack/x/start/evil", "a/b", "/abs", "~/evil", ".hidden", "x..y"}
+	var text string
+	for _, n := range bad {
+		text += n + ":\n  repo: " + app + "\n"
+	}
+	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte(text+"good:\n  repo: "+app+"\n"), 0o644)
+	for _, member := range []string{"work-dev-engineer", ""} {
+		t.Setenv("CADRE_MEMBER", member)
+		code, out, errOut := call("project", "sync", "--no-trust")
+		if code != 0 || !strings.Contains(out, "good: ") || strings.Contains(out, "evil") || strings.Contains(out, "a/b") {
+			t.Errorf("sync (member %q): %d\n%s%s", member, code, out, errOut)
+		}
+		if !strings.Contains(errOut, `projects.yaml has an entry named "../.vim/pack/x/start/evil", which is not a project name`) {
+			t.Errorf("no warning: %q", errOut)
+		}
+	}
+	for _, p := range []string{home + "/.vim", home + "/Code/a", home + "/Code/abs", home + "/evil", home + "/Code/.hidden", home + "/Code/x..y"} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("%s was made", p)
+		}
+	}
+	if places := readFile(t, home+"/.cadre/config/places/work.json"); strings.Contains(places, "evil") || !strings.Contains(places, `"good"`) {
+		t.Errorf("places:\n%s", places)
+	}
+	if out := must(t, "ls"); !strings.Contains(out, `entry named "a/b", which is not a project name`) {
+		t.Errorf("ls:\n%s", out)
+	}
+	refused(t, "", "project", "path", "../.vim/pack/x/start/evil")
+	refused(t, "", "project", "link", "a/b", home+"/Code/good")
+}

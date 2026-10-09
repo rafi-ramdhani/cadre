@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
@@ -14,11 +13,9 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/registry"
 )
 
-var nameRule = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-
 // CheckName refuses a project name that could leave its folder.
 func CheckName(name string) error {
-	if !nameRule.MatchString(name) || strings.Contains(name, "..") {
+	if !registry.ValidName(name) {
 		return errors.New("a project name may use letters, digits, ., - and _ (no ..)")
 	}
 	return nil
@@ -58,36 +55,49 @@ func ghSignedIn() bool {
 }
 
 // SameRepo reports whether two spellings name one repository: the same
-// owner/repo, and the same host when both name one (owner/repo alone names
-// none).
+// host and path (owner/repo on GitHub), compared without case, a .git
+// suffix or a port. owner/repo alone is on github.com, as Clone reads it.
+// A local path or a file:// URL matches only itself.
 func SameRepo(a, b string) bool {
-	if OwnerRepo(a) != OwnerRepo(b) || OwnerRepo(a) == "" {
-		return false
-	}
-	ha, hb := host(a), host(b)
-	return ha == "" || hb == "" || ha == hb
+	ia, ib := repoID(a), repoID(b)
+	return ia != "" && ia == ib
 }
 
-// host is the host a repository URL names, lower case, or "".
-func host(repo string) string {
-	r := strings.TrimSpace(repo)
+// repoID is what SameRepo compares: "<host>/<path>" in lower case, or
+// "local:<path>" for a repository on disk, or "" when there is none.
+func repoID(repo string) string {
+	r := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(repo), "/"), ".git")
+	var host, rest string
 	switch {
+	case r == "":
+		return ""
+	case strings.HasPrefix(strings.ToLower(r), "file://"):
+		return "local:" + filepath.Clean(r[len("file://"):])
+	case strings.HasPrefix(r, "/") || strings.HasPrefix(r, ".") || strings.HasPrefix(r, "~"):
+		return "local:" + filepath.Clean(r)
 	case strings.Contains(r, "://"):
 		r = r[strings.Index(r, "://")+3:]
-		if at := strings.Index(r, "@"); at >= 0 && at < strings.Index(r+"/", "/") {
-			r = r[at+1:]
+		host, rest, _ = strings.Cut(r, "/")
+		if at := strings.LastIndex(host, "@"); at >= 0 {
+			host = host[at+1:]
 		}
-		r, _, _ = strings.Cut(r, "/")
-		r, _, _ = strings.Cut(r, ":")
-	case strings.Contains(r, ":") && !strings.HasPrefix(r, "/"):
-		r, _, _ = strings.Cut(r, ":")
-		if at := strings.LastIndex(r, "@"); at >= 0 {
-			r = r[at+1:]
+		host, _, _ = strings.Cut(host, ":")
+	case strings.Contains(r, ":") && !strings.Contains(r[:strings.Index(r, ":")], "/"):
+		// scp-like: [user@]host:owner/repo
+		host, rest, _ = strings.Cut(r, ":")
+		if at := strings.LastIndex(host, "@"); at >= 0 {
+			host = host[at+1:]
 		}
+	case strings.Count(r, "/") == 1:
+		host, rest = "github.com", r
 	default:
+		host, rest, _ = strings.Cut(r, "/")
+	}
+	rest = strings.Trim(rest, "/")
+	if host == "" || rest == "" {
 		return ""
 	}
-	return strings.ToLower(r)
+	return strings.ToLower(host + "/" + rest)
 }
 
 // OwnerRepo reduces a repository spelling (owner/repo, an https or ssh URL,
@@ -320,6 +330,12 @@ func Sync(c cadres.Cadre, projectsDir string, protected []string) ([]SyncResult,
 		where := cadres.Where(d)
 		if d == "" && projectsDir != "" {
 			d = filepath.Join(projectsDir, e.Name)
+			// Entries hold valid names only; a clone still never goes
+			// anywhere but straight into the projects folder.
+			if filepath.Dir(d) != filepath.Clean(projectsDir) {
+				out = append(out, SyncResult{Name: e.Name, State: "failed", Err: fmt.Errorf("not cloned: %s is not a folder name", e.Name)})
+				continue
+			}
 		}
 		r := SyncResult{Name: e.Name, Dir: d}
 		st, statErr := os.Stat(d)
@@ -421,18 +437,34 @@ func Unlink(c cadres.Cadre, name string) (dir string, notes []string, err error)
 	return dir, notes, err
 }
 
-// Found returns a folder in the projects folder whose origin is repo, for
-// a project missing on this machine, or "".
-func Found(projectsDir, repo string) string {
-	if projectsDir == "" || repo == "" {
+// Finder finds a clone of a repository in the projects folder, for a
+// project missing on this machine. It reads every folder's origin once,
+// on the first Find, however many projects it is asked about.
+type Finder struct {
+	dir     string
+	origins map[string]string // repoID of the origin: the first folder with it
+}
+
+// NewFinder makes a Finder for the projects folder dir ("" finds nothing).
+func NewFinder(dir string) *Finder { return &Finder{dir: dir} }
+
+// Find returns a folder in the projects folder whose origin is repo, or "".
+func (f *Finder) Find(repo string) string {
+	if f.dir == "" || repoID(repo) == "" {
 		return ""
 	}
-	entries, _ := os.ReadDir(projectsDir)
-	for _, d := range entries {
-		p := filepath.Join(projectsDir, d.Name())
-		if d.IsDir() && SameRepo(Origin(p), repo) {
-			return p
+	if f.origins == nil {
+		f.origins = map[string]string{}
+		entries, _ := os.ReadDir(f.dir)
+		for _, d := range entries {
+			p := filepath.Join(f.dir, d.Name())
+			if !d.IsDir() {
+				continue
+			}
+			if id := repoID(Origin(p)); id != "" && f.origins[id] == "" {
+				f.origins[id] = p
+			}
 		}
 	}
-	return ""
+	return f.origins[repoID(repo)]
 }

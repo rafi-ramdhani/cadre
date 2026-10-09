@@ -71,7 +71,7 @@ func runHookPrePush(e *env) int {
 // in every member's settings copy: when the member's session starts, or
 // starts over after /clear or /compact, it records the conversation id it
 // now has, so the next start resumes the right conversation. It writes
-// only a record of a cadre cadre knows, for a name cadre makes, and it
+// only a record of a cadre that cadre knows, for a name cadre makes, and it
 // never fails.
 func runHookSession(e *env) int {
 	name, home := os.Getenv("CADRE_MEMBER"), os.Getenv("CADRE_HOME")

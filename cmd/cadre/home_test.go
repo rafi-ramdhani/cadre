@@ -123,7 +123,7 @@ func TestProjectPath(t *testing.T) {
 		t.Errorf("project path: %q", out)
 	}
 	refused(t, "is missing: ~/Developer/gone is gone", "project", "path", "gone")
-	refused(t, "neither a registry project nor a folder", "project", "path", "nope")
+	refused(t, "is not a registered project or a folder", "project", "path", "nope")
 	// A project of the cadre resolves the cadre from inside it.
 	t.Chdir(home + "/Developer/app")
 	if out := must(t, "project", "path", "app"); strings.TrimSpace(out) != home+"/Developer/app" {

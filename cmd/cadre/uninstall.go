@@ -140,10 +140,10 @@ func runUninstall(e *env) int {
 		e.say("  every project")
 	}
 	if _, err := skills.Target(); err == nil && !skillOurs {
-		e.say("  the skill link %s, which points at another cadre", cadres.Tilde(skills.Path()))
+		e.say("  the skill link %s, which points at another cadre program", cadres.Tilde(skills.Path()))
 	}
 	if hookOthers {
-		e.say("  orchestrator hooks that run another cadre")
+		e.say("  orchestrator hooks that run another cadre program")
 	}
 	if len(legacy) > 0 {
 		e.say("  sessions started by cadre 0.1.x, left running: %s", joinNames(legacy))

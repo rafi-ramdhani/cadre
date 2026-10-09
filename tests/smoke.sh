@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 # End-to-end smoke test of the Go cadre binary. Runs everything in a
 # throwaway HOME with a stub agent and a private tmux server, so it never
-# touches a real setup. It is the parity contract of the rewrite (spec O.6):
-# sections are ported from tests/smoke-bash.sh as each step lands, with
-# section N's layout and section M's command names.
+# touches a real setup. It is the parity contract of the Go rewrite: every
+# feature has a section here.
 #
 #   tests/smoke.sh
-#
-# Not yet ported (their steps come later): plain cadre and the health
-# check (O-T5), update, uninstall and install (O-T6), resume, ctx and
-# compact (O-T7).
 
 set -euo pipefail
 
@@ -273,7 +268,7 @@ cadre project trust --all >/dev/null
 check "--all again changes nothing" test "$(mtime "$CFG")" = "$m"
 untrust() { py 'import json,sys; d=json.load(open(sys.argv[1])); [d["projects"].pop(k) for k in list(d["projects"]) if k.endswith("/"+sys.argv[2])]; json.dump(d, open(sys.argv[1], "w"))' "$CFG" "$1"; }
 mv "$HOME/Developer/t2" "$T/t2.away"; untrust t2
-check "--all: a missing project is skipped" bash -c "cadre project trust --all | grep -q 't2: missing locally'"
+check "--all: a missing project is skipped" bash -c "cadre project trust --all | grep -q 't2: not on this machine'"
 out=$(cadre project sync)
 check "sync clones and trusts" bash -c "grep -q 't2: cloned to $HOME/Developer/t2' <<<'$out' && grep -q 't2: trusted' <<<'$out'"
 check "sync: present projects left alone" grep -q "app: present" <<<"$out"

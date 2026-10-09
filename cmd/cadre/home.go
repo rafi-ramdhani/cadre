@@ -182,7 +182,7 @@ func runProjectPath(e *env) int {
 			e.say("%s", abs)
 			return 0
 		}
-		return e.fail("'%s' is neither a registry project nor a folder", e.args[0])
+		return e.fail("'%s' is not a registered project or a folder", e.args[0])
 	case err != nil:
 		return e.fail("%s", err)
 	}

@@ -18,7 +18,7 @@ import (
 // CheckName refuses a project name that could leave its folder.
 func CheckName(name string) error {
 	if !registry.ValidName(name) {
-		return errors.New("project name may use letters, digits, ., - and _ (no ..)")
+		return errors.New("a project name may use letters, digits, ., - and _ (no ..)")
 	}
 	return nil
 }

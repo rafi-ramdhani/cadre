@@ -123,7 +123,7 @@ func (c *Checker) rule(rule string) string {
 		refuse("refused: %s targets the member settings or cadre allow, which only the user changes", rule)
 	}
 	if strings.Contains(n, "cadre.conf") {
-		refuse("refused: %s reaches cadre.conf, which cadre runs as shell code; make that edit yourself", rule)
+		refuse("refused: %s reaches cadre.conf, which sets the permission mode of members; make that edit yourself", rule)
 	}
 	if strings.Contains(tool, "*") {
 		refuse("refused: %s puts a wildcard in the tool name; name one tool", rule)
@@ -402,11 +402,11 @@ func (c *Checker) path(rule, tool, spec string) string {
 	}
 	// A relative rule is read from the member's folder, which may be the cadre itself.
 	if named("cadre.conf") || (full == "" && reaches(spec, "cadre.conf")) {
-		refuse("refused: %s reaches %s/cadre.conf, which cadre runs as shell code; make that edit yourself", rule, c.Cadre)
+		refuse("refused: %s reaches %s/cadre.conf, which sets the permission mode of members; make that edit yourself", rule, c.Cadre)
 	}
 	for _, cadre := range c.Cadres {
 		if hit(cadre + "/cadre.conf") {
-			refuse("refused: %s reaches %s/cadre.conf, which cadre runs as shell code; make that edit yourself", rule, cadre)
+			refuse("refused: %s reaches %s/cadre.conf, which sets the permission mode of members; make that edit yourself", rule, cadre)
 		}
 	}
 	for _, f := range forms {

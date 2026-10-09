@@ -48,9 +48,9 @@ func init() {
 		// Visible.
 		{name: "", usage: "[--fresh]", summary: "open this cadre's orchestrator in this terminal", run: runPlain},
 		{name: "--tmux", usage: "[--detach]", summary: "open the orchestrator in tmux, to come back to later", run: runTmux},
-		{name: "ls", usage: "[--all]", summary: "what runs, your projects and your other cadres", run: runLs},
+		{name: "ls", usage: "[--all]", summary: "what is running, your projects and your other cadres", run: runLs},
 		{name: "attach", usage: "[team] [project]", summary: "watch or talk to a running team, or the orchestrator in tmux", run: runAttach},
-		{name: "stop", usage: "[team[/role]] [project] [--all] [--fresh]", summary: "stop a team; with no team, every team of this cadre (asks first)", run: runStop},
+		{name: "stop", usage: "[team[/role]] [project] [--all] [--yes] [--fresh]", summary: "stop a team; with no team, every member of this cadre (asks first)", run: runStop},
 		{name: "help", usage: "[advanced]", summary: "these commands; advanced lists the rest", run: runHelp},
 		{name: "--version", summary: "the version, and how cadre was installed", run: runVersion},
 		{name: "uninstall", usage: "[--yes | --dry-run]", summary: "remove cadre's skill link, hook and config (keeps your cadres and projects)", run: runUninstall},
@@ -61,11 +61,11 @@ func init() {
 
 		{name: "project add", usage: "<name> <repo> | <name> --path <dir>", summary: "clone a project into your projects folder, or link a folder", group: "Projects", run: runProjectAdd},
 		{name: "project link", usage: "<name> <dir>", summary: "set where a project's folder is on this machine", group: "Projects", run: runProjectLink},
-		{name: "project unlink", usage: "<name> [--untrust]", summary: "remove a project from the registry (its folder is kept)", group: "Projects", run: runProjectUnlink},
-		{name: "project sync", summary: "clone registry projects missing on this machine", group: "Projects", run: runProjectSync},
+		{name: "project unlink", usage: "<name> [--untrust]", summary: "remove a project from this cadre (its folder is kept)", group: "Projects", run: runProjectUnlink},
+		{name: "project sync", summary: "clone this cadre's projects that are not on this machine yet", group: "Projects", run: runProjectSync},
 		{name: "project trust", usage: "<name> | --all", summary: "mark project folders as trusted, so members start there without asking", group: "Projects", run: runProjectTrust},
 		{name: "project path", usage: "<name>", summary: "print a project's folder", group: "Projects", run: runProjectPath},
-		{name: "project dir", usage: "[<dir>]", summary: "where new clones go", group: "Projects", run: runProjectDir},
+		{name: "project dir", usage: "[<folder>]", summary: "where new clones go", group: "Projects", run: runProjectDir},
 
 		{name: "up", usage: "<team|team/role> [project|dir] [--fresh]", summary: "start a team or one member", group: "Sessions", run: runUp},
 
@@ -178,7 +178,6 @@ func runHelp(e *env) int {
 			}
 		}
 		e.say("\nAsk the orchestrator for everything else, in plain words.")
-		e.say("Commands act on the cadre of the project you are in, else your default cadre.")
 		e.say("All commands: cadre help advanced")
 		return 0
 	case len(e.args) == 1 && e.args[0] == "advanced":
@@ -191,6 +190,7 @@ func runHelp(e *env) int {
 				}
 			}
 		}
+		e.say("\nCommands act on the cadre of the folder or project you are in, else your default cadre.")
 		return 0
 	}
 	return e.fail("usage: cadre help [advanced]")

@@ -75,7 +75,7 @@ func TestProjectsFolderIsAskedOnce(t *testing.T) {
 	must(t, "init", "work")
 	repo := bareRepo(t, "app")
 	// Without a terminal: refused, with the suggestion.
-	refused(t, "the projects folder is not set; ask the user and run cadre project dir <folder> (suggested: ~/Developer)", "project", "add", "app", repo)
+	refused(t, "the projects folder is not set; set it with cadre project dir <folder> (suggested: ~/Developer)", "project", "add", "app", repo)
 	if strings.Contains(readFile(t, home+"/.cadre/work/projects.yaml"), "app") {
 		t.Error("a refused add was registered")
 	}
@@ -169,7 +169,7 @@ func TestProjectSyncAndTrust(t *testing.T) {
 		t.Errorf("second sync: %q", out)
 	}
 	out = must(t, "project", "trust", "--all")
-	if !strings.Contains(out, "app: already trusted") || !strings.Contains(out, "local: missing locally, skipped") {
+	if !strings.Contains(out, "app: already trusted") || !strings.Contains(out, "local: not on this machine, skipped") {
 		t.Errorf("trust --all: %q", out)
 	}
 	refused(t, "not a registered project", "project", "trust", "nope")

@@ -84,7 +84,7 @@ The orchestrator runs the advanced commands for you (projects, starting members,
 
 **Every member is a full Claude Code session.** Three running members use roughly three times the usage of one. The orchestrator starts only the members a task needs and offers to stop them afterwards.
 
-**Permissions stay with you.** A message from the orchestrator never counts as your consent in a member. When you tell the orchestrator "allow the members to push to main in my-app", it records a narrow rule with `cadre allow`, which every member starts with. Blanket rules, and rules that reach cadre's own files, are refused; members cannot grant themselves anything. Members run in the permission mode set in your cadre's `cadre.conf` (default: `default`); choose `auto` or another mode deliberately.
+**Permissions stay with you.** A message from the orchestrator never counts as your consent in a member. When you tell the orchestrator "allow the members to push to main in my-app", it records a narrow rule with `cadre allow`, which every member starts with. Blanket rules, and rules that reach cadre's own files, are refused; members cannot grant themselves anything. Members and the orchestrator run in the permission mode set in your cadre's `cadre.conf` (default: `default`); choose `auto` or another mode deliberately.
 
 **Registered projects are trusted** in Claude Code, so members start there without the trust prompt. Trust also lets a repo's own `.claude/settings.json` take effect, so add only repos you trust (or pass `--no-trust`).
 
@@ -113,16 +113,18 @@ Cadre needs no runtime besides Claude Code, tmux and git. Everything it creates 
 | The `cadre` program | Homebrew's `bin`, or `~/.local/bin/cadre` | `brew install`, or `install.sh` | Kept: it ends by printing the command that removes it |
 | Your cadres: members, playbook, projects list, `cadre.conf`, grants (`.claude/member-settings.json`) and `teams/` | `~/.cadre/<name>/`, each its own git repository | the first run, or the orchestrator | Kept |
 | Generated files: prompts, settings copies, conversation records, locks | `~/.cadre/<name>/.claude/build/`, ignored by the cadre's git | every start | Kept, with the cadre |
-| The pre-push check that keeps credentials and large files out of backups | `~/.cadre/<name>/.git/hooks/pre-push` | the first run, and put back by every `cadre` | Removed |
+| The pre-push check that keeps credentials and large files out of backups | `~/.cadre/<name>/.git/hooks/pre-push` | the first run, and put back by every `cadre` (see below) | Removed |
 | This machine's settings: the default cadre, the projects folder, where each project is, the grants fingerprint, the health check's state | `~/.cadre/config/` | `cadre` | Removed |
 | The orchestrator skill and prompts | `~/.cadre/framework/`, rewritten when they differ from the program's | every `cadre` | Removed |
 | The skill link | `~/.claude/skills/cadre`, pointing at `~/.cadre/framework/skills/cadre` | the first run, on your yes | Removed, if it points at this cadre |
-| The orchestrator hook (optional) | one SessionStart entry in `~/.claude/settings.json`; backup `settings.json.bak-cadre` | the first run, on your yes | Removed, if it runs this cadre (other hooks stay) |
+| The orchestrator hook (optional) | one SessionStart entry in `~/.claude/settings.json`; backup `settings.json.bak-cadre` | the first run, on your yes (see below) | Removed, if it runs this cadre (other hooks stay) |
 | Workspace trust for your projects | entries in `~/.claude.json`; backup `.claude.json.bak-cadre` | adding, linking or cloning a project | Kept: the entries are shared with your own sessions |
 | Your projects | wherever you keep them; new clones in your projects folder | you, or the orchestrator | Kept |
 | Members' conversations | Claude Code's own folder | Claude Code | Kept |
 
 Backups are written before the first change and never overwritten.
+
+The hooks that run the `cadre` program (the pre-push check, the orchestrator hook, and the session hook in each member's settings) name it only when it sits in a folder only you can write, as Homebrew and `install.sh` put it. A copy run from a temporary folder sets up none of them; the health check says so.
 
 ## Uninstall
 

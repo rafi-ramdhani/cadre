@@ -80,6 +80,10 @@ func TestFirstRunNewCadrei(t *testing.T) {
 	if !strings.Contains(out, greeting) {
 		t.Errorf("no greeting:\n%s", out)
 	}
+	// The README quotes this line.
+	if !strings.Contains(out, "Welcome to cadrei: a team of Claude Code helpers you lead from one chat.") {
+		t.Errorf("no welcome line:\n%s", out)
+	}
 	if ran := readFile(t, home+"/orch-ran"); !strings.Contains(ran, "--name\nmine-orchestrator\n") {
 		t.Errorf("the orchestrator did not open:\n%s", ran)
 	}

@@ -59,8 +59,8 @@ func init() {
 		{name: "migrate", usage: "[--dry-run]", summary: "move a 0.1.x cadre into ~/.cadre (projects stay put)", group: "Cadres", run: notBuilt("cadre migrate")},
 
 		{name: "project add", usage: "<name> <repo> | <name> --path <dir>", summary: "clone a project into your projects folder, or link a folder", group: "Projects", run: runProjectAdd},
-		{name: "project link", usage: "<name> <dir>", summary: "set where a project's folder is on this machine", group: "Projects", run: notBuilt("cadre project link")},
-		{name: "project unlink", usage: "<name> [--untrust]", summary: "remove a project from the registry (its folder is kept)", group: "Projects", run: notBuilt("cadre project unlink")},
+		{name: "project link", usage: "<name> <dir>", summary: "set where a project's folder is on this machine", group: "Projects", run: runProjectLink},
+		{name: "project unlink", usage: "<name> [--untrust]", summary: "remove a project from the registry (its folder is kept)", group: "Projects", run: runProjectUnlink},
 		{name: "project sync", summary: "clone registry projects missing on this machine", group: "Projects", run: runProjectSync},
 		{name: "project trust", usage: "<name> | --all", summary: "mark project folders as trusted, so personas start there without asking", group: "Projects", run: runProjectTrust},
 		{name: "project path", usage: "<name>", summary: "print a project's folder", group: "Projects", run: runProjectPath},

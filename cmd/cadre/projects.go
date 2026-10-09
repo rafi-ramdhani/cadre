@@ -204,12 +204,16 @@ func runProjectSync(e *env) int {
 	if !ok {
 		return 1
 	}
-	if cadres.ProjectsDir() == "" && needsProjectsDir(r) {
-		if _, ok := e.projectsDir(rt.Trust().Protected()); !ok {
+	dir := cadres.ProjectsDir()
+	if dir == "" && needsProjectsDir(r) {
+		if dir, ok = e.projectsDir(rt.Trust().Protected()); !ok {
 			return 1
 		}
 	}
-	results, err := project.Sync(r.Cadre, rt.Trust().Protected())
+	for _, w := range skippedEntries(r.Cadre) {
+		fmt.Fprintf(e.stderr, "warning: %s\n", w)
+	}
+	results, err := project.Sync(r.Cadre, dir, rt.Trust().Protected())
 	if err != nil {
 		return e.fail("%s", err)
 	}
@@ -222,8 +226,13 @@ func runProjectSync(e *env) int {
 		case "cloned":
 			e.say("  %s: cloned to %s", res.Name, res.Dir)
 			cloned = append(cloned, runtime.Folder{Name: res.Name, Dir: res.Dir})
+		case "found":
+			e.say("  %s: already at %s", res.Name, res.Dir)
+			cloned = append(cloned, runtime.Folder{Name: res.Name, Dir: res.Dir})
+		case "drive":
+			e.say("  %s: on a drive that is not connected (%s); connect the drive", res.Name, display(res.Dir))
 		case "no repo":
-			e.say("  %s: missing, and no repo to clone", res.Name)
+			e.say("  %s: not on this machine, and no repo to clone; link its folder with cadre project link %s <dir>", res.Name, res.Name)
 		case "no folder":
 			e.say("  %s: no folder (set the projects folder with cadre project dir <folder>)", res.Name)
 		default:
@@ -237,18 +246,113 @@ func runProjectSync(e *env) int {
 	return code
 }
 
-// needsProjectsDir reports whether some project has no path of its own.
+// needsProjectsDir reports whether some project with a repo has no place
+// on this machine, so sync would clone it into the projects folder.
 func needsProjectsDir(r *cadres.Resolved) bool {
 	reg, err := registry.Load(r.Registry())
 	if err != nil {
 		return false
 	}
 	for _, entry := range reg.Entries() {
-		if entry.Get("path") == "" {
+		if entry.Get("repo") != "" && cadres.ProjectDir(r.Cadre, entry) == "" {
 			return true
 		}
 	}
 	return false
+}
+
+// runProjectLink is cadre project link <name> <dir>: where a project's
+// folder is on this machine, for a folder that moved or a clone made
+// elsewhere. The folder is trusted, as with project add.
+func runProjectLink(e *env) int {
+	trust := true
+	var pos []string
+	for _, a := range e.args {
+		switch {
+		case a == "--no-trust":
+			trust = false
+		case strings.HasPrefix(a, "-"):
+			return e.fail("usage: cadre project link <name> <dir> [--no-trust]")
+		default:
+			pos = append(pos, a)
+		}
+	}
+	if len(pos) != 2 {
+		return e.fail("usage: cadre project link <name> <dir> [--no-trust]")
+	}
+	if e.persona("link folders to the cadre") {
+		return 1
+	}
+	r, ok := e.resolve()
+	if !ok {
+		return 1
+	}
+	rt, ok := e.cadreRuntime(r)
+	if !ok {
+		return 1
+	}
+	dir, err := project.Relink(r.Cadre, pos[0], pos[1], rt.Trust().Protected())
+	if err != nil {
+		return e.fail("%s", err)
+	}
+	e.say("  %s is at %s on this machine", pos[0], dir)
+	if trust {
+		e.trustReport(rt, []runtime.Folder{{Name: pos[0], Dir: dir}})
+	}
+	return 0
+}
+
+// runProjectUnlink is cadre project unlink <name> [--untrust]: the project
+// leaves the registry and this machine's places; its folder is kept.
+func runProjectUnlink(e *env) int {
+	untrust := false
+	var pos []string
+	for _, a := range e.args {
+		switch {
+		case a == "--untrust":
+			untrust = true
+		case strings.HasPrefix(a, "-"):
+			return e.fail("usage: cadre project unlink <name> [--untrust]")
+		default:
+			pos = append(pos, a)
+		}
+	}
+	if len(pos) != 1 {
+		return e.fail("usage: cadre project unlink <name> [--untrust]")
+	}
+	if e.persona("unlink projects") {
+		return 1
+	}
+	r, ok := e.resolve()
+	if !ok {
+		return 1
+	}
+	rt, ok := e.cadreRuntime(r)
+	if !ok {
+		return 1
+	}
+	dir, notes, err := project.Unlink(r.Cadre, pos[0])
+	if err != nil {
+		return e.fail("%s", err)
+	}
+	for _, n := range notes {
+		e.say("%s", n)
+	}
+	if dir != "" {
+		e.say("  %s unlinked; its folder %s is kept", pos[0], display(dir))
+	} else {
+		e.say("  %s unlinked", pos[0])
+	}
+	if untrust && dir != "" {
+		results, note := rt.Trust().Unmark([]runtime.Folder{{Name: pos[0], Dir: dir}})
+		for _, res := range results {
+			e.say("  %s: %s in %s", res.Name, res.State, rt.Title())
+		}
+		if note != "" {
+			e.say("%s", note)
+		}
+	}
+	return 0
 }
 
 // trustReport trusts folders and prints a line each, then any note.

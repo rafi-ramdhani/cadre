@@ -63,7 +63,7 @@ func TestFirstRunNewCadre(t *testing.T) {
 	if roles, _ := filepath.Glob(c + "/personas/*/*.md"); len(roles) != 2 {
 		t.Errorf("starter team %v", roles)
 	}
-	if reg := readFile(t, c+"/projects.yaml"); !strings.Contains(reg, "app:\n") || !strings.Contains(reg, "path: ~/src/app") {
+	if reg := readFile(t, c+"/projects.yaml"); !strings.Contains(reg, "app:\n") || cadres.Place(cadres.Cadre{Name: "mine", Path: c}, "app") != home+"/src/app" {
 		t.Errorf("this folder was not linked:\n%s", reg)
 	}
 	if to, _ := os.Readlink(home + "/.claude/skills/cadre"); to != framework.SkillDir() {
@@ -206,7 +206,7 @@ func TestMissingProjectsAreMentioned(t *testing.T) {
 	stubClaude(t, home)
 	os.WriteFile(home+"/release", nil, 0o644)
 	must(t, "init", "work")
-	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte("app:\n  repo: me/app\n  path: ~/Developer/app\n"), 0o644)
+	register(t, home, "work", "app:\n  repo: me/app\n  path: ~/Developer/app\n")
 	if out := must(t); !strings.Contains(out, "Not on this machine yet: app") {
 		t.Errorf("no note: %q", out)
 	}

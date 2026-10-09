@@ -115,11 +115,11 @@ func TestProjectPath(t *testing.T) {
 	home := sandbox(t)
 	must(t, "init", "work")
 	os.MkdirAll(home+"/Developer/app", 0o755)
-	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte("app:\n  repo: me/app\n  team: dev\n  about: the app\n  path: ~/Developer/app\ngone:\n  repo: me/gone\n  team: dev\n  about: missing\n  path: ~/Developer/gone\n"), 0o644)
+	register(t, home, "work", "app:\n  repo: me/app\n  team: dev\n  about: the app\n  path: ~/Developer/app\ngone:\n  repo: me/gone\n  team: dev\n  about: missing\n  path: ~/Developer/gone\n")
 	if out := must(t, "project", "path", "app"); strings.TrimSpace(out) != home+"/Developer/app" {
 		t.Errorf("project path: %q", out)
 	}
-	refused(t, "is not at", "project", "path", "gone")
+	refused(t, "is missing: ~/Developer/gone is gone", "project", "path", "gone")
 	refused(t, "neither a registry project nor a folder", "project", "path", "nope")
 	// A project of the cadre resolves the cadre from inside it.
 	t.Chdir(home + "/Developer/app")

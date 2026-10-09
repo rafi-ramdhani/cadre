@@ -125,7 +125,9 @@ func runUse(e *env) int {
 	return 0
 }
 
-// projectDir finds a registered project's folder.
+// projectDir finds a registered project's folder on this machine, or
+// says why it has none: not here yet, gone, or on a drive that is not
+// connected. Cadre never unlinks a missing project by itself.
 func projectDir(r *cadres.Resolved, name string) (string, error) {
 	reg, err := registry.Load(r.Registry())
 	if err != nil {
@@ -136,8 +138,13 @@ func projectDir(r *cadres.Resolved, name string) (string, error) {
 		return "", errNotRegistered
 	}
 	d := cadres.ProjectDir(r.Cadre, entry)
-	if d == "" {
-		return "", fmt.Errorf("project '%s' has no folder yet; set where clones go with cadre project dir <dir>", name)
+	switch cadres.Where(d) {
+	case "not here":
+		return "", fmt.Errorf("project '%s' is not on this machine yet; clone it with cadre project sync, or link its folder with cadre project link %s <dir>", name, name)
+	case "drive":
+		return "", fmt.Errorf("project '%s' is on a drive that is not connected (%s); connect the drive", name, display(d))
+	case "missing":
+		return "", fmt.Errorf("project '%s' is missing: %s is gone; clone it again with cadre project sync, link its new folder with cadre project link %s <dir>, or unlink it", name, display(d), name)
 	}
 	return d, nil
 }
@@ -164,9 +171,6 @@ func runProjectPath(e *env) int {
 		return e.fail("'%s' is neither a registry project nor a folder", e.args[0])
 	case err != nil:
 		return e.fail("%s", err)
-	}
-	if st, err := os.Stat(d); err != nil || !st.IsDir() {
-		return e.fail("project '%s' is not at %s (run cadre project sync)", e.args[0], d)
 	}
 	e.say("%s", d)
 	return 0

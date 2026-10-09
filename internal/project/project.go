@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
@@ -14,11 +13,9 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/registry"
 )
 
-var nameRule = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-
 // CheckName refuses a project name that could leave its folder.
 func CheckName(name string) error {
-	if !nameRule.MatchString(name) || strings.Contains(name, "..") {
+	if !registry.ValidName(name) {
 		return errors.New("project name may use letters, digits, ., - and _ (no ..)")
 	}
 	return nil
@@ -58,36 +55,49 @@ func ghSignedIn() bool {
 }
 
 // SameRepo reports whether two spellings name one repository: the same
-// owner/repo, and the same host when both name one (owner/repo alone names
-// none).
+// host and path (owner/repo on GitHub), compared without case, a .git
+// suffix or a port. owner/repo alone is on github.com, as Clone reads it.
+// A local path or a file:// URL matches only itself.
 func SameRepo(a, b string) bool {
-	if OwnerRepo(a) != OwnerRepo(b) || OwnerRepo(a) == "" {
-		return false
-	}
-	ha, hb := host(a), host(b)
-	return ha == "" || hb == "" || ha == hb
+	ia, ib := repoID(a), repoID(b)
+	return ia != "" && ia == ib
 }
 
-// host is the host a repository URL names, lower case, or "".
-func host(repo string) string {
-	r := strings.TrimSpace(repo)
+// repoID is what SameRepo compares: "<host>/<path>" in lower case, or
+// "local:<path>" for a repository on disk, or "" when there is none.
+func repoID(repo string) string {
+	r := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(repo), "/"), ".git")
+	var host, rest string
 	switch {
+	case r == "":
+		return ""
+	case strings.HasPrefix(strings.ToLower(r), "file://"):
+		return "local:" + filepath.Clean(r[len("file://"):])
+	case strings.HasPrefix(r, "/") || strings.HasPrefix(r, ".") || strings.HasPrefix(r, "~"):
+		return "local:" + filepath.Clean(r)
 	case strings.Contains(r, "://"):
 		r = r[strings.Index(r, "://")+3:]
-		if at := strings.Index(r, "@"); at >= 0 && at < strings.Index(r+"/", "/") {
-			r = r[at+1:]
+		host, rest, _ = strings.Cut(r, "/")
+		if at := strings.LastIndex(host, "@"); at >= 0 {
+			host = host[at+1:]
 		}
-		r, _, _ = strings.Cut(r, "/")
-		r, _, _ = strings.Cut(r, ":")
-	case strings.Contains(r, ":") && !strings.HasPrefix(r, "/"):
-		r, _, _ = strings.Cut(r, ":")
-		if at := strings.LastIndex(r, "@"); at >= 0 {
-			r = r[at+1:]
+		host, _, _ = strings.Cut(host, ":")
+	case strings.Contains(r, ":") && !strings.Contains(r[:strings.Index(r, ":")], "/"):
+		// scp-like: [user@]host:owner/repo
+		host, rest, _ = strings.Cut(r, ":")
+		if at := strings.LastIndex(host, "@"); at >= 0 {
+			host = host[at+1:]
 		}
+	case strings.Count(r, "/") == 1:
+		host, rest = "github.com", r
 	default:
+		host, rest, _ = strings.Cut(r, "/")
+	}
+	rest = strings.Trim(rest, "/")
+	if host == "" || rest == "" {
 		return ""
 	}
-	return strings.ToLower(r)
+	return strings.ToLower(host + "/" + rest)
 }
 
 // OwnerRepo reduces a repository spelling (owner/repo, an https or ssh URL,
@@ -131,10 +141,10 @@ type Added struct {
 	Notes []string
 }
 
-// Add registers a project and clones it into the projects folder. A
-// folder already there is linked when it is the same repository and
-// refused otherwise. The clone comes first, so a failed
-// clone registers nothing.
+// Add registers a project and clones it into the projects folder, and
+// records that folder as the project's place on this machine. A folder
+// already there is used when it is the same repository and refused
+// otherwise. The clone comes first, so a failed clone registers nothing.
 func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added, error) {
 	var a Added
 	if err := CheckName(s.Name); err != nil {
@@ -163,10 +173,12 @@ func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added,
 		a.Where = "cloned to " + dir
 	}
 	a.Dir = dir
-	fields := []registry.Field{{Key: "repo", Value: s.Repo}, {Key: "team", Value: s.Team}, {Key: "about", Value: s.About},
-		{Key: "path", Value: cadres.Tilde(paths.Real(dir))}}
-	reg.Add(s.Name, fields...)
+	reg.Add(s.Name, registry.Field{Key: "repo", Value: s.Repo}, registry.Field{Key: "team", Value: s.Team},
+		registry.Field{Key: "about", Value: s.About})
 	if err := reg.Save(c.Registry()); err != nil {
+		return a, err
+	}
+	if err := cadres.SetPlace(c, s.Name, dir); err != nil {
 		return a, err
 	}
 	note, err := cadres.Commit(c.Path, "Add project "+s.Name, "projects.yaml")
@@ -177,7 +189,7 @@ func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added,
 }
 
 // LinkRefusal says why a folder (physical) cannot be linked as a project,
-// or "" (L.7, with N's ~/.cadre).
+// or "".
 func LinkRefusal(dir string, protected []string) string {
 	if why := DestRefusal(dir, protected); why != "" {
 		return why
@@ -218,16 +230,17 @@ func DestRefusal(dir string, protected []string) string {
 		if paths.Within(c.Path, dir) {
 			return "it contains the cadre " + c.Name
 		}
-		if paths.Within(dir, c.Path) && !paths.Within(dir, filepath.Join(c.Path, "projects")) {
+		if paths.Within(dir, c.Path) {
 			return "it is inside the cadre " + c.Name
 		}
 	}
 	return ""
 }
 
-// Link registers a folder the user already has (L.7): it must be the top
-// folder of a git repository and not cadre's own. The repo is the one given,
-// else the folder's origin. The path is stored as ~/... under home.
+// Link registers a folder the user already has: it must be the top folder
+// of a git repository and not cadre's own. The repo is the one given, else
+// the folder's origin. The folder is recorded as the project's place on
+// this machine, never in the registry.
 func Link(c cadres.Cadre, s Spec, dir string, protected []string) (Added, error) {
 	var a Added
 	if err := CheckName(s.Name); err != nil {
@@ -266,8 +279,11 @@ func Link(c cadres.Cadre, s Spec, dir string, protected []string) (Added, error)
 		a.Notes = append(a.Notes, "note: it has no repo, so cadre project sync cannot clone it on another machine")
 	}
 	reg.Add(s.Name, registry.Field{Key: "repo", Value: repo}, registry.Field{Key: "team", Value: s.Team},
-		registry.Field{Key: "about", Value: s.About}, registry.Field{Key: "path", Value: cadres.Tilde(phys)})
+		registry.Field{Key: "about", Value: s.About})
 	if err := reg.Save(c.Registry()); err != nil {
+		return a, err
+	}
+	if err := cadres.SetPlace(c, s.Name, phys); err != nil {
 		return a, err
 	}
 	note, err := cadres.Commit(c.Path, "Add project "+s.Name, "projects.yaml")
@@ -280,15 +296,17 @@ func Link(c cadres.Cadre, s Spec, dir string, protected []string) (Added, error)
 
 // SyncResult is what Sync did with one project.
 type SyncResult struct {
-	Name, State, Dir string // State: "present", "cloned", "no repo", "no folder", "failed"
+	Name, State, Dir string // State: "present", "cloned", "found", "no repo", "no folder", "drive", "failed"
 	Err              error
 }
 
-// Sync clones the registry's projects missing on this machine to their
-// recorded folders (N.2), creating parent folders under the home folder
-// only. noDir is returned when a project has no folder because the
-// projects folder is not set.
-func Sync(c cadres.Cadre, protected []string) ([]SyncResult, error) {
+// Sync gives every registry project with a repo a folder on this machine:
+// it clones each one that has none, to its recorded place, else into the
+// projects folder (projectsDir, "" when not set), and records the place.
+// A clone of the same repository already there is used as it is. A place
+// on a drive that is not connected is left alone. Parent folders are made
+// under the home folder only.
+func Sync(c cadres.Cadre, projectsDir string, protected []string) ([]SyncResult, error) {
 	reg, err := registry.Load(c.Registry())
 	if err != nil {
 		return nil, err
@@ -296,20 +314,39 @@ func Sync(c cadres.Cadre, protected []string) ([]SyncResult, error) {
 	var out []SyncResult
 	for _, e := range reg.Entries() {
 		d := cadres.ProjectDir(c, e)
+		where := cadres.Where(d)
+		if d == "" && projectsDir != "" {
+			d = filepath.Join(projectsDir, e.Name)
+			// Entries hold valid names only; a clone still never goes
+			// anywhere but straight into the projects folder.
+			if filepath.Dir(d) != filepath.Clean(projectsDir) {
+				out = append(out, SyncResult{Name: e.Name, State: "failed", Err: fmt.Errorf("not cloned: %s is not a folder name", e.Name)})
+				continue
+			}
+		}
 		r := SyncResult{Name: e.Name, Dir: d}
-		switch st, err := os.Stat(d); {
-		case d == "":
-			r.State = "no folder"
-		case err == nil && st.IsDir():
+		st, statErr := os.Stat(d)
+		switch {
+		case where == "present":
 			r.State = "present"
+		case where == "drive":
+			r.State = "drive"
 		case e.Get("repo") == "":
 			r.State = "no repo"
+		case d == "":
+			r.State = "no folder"
 		case DestRefusal(paths.Real(d), protected) != "":
 			r.State, r.Err = "failed", fmt.Errorf("not cloned into %s: %s", d, DestRefusal(paths.Real(d), protected))
+		case statErr == nil && st.IsDir():
+			if !SameRepo(Origin(d), e.Get("repo")) {
+				r.State, r.Err = "failed", fmt.Errorf("%s exists and is not a clone of %s; link the project's folder with cadre project link %s <dir>", d, e.Get("repo"), e.Name)
+				break
+			}
+			r.State = "found"
 		default:
 			parent := filepath.Dir(paths.Real(d))
 			if _, err := os.Stat(parent); err != nil && !paths.Within(parent, paths.Home()) {
-				r.State, r.Err = "failed", fmt.Errorf("its parent folder %s is missing and outside your home folder; create it or relink the project", parent)
+				r.State, r.Err = "failed", fmt.Errorf("its parent folder %s is missing and outside your home folder; create it or link the project elsewhere", parent)
 				break
 			}
 			if err := Clone(e.Get("repo"), d); err != nil {
@@ -318,7 +355,103 @@ func Sync(c cadres.Cadre, protected []string) ([]SyncResult, error) {
 			}
 			r.State = "cloned"
 		}
+		if r.State == "cloned" || r.State == "found" {
+			if err := cadres.SetPlace(c, e.Name, d); err != nil {
+				r.State, r.Err = "failed", err
+			}
+		}
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+// Relink sets where a registered project is on this machine: a folder
+// that moved, or a clone made somewhere else. The folder must be the top
+// of a git repository, not cadre's own, and, when both are known, a clone
+// of the project's repo.
+func Relink(c cadres.Cadre, name, dir string, protected []string) (string, error) {
+	reg, err := registry.Load(c.Registry())
+	if err != nil {
+		return "", err
+	}
+	e := reg.Get(name)
+	if e == nil {
+		return "", fmt.Errorf("'%s' is not a registered project (see cadre ls)", name)
+	}
+	st, err := os.Stat(dir)
+	if err != nil || !st.IsDir() {
+		return "", fmt.Errorf("%s is not a folder", dir)
+	}
+	phys := paths.Real(dir)
+	if why := LinkRefusal(phys, protected); why != "" {
+		return "", fmt.Errorf("%s cannot be linked: %s", dir, why)
+	}
+	if repo, origin := e.Get("repo"), Origin(phys); repo != "" && origin != "" && !SameRepo(origin, repo) {
+		return "", fmt.Errorf("%s is a clone of %s, not of %s", dir, origin, repo)
+	}
+	for _, other := range reg.Entries() {
+		if other.Name != name && cadres.ProjectDir(c, other) != "" && paths.Real(cadres.ProjectDir(c, other)) == phys {
+			return "", fmt.Errorf("%s is already linked as %s", dir, other.Name)
+		}
+	}
+	return phys, cadres.SetPlace(c, name, phys)
+}
+
+// Unlink removes a project from the registry and forgets its place on
+// this machine. Its folder is never touched. It returns the folder it
+// had, for untrusting.
+func Unlink(c cadres.Cadre, name string) (dir string, notes []string, err error) {
+	reg, err := registry.Load(c.Registry())
+	if err != nil {
+		return "", nil, err
+	}
+	e := reg.Get(name)
+	if e == nil {
+		return "", nil, fmt.Errorf("'%s' is not a registered project (see cadre ls)", name)
+	}
+	dir = cadres.ProjectDir(c, e)
+	reg.Remove(name)
+	if err := reg.Save(c.Registry()); err != nil {
+		return "", nil, err
+	}
+	if err := cadres.SetPlace(c, name, ""); err != nil {
+		return "", nil, err
+	}
+	note, err := cadres.Commit(c.Path, "Remove project "+name, "projects.yaml")
+	if note != "" {
+		notes = append(notes, note)
+	}
+	return dir, notes, err
+}
+
+// Finder finds a clone of a repository in the projects folder, for a
+// project missing on this machine. It reads every folder's origin once,
+// on the first Find, however many projects it is asked about.
+type Finder struct {
+	dir     string
+	origins map[string]string // repoID of the origin: the first folder with it
+}
+
+// NewFinder makes a Finder for the projects folder dir ("" finds nothing).
+func NewFinder(dir string) *Finder { return &Finder{dir: dir} }
+
+// Find returns a folder in the projects folder whose origin is repo, or "".
+func (f *Finder) Find(repo string) string {
+	if f.dir == "" || repoID(repo) == "" {
+		return ""
+	}
+	if f.origins == nil {
+		f.origins = map[string]string{}
+		entries, _ := os.ReadDir(f.dir)
+		for _, d := range entries {
+			p := filepath.Join(f.dir, d.Name())
+			if !d.IsDir() {
+				continue
+			}
+			if id := repoID(Origin(p)); id != "" && f.origins[id] == "" {
+				f.origins[id] = p
+			}
+		}
+	}
+	return f.origins[repoID(repo)]
 }

@@ -169,12 +169,16 @@ func TestCopyOldConfig(t *testing.T) {
 	}
 }
 
-// addLink writes a project entry into a cadre's registry.
+// addLink writes a project entry into a cadre's registry and records its
+// place on this machine.
 func addLink(t *testing.T, c Cadre, name, path string) {
 	t.Helper()
 	reg, _ := registry.Load(c.Registry())
-	reg.Add(name, registry.Field{Key: "repo", Value: "me/" + name}, registry.Field{Key: "path", Value: path})
+	reg.Add(name, registry.Field{Key: "repo", Value: "me/" + name})
 	if err := reg.Save(c.Registry()); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetPlace(c, name, expandHome(path)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -249,24 +253,53 @@ func TestResolveWithNothing(t *testing.T) {
 	}
 }
 
-func TestProjectDir(t *testing.T) {
+func TestPlaces(t *testing.T) {
 	home := fakeHome(t, true)
-	in := Cadre{Name: "w", Path: home + "/.cadre/w"}
-	out := Cadre{Name: "o", Path: "/x/o"}
+	w := Cadre{Name: "w", Path: home + "/.cadre/w"}
 	e := func(text string) *registry.Entry { return registry.Parse(text).Entries()[0] }
-	if d := ProjectDir(in, e("a:\n  path: ~/Dev/a\n")); d != home+"/Dev/a" {
-		t.Errorf("~ path: %s", d)
+	// A path in the registry, from another machine or an older build, is
+	// not read: only this machine's places are.
+	if d := ProjectDir(w, e("a:\n  repo: r\n  path: ~/Dev/a\n")); d != "" {
+		t.Errorf("a registry path was read: %s", d)
 	}
-	if d := ProjectDir(out, e("a:\n  path: elsewhere/a\n")); d != "/x/o/elsewhere/a" {
-		t.Errorf("relative path: %s", d)
+	SetPlace(w, "a", home+"/Dev/a")
+	SetPlace(w, "b", "/elsewhere/b")
+	if d := ProjectDir(w, e("a:\n  repo: r\n")); d != home+"/Dev/a" {
+		t.Errorf("place: %s", d)
 	}
-	if d := ProjectDir(in, e("a:\n  repo: r\n")); d != "" {
-		t.Errorf("no projects folder set: %s", d)
+	if raw, _ := os.ReadFile(PlacesFile(w)); !strings.Contains(string(raw), `"a": "~/Dev/a"`) || !strings.Contains(string(raw), `"b": "/elsewhere/b"`) {
+		t.Errorf("places file:\n%s", raw)
 	}
-	os.MkdirAll(ConfigDir(), 0o700)
-	os.WriteFile(Config("projects-dir"), []byte("~/Developer\n"), 0o600)
-	if d := ProjectDir(in, e("a:\n  repo: r\n")); d != home+"/Developer/a" {
-		t.Errorf("projects folder: %s", d)
+	if st, _ := os.Stat(PlacesFile(w)); st.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v", st.Mode().Perm())
+	}
+	// Another cadre has its own places.
+	if Place(Cadre{Name: "v"}, "a") != "" {
+		t.Error("places leaked to another cadre")
+	}
+	SetPlace(w, "a", "")
+	if Place(w, "a") != "" || Place(w, "b") != "/elsewhere/b" {
+		t.Error("forgetting a place")
+	}
+	// A relative entry, which cadre never writes, is ignored.
+	os.WriteFile(PlacesFile(w), []byte(`{"c": "rel/c"}`), 0o600)
+	if Place(w, "c") != "" {
+		t.Error("a relative place was used")
+	}
+}
+
+func TestWhere(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct{ dir, want string }{
+		{"", "not here"},
+		{dir, "present"},
+		{dir + "/gone", "missing"},
+		{"/Volumes/cadre-no-such-drive/app", "drive"},
+		{"/media/someone/cadre-no-such-drive/app", "drive"},
+	} {
+		if got := Where(tc.dir); got != tc.want {
+			t.Errorf("Where(%q) = %q, want %q", tc.dir, got, tc.want)
+		}
 	}
 }
 
@@ -305,5 +338,30 @@ func TestResolveThroughAnotherSpelling(t *testing.T) {
 	t.Setenv("CADRE_HOME", home+"/.cadre/PLAY")
 	if r, _ := Resolve(home, nil); r.Name != "play" {
 		t.Errorf("CADRE_HOME in another case: %+v", r)
+	}
+}
+
+// A places file that does not parse is refused, not replaced: replacing it
+// would lose every other project's place. Entries cadre does not read are
+// kept as they are.
+func TestABrokenPlacesFileIsKept(t *testing.T) {
+	home := fakeHome(t, true)
+	w := Cadre{Name: "w", Path: home + "/.cadre/w"}
+	SetPlace(w, "a", "/elsewhere/a")
+	for _, bad := range []string{"not json", "null", `["a"]`} {
+		os.WriteFile(PlacesFile(w), []byte(bad), 0o600)
+		if err := SetPlace(w, "b", "/elsewhere/b"); err == nil || !strings.Contains(err.Error(), "fix or remove it (nothing was changed)") {
+			t.Errorf("%s: %v", bad, err)
+		}
+		if raw, _ := os.ReadFile(PlacesFile(w)); string(raw) != bad {
+			t.Errorf("%s was replaced with %s", bad, raw)
+		}
+	}
+	os.WriteFile(PlacesFile(w), []byte(`{"x": 1, "a": "/elsewhere/a"}`), 0o600)
+	if err := SetPlace(w, "b", "/elsewhere/b"); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(PlacesFile(w)); !strings.Contains(string(raw), `"x": 1`) || Place(w, "a") != "/elsewhere/a" || Place(w, "b") != "/elsewhere/b" {
+		t.Errorf("places file:\n%s", raw)
 	}
 }

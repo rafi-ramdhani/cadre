@@ -115,10 +115,20 @@ Built in O-T5c (`cmd/cadre/setup.go`, `health.go`, `hook.go`):
   personas and the orchestrator alike), so a stray key never changes
   behaviour.
 - **The registry** (`projects.yaml`) keeps its flat format (written by cadre,
-  read by the orchestrator). The bash reader's rules are ported, with `path`
-  stored as `~/...` under home and absolute otherwise. An entry without `path`
-  means `<projects-dir>/<name>`. (O-T6a moves the paths into a per-machine
-  places map.)
+  read by the orchestrator): each project's `repo`, `team` and `about`, and
+  no local path, so it works on any machine. A `path` line from an older
+  build or another machine is not read.
+- **Places** (`cadres.Place`, O-T6a): `~/.cadre/config/places/<cadre>.json`
+  maps each project to its folder on this machine (`~/...` under home,
+  absolute otherwise), written under the config lock. `project add` and
+  `--path` record it, `project link` changes it, `project unlink` removes the
+  entry and the place (never the folder), and `project sync` clones what has
+  no folder here, to the recorded place or into the projects folder, using
+  a clone of the same repo already there. A project's state is `present`,
+  `not here`, `missing` or `drive` (on a `/Volumes`, `/media`, `/run/media`
+  or `/mnt` drive that is not mounted); `up`, `attach` and `project path`
+  refuse a project that is not present, saying how to get it back, and
+  cadre never unlinks one by itself.
 - **Migration** (N.6) lives in `cadres` and is built on `fsx`: copy, verify
   (file list, sizes, symlink targets, `git rev-parse HEAD` and
   `git status --porcelain`), rewrite paths, commit, then move the old files

@@ -83,7 +83,7 @@ func TestLsJSONShape(t *testing.T) {
 	must(t, "init", "life")
 	t.Chdir(home + "/.cadre/work")
 	os.MkdirAll(home+"/Developer/app", 0o755)
-	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte("app:\n  repo: me/app\n  team: dev\n  about: the app\n  path: ~/Developer/app\n"), 0o644)
+	register(t, home, "work", "app:\n  repo: me/app\n  team: dev\n  about: the app\n  path: ~/Developer/app\n")
 	must(t, "up", "dev/engineer")
 	tmuxIn(socket, "new-session", "-d", "-s", "cadre-dev", "-n", "pm", "sleep", "60")
 	// A mode the runtime lacks, so problems has an element.

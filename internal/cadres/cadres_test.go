@@ -345,3 +345,30 @@ func TestABrokenPlacesFileIsKept(t *testing.T) {
 		t.Errorf("places file:\n%s", raw)
 	}
 }
+
+// A committed link where cadre reads files or runs sessions is listed; one
+// elsewhere, or a plain file, is not.
+func TestCommittedLinks(t *testing.T) {
+	dir := t.TempDir()
+	scratch := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	os.MkdirAll(dir+"/teams", 0o755)
+	os.MkdirAll(dir+"/docs", 0o755)
+	os.WriteFile(dir+"/playbook.md", []byte("# Playbook\n"), 0o644)
+	os.Symlink(scratch, dir+"/teams/dev")
+	os.Symlink("playbook.md", dir+"/protocol.md")
+	os.Symlink(scratch, dir+"/docs/notes")
+	os.MkdirAll(dir+"/rt", 0o755)
+	os.Symlink(scratch, dir+"/rt/build")
+	run("add", "-A")
+	got, err := CommittedLinks(dir, "rt")
+	if err != nil || strings.Join(got, " ") != "protocol.md rt/build teams/dev" {
+		t.Errorf("links %q %v", got, err)
+	}
+}

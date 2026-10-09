@@ -127,7 +127,7 @@ The cadre is a git repository, and you commit every change to it. When the user 
 2. Show the repository you would create: `<their GitHub user>/cadre-<name>` (the user from `gh api user --jq .login`, the name from `cadre ls`), private. Create it only after the user's explicit yes, typed here: `gh repo create cadre-<name> --private --source "$CADRE_HOME" --push`.
 3. From then on, push after each commit (`git -C "$CADRE_HOME" push`).
 
-Never make the backup public, and never add credentials to the cadre: no `.credentials.json`, `.env` files, keys or tokens, in `teams/` or anywhere else. Cadre's pre-push check stops a push that carries a file that looks like one, or a file over 50 MB, and names each file: tell the user what it named, and take it out of the history only with the user's yes. On a new machine, the first run of `cadre` restores the cadre from its backup.
+Never make the backup public, and never add credentials to the cadre: no `.credentials.json`, `.env` files, keys or tokens, in `teams/` or anywhere else. Cadre's pre-push check stops a push that carries a file that looks like one, or a file over 50 MB, and names each file: tell the user what it named, and take it out of the history only with the user's yes. Never push with `--no-verify`, and never change or remove that check: it is the only thing between a credential and the backup. On a new machine, the first run of `cadre` restores the cadre from its backup.
 
 ## Stopping everything
 

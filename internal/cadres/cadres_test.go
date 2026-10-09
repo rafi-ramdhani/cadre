@@ -13,13 +13,13 @@ import (
 )
 
 var tmpl = fstest.MapFS{
-	"template/playbook.md":         {Data: []byte("# Playbook of {{name}}\n")},
-	"template/projects.yaml":       {Data: []byte("# One entry per project.\n")},
-	"template/cadre.conf":          {Data: []byte("PERMISSION_MODE=default\n")},
-	"template/.gitignore":          {Data: []byte(".DS_Store\nnode_modules/\n")},
-	"template/teams/.gitkeep":      {Data: nil},
-	"template/personas/dev/pm.md":  {Data: []byte("# PM of {{name}}\n")},
-	"template/personas/dev/eng.md": {Data: []byte("# Engineer\n")},
+	"template/playbook.md":        {Data: []byte("# Playbook of {{name}}\n")},
+	"template/projects.yaml":      {Data: []byte("# One entry per project.\n")},
+	"template/cadre.conf":         {Data: []byte("PERMISSION_MODE=default\n")},
+	"template/.gitignore":         {Data: []byte(".DS_Store\nnode_modules/\n")},
+	"template/teams/.gitkeep":     {Data: nil},
+	"template/members/dev/pm.md":  {Data: []byte("# PM of {{name}}\n")},
+	"template/members/dev/eng.md": {Data: []byte("# Engineer\n")},
 }
 
 // fakeHome gives the test a HOME of its own, with git set up there.
@@ -106,11 +106,11 @@ func TestList(t *testing.T) {
 	Create("b", tmpl)
 	Create("a", tmpl)
 	os.MkdirAll(home+"/.cadre/notacadre", 0o755)
-	os.MkdirAll(home+"/.cadre/.hidden/personas", 0o755)
-	os.MkdirAll(home+"/.cadre/framework/personas", 0o755)
+	os.MkdirAll(home+"/.cadre/.hidden/members", 0o755)
+	os.MkdirAll(home+"/.cadre/framework/members", 0o755)
 	// A config/external list from the bash 0.2.0 work is not read.
 	out, _ := filepath.EvalSymlinks(t.TempDir())
-	os.MkdirAll(out+"/ext/personas", 0o755)
+	os.MkdirAll(out+"/ext/members", 0o755)
 	os.WriteFile(Config("external"), []byte(out+"/ext\n"), 0o600)
 	list, _ := List()
 	var names []string
@@ -133,13 +133,13 @@ func TestCopyOldConfig(t *testing.T) {
 	home := fakeHome(t, true)
 	visible := filepath.Join(home, "Documents", "demo")
 	other := filepath.Join(home, "Documents", "two")
-	os.MkdirAll(visible+"/personas", 0o755)
-	os.MkdirAll(other+"/personas", 0o755)
+	os.MkdirAll(visible+"/members", 0o755)
+	os.MkdirAll(other+"/members", 0o755)
 	old := OldConfig()
 	os.MkdirAll(old, 0o755)
 	os.WriteFile(old+"/home", []byte("~/Documents/demo\n"), 0o644)
 	os.WriteFile(old+"/cadres", []byte(visible+"\n"+other+"\n"), 0o644)
-	os.WriteFile(old+"/persona-settings.sha256", []byte("abc "+visible+"/.claude/persona-settings.json\n"), 0o600)
+	os.WriteFile(old+"/member-settings.sha256", []byte("abc "+visible+"/.claude/member-settings.json\n"), 0o600)
 	os.MkdirAll(old+"/cadres.lock", 0o755)
 	msg, err := CopyOldConfig()
 	if err != nil || msg == "" {
@@ -151,7 +151,7 @@ func TestCopyOldConfig(t *testing.T) {
 	if _, err := os.Stat(Config("external")); err == nil {
 		t.Error("the 0.1.x cadres were listed as outside cadres")
 	}
-	if b, _ := os.ReadFile(Config("persona-settings.sha256")); !strings.Contains(string(b), "abc ") {
+	if b, _ := os.ReadFile(Config("member-settings.sha256")); !strings.Contains(string(b), "abc ") {
 		t.Errorf("fingerprints %q", b)
 	}
 	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
@@ -197,7 +197,7 @@ func TestResolve(t *testing.T) {
 	addLink(t, work, "shared", "~/Developer/shared")
 	addLink(t, life, "shared", "~/Developer/shared")
 	ext, _ := filepath.EvalSymlinks(t.TempDir())
-	os.MkdirAll(ext+"/old/personas", 0o755)
+	os.MkdirAll(ext+"/old/members", 0o755)
 
 	for _, tc := range []struct{ cwd, cadre, from string }{
 		{work.Path + "/teams", "work", "from this folder"},
@@ -233,7 +233,7 @@ func TestResolve(t *testing.T) {
 	t.Setenv("CADRE_HOME", "")
 	// Two present cadres with one name in another letter case (a file
 	// system that tells them apart) are not used.
-	os.MkdirAll(home+"/.cadre/WORK/personas", 0o755)
+	os.MkdirAll(home+"/.cadre/WORK/members", 0o755)
 	a, _ := os.Stat(home + "/.cadre/WORK")
 	if b, _ := os.Stat(work.Path); !os.SameFile(a, b) {
 		if _, err := Resolve(work.Path, nil); err == nil || !strings.Contains(err.Error(), "share the name") {
@@ -307,9 +307,9 @@ func TestListSkipsLinksAndBadNames(t *testing.T) {
 	home := fakeHome(t, true)
 	Create("work", tmpl)
 	look := filepath.Join(home, "lookalike")
-	os.MkdirAll(look+"/personas", 0o755)
+	os.MkdirAll(look+"/members", 0o755)
 	os.Symlink(look, home+"/.cadre/linked")
-	os.MkdirAll(home+"/.cadre/my.cadre/personas", 0o755)
+	os.MkdirAll(home+"/.cadre/my.cadre/members", 0o755)
 	list, _ := List()
 	if len(list) != 1 || list[0].Name != "work" {
 		t.Errorf("list %+v", list)

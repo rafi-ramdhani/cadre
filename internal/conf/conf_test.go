@@ -7,7 +7,7 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	values, warnings := Parse(`# Permission mode for persona sessions
+	values, warnings := Parse(`# Permission mode for member sessions
 PERMISSION_MODE=default
 
 ORCHESTRATOR_PERMISSION_MODE='auto'
@@ -35,7 +35,7 @@ export D=1
 }
 
 func TestTheTemplateReadsAsBefore(t *testing.T) {
-	values, warnings := Parse("# Permission mode for persona sessions: default, acceptEdits, auto, ...\nPERMISSION_MODE=default\n")
+	values, warnings := Parse("# Permission mode for member sessions: default, acceptEdits, auto, ...\nPERMISSION_MODE=default\n")
 	if values["PERMISSION_MODE"] != "default" || len(warnings) != 0 {
 		t.Errorf("%v %q", values, warnings)
 	}

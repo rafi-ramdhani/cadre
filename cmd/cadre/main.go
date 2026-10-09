@@ -1,6 +1,6 @@
 //go:build !windows
 
-// Command cadre starts, stops and lists persona sessions: Claude Code
+// Command cadre starts, stops and lists member sessions: Claude Code
 // sessions in tmux that an orchestrator session leads by name.
 package main
 

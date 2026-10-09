@@ -39,6 +39,11 @@ func (e *env) ask(question string) string {
 // answer asks like ask, and reports false when the input has ended (Ctrl-D
 // on a terminal): never an answer, so it never accepts a default.
 func (e *env) answer(question string) (string, bool) {
+	// Once the input has ended, nothing more is asked: a terminal would
+	// read again after Ctrl-D.
+	if e.eof {
+		return "", false
+	}
 	fmt.Fprint(e.stderr, question)
 	if e.lines == nil {
 		e.lines = bufio.NewReader(e.stdin)
@@ -73,10 +78,16 @@ func (e *env) resolve() (*cadres.Resolved, bool) {
 	return r, true
 }
 
-// persona refuses a command in a persona session.
-func (e *env) persona(why string) bool {
-	if os.Getenv("CADRE_PERSONA") != "" {
-		e.fail("persona sessions cannot %s; ask the user in the orchestrator", why)
+// inMember reports whether cadre runs in a member's session: CADRE_MEMBER,
+// which cadre sets, or CADRE_PERSONA, which sessions started by 0.1.x
+// carry. CADRE_PERSONA is read only, never set, and is a temporary alias:
+// it goes once no 0.1.x sessions are around.
+func inMember() bool { return os.Getenv("CADRE_MEMBER") != "" || os.Getenv("CADRE_PERSONA") != "" }
+
+// member refuses a command in a member's session.
+func (e *env) member(why string) bool {
+	if inMember() {
+		e.fail("refused for members: members cannot %s; ask the user in the orchestrator", why)
 		return true
 	}
 	return false
@@ -86,7 +97,7 @@ func runInit(e *env) int {
 	if len(e.args) != 1 || strings.HasPrefix(e.args[0], "-") {
 		return e.fail("usage: cadre init <name>")
 	}
-	if e.persona("create or switch cadres") {
+	if e.member("create or switch cadres") {
 		return 1
 	}
 	c, note, err := cadres.Create(e.args[0], cadre.Assets)
@@ -114,7 +125,7 @@ func runUse(e *env) int {
 	if len(e.args) != 1 || strings.HasPrefix(e.args[0], "-") {
 		return e.fail("usage: cadre use <name>")
 	}
-	if e.persona("create or switch cadres") {
+	if e.member("create or switch cadres") {
 		return 1
 	}
 	c, ok := cadres.Find(e.args[0])

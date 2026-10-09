@@ -41,7 +41,7 @@ func runPlain(e *env) int {
 	if detach && !useTmux {
 		return e.fail("--detach goes with --tmux")
 	}
-	if e.persona("start the orchestrator") {
+	if e.member("start the orchestrator") {
 		return 1
 	}
 	rt, err := runtime.Get(runtimeName())
@@ -166,7 +166,7 @@ func orchestratorSession(t session.Tmux, name, home string, pid int) bool {
 // openOrchestrator returns the cadre's open orchestrator from its lock, or
 // nil. A tmux lock counts only when it names this cadre's orchestrator
 // session running the recorded process; otherwise the lock was not
-// cadre's (a persona's shell can write it), so cadre never attaches the
+// cadre's (a member's shell can write it), so cadre never attaches the
 // user to a session that only claims to be the orchestrator. A caller
 // holding the start guard sets clear, and such a lock is removed.
 func openOrchestrator(t session.Tmux, cadre, home, lockPath string, clear bool) *orchestrator.Lock {
@@ -203,9 +203,9 @@ func (e *env) openingNotes(r *cadres.Resolved) {
 	}
 }
 
-// lookalike returns the folder at or above dir that looks like a cadre
-// (personas/ and projects.yaml) but is not a known one, or "". Nothing in it
-// is read.
+// lookalike returns the folder at or above dir that looks like a 0.1.x
+// cadre (personas/ and projects.yaml) but is not a known one, or "".
+// Nothing in it is read.
 func lookalike(dir string) string {
 	known := map[string]bool{}
 	list, _ := cadres.List()
@@ -213,6 +213,7 @@ func lookalike(dir string) string {
 		known[c.Path] = true
 	}
 	for d := dir; ; d = filepath.Dir(d) {
+		// 0.1.x cadres keep their members in personas/.
 		st, err := os.Stat(filepath.Join(d, "personas"))
 		_, err2 := os.Stat(filepath.Join(d, "projects.yaml"))
 		if err == nil && st.IsDir() && err2 == nil && !known[d] && !cadres.Inside(d) {
@@ -230,7 +231,7 @@ func lookalike(dir string) string {
 func (e *env) runTerminal(c runtime.Command, lockPath string, release func()) int {
 	cmd := exec.Command(c.Argv[0], c.Argv[1:]...)
 	cmd.Dir = c.Dir
-	cmd.Env = append(withoutPersona(os.Environ()), c.Env...)
+	cmd.Env = append(withoutMember(os.Environ()), c.Env...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = e.stdin, e.stdout, e.stderr
 	// The terminal comes back as it was, even if the child dies raw.
 	if f, ok := e.stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
@@ -292,12 +293,12 @@ func (e *env) runTerminal(c runtime.Command, lockPath string, release func()) in
 	return 0
 }
 
-// withoutPersona drops CADRE_PERSONA: the orchestrator is the user's own
-// session, never a persona's.
-func withoutPersona(env []string) []string {
+// withoutMember drops CADRE_MEMBER (and 0.1.x's CADRE_PERSONA): the
+// orchestrator is the user's own session, never a member's.
+func withoutMember(env []string) []string {
 	out := env[:0:0]
 	for _, kv := range env {
-		if !strings.HasPrefix(kv, "CADRE_PERSONA=") {
+		if !strings.HasPrefix(kv, "CADRE_MEMBER=") && !strings.HasPrefix(kv, "CADRE_PERSONA=") {
 			out = append(out, kv)
 		}
 	}

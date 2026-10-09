@@ -14,7 +14,7 @@ import (
 
 func newFile(t *testing.T) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "persona-settings.json")
+	p := filepath.Join(t.TempDir(), "member-settings.json")
 	if err := Create(p); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestCreateMakesAValidFileWithNoGrants(t *testing.T) {
 	}
 }
 
-const valid = `"permissions": {"allow": [], "deny": ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)"]},
+const valid = `"permissions": {"allow": [], "deny": ["Edit(//**/.claude/member-settings.json)", "Bash(cadre allow:*)"]},
 "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults", "` + FixedSoft + `"]}`
 
 func TestLoadRefusals(t *testing.T) {
@@ -54,7 +54,7 @@ func TestLoadRefusals(t *testing.T) {
 		{`{"permissions": {"allow": [1]}}`, "permissions.allow is not a list of strings"},
 		{`{"autoMode": {"allow": ["x"]}}`, `autoMode.allow lacks "$defaults", which would replace the built-in rules`},
 		{`{"permissions": {"allow": [], "deny": []}, "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults"]}}`, "permissions.deny lacks the entries that protect the file"},
-		{`{"permissions": {"allow": [], "deny": ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)"]}, "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults"]}}`, "autoMode.soft_deny lacks the entry that protects the file"},
+		{`{"permissions": {"allow": [], "deny": ["Edit(//**/.claude/member-settings.json)", "Bash(cadre allow:*)"]}, "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults"]}}`, "autoMode.soft_deny lacks the entry that protects the file"},
 		{`{"permissions": {"defaultMode": "bypassPermissions"}, ` + valid + `}`, "it has the key permissions twice"},
 		{`{"hooks": {}, "hooks": {}}`, "it has the key hooks twice"},
 	} {
@@ -72,14 +72,14 @@ func TestLoadRefusals(t *testing.T) {
 
 func TestExport(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "s.json")
-	os.WriteFile(p, []byte(`{"permissions": {"allow": ["Bash(npm test)"], "deny": ["Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)", "Write(//**/.claude/persona-settings.json)"]},
+	os.WriteFile(p, []byte(`{"permissions": {"allow": ["Bash(npm test)"], "deny": ["Edit(//**/.claude/member-settings.json)", "Bash(cadre allow:*)", "Write(//**/.claude/member-settings.json)"]},
 "autoMode": {"allow": ["$defaults", "Running tests is expected"], "soft_deny": ["$defaults", "`+FixedSoft+`"]}}`), 0o644)
 	dir := filepath.Join(t.TempDir(), "build")
 	out, err := Export(p, dir, Places{Root: "/h/.cadre", Cadres: []string{"/h/.cadre/work", "/Docs/old cadre [1]"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Dir(out) != dir || !strings.HasPrefix(filepath.Base(out), "persona-settings.") {
+	if filepath.Dir(out) != dir || !strings.HasPrefix(filepath.Base(out), "member-settings.") {
 		t.Errorf("copy at %s", out)
 	}
 	if st, _ := os.Stat(out); st.Mode().Perm() != 0o400 {
@@ -93,7 +93,7 @@ func TestExport(t *testing.T) {
 			t.Errorf("the copy lacks %s", d)
 		}
 	}
-	for _, d := range []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/*/personas/**)", "Edit(//**/.cadre/*/.git/**)"} {
+	for _, d := range []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/*/members/**)", "Edit(//**/.cadre/*/.git/**)"} {
 		if !contains(deny, d) {
 			t.Errorf("the copy lacks the N.7 entry %s", d)
 		}
@@ -102,11 +102,11 @@ func TestExport(t *testing.T) {
 		t.Errorf("the copy's soft_deny: %q", soft)
 	}
 	if strings.Contains(string(raw), "teams") {
-		t.Error("a deny entry covers team folders, where personas work")
+		t.Error("a deny entry covers team folders, where members work")
 	}
 	// The same rules with physical paths, for outside cadres and a ~/.cadre
 	// reached through a symlink, with glob characters escaped.
-	for _, d := range []string{"Edit(//h/.cadre/config/**)", "Edit(//h/.cadre/framework/**)", "Edit(//h/.cadre/work/personas/**)",
+	for _, d := range []string{"Edit(//h/.cadre/config/**)", "Edit(//h/.cadre/framework/**)", "Edit(//h/.cadre/work/members/**)",
 		`Edit(//Docs/old cadre \[1\]/cadre.conf)`, `Edit(//Docs/old cadre \[1\]/.git/**)`} {
 		if !contains(deny, d) {
 			t.Errorf("the copy lacks %s", d)
@@ -137,7 +137,7 @@ func TestExport(t *testing.T) {
 
 func TestFingerprints(t *testing.T) {
 	p := newFile(t)
-	hashes := filepath.Join(t.TempDir(), "config", "persona-settings.sha256")
+	hashes := filepath.Join(t.TempDir(), "config", "member-settings.sha256")
 	if s, _ := Verify(p, hashes); s != Unknown {
 		t.Errorf("before recording: %d", s)
 	}
@@ -201,7 +201,7 @@ func TestChangedOutside(t *testing.T) {
 	os.MkdirAll(filepath.Dir(p), 0o755)
 	Create(p)
 	git(t, cadre, "add", "-A")
-	git(t, cadre, "commit", "-qm", "Add the persona settings file")
+	git(t, cadre, "commit", "-qm", "Add the member settings file")
 	hashes := filepath.Join(t.TempDir(), "h")
 
 	// Unknown hash, but the file is what cadre committed: accepted and recorded.
@@ -223,7 +223,7 @@ func TestChangedOutside(t *testing.T) {
 		t.Error("a hand-made commit was accepted")
 	}
 	// Committed by cadre (pulled from another machine): accepted.
-	git(t, cadre, "commit", "-q", "--amend", "-m", "Allow for personas: Bash(curl *)")
+	git(t, cadre, "commit", "-q", "--amend", "-m", "Allow for members: Bash(curl *)")
 	if ChangedOutside(cadre, p, hashes) {
 		t.Error("a grant cadre committed was not accepted")
 	}

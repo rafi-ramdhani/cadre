@@ -47,7 +47,7 @@ func (Claude) Detect() (runtime.Install, error) {
 }
 
 // Launch builds the claude command for a session. The prompt file is
-// appended to Claude Code's system prompt, and a persona gets its
+// appended to Claude Code's system prompt, and a member gets its
 // validated settings copy.
 func (c Claude) Launch(s runtime.LaunchSpec) (runtime.Command, error) {
 	in, err := c.Detect()
@@ -65,7 +65,7 @@ func (c Claude) Launch(s runtime.LaunchSpec) (runtime.Command, error) {
 }
 
 // BuildDir is <cadre>/.claude/build: inside a .claude folder, which Claude
-// Code protects, and denied to personas (N.7).
+// Code protects, and denied to members (N.7).
 func (Claude) BuildDir(cadre string) string { return filepath.Join(cadre, ".claude", "build") }
 
 func (Claude) Permissions() runtime.PermissionOps { return permissions{} }
@@ -84,10 +84,10 @@ func (permissions) Validate(cadre string, known []string, rule string, auto bool
 }
 
 // hashFile keeps the settings fingerprints, one file for the machine.
-func hashFile() string { return cadres.Config("persona-settings.sha256") }
+func hashFile() string { return cadres.Config("member-settings.sha256") }
 
 // Prepare makes sure the cadre has its settings file and writes the
-// validated copy a persona starts with; a file that cannot be used gives no
+// validated copy a member starts with; a file that cannot be used gives no
 // copy and a warning, and an edit made outside cadre allow a warning.
 func (p permissions) Prepare(cadre string, places runtime.Places) runtime.Prepared {
 	var out runtime.Prepared
@@ -99,17 +99,17 @@ func (p permissions) Prepare(cadre string, places runtime.Places) runtime.Prepar
 			return out
 		}
 		settings.Record(file, hashFile())
-		if note, _ := cadres.Commit(cadre, "Add the persona settings file", settings.Rel); note != "" {
+		if note, _ := cadres.Commit(cadre, "Add the member settings file", settings.Rel); note != "" {
 			out.Notes = append(out.Notes, note)
 		}
-		out.Notes = append(out.Notes, "  created "+file+" (grants for personas; change it with cadre allow)")
+		out.Notes = append(out.Notes, "  created "+file+" (grants for members; change it with cadre allow)")
 	}
 	build := Claude{}.BuildDir(cadre)
 	sp := settings.Places{Root: places.Root, Cadres: places.Cadres}
 	copyPath, err := settings.Export(file, build, sp)
 	if err != nil {
-		// The persona still gets every deny rule, and no grants.
-		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: personas start with no grants, only cadre's deny rules, because %s cannot be used: %s; fix it or restore it with git -C %s checkout -- %s", file, err, cadre, settings.Rel))
+		// The member still gets every deny rule, and no grants.
+		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: members start with no grants, only cadre's deny rules, because %s cannot be used: %s; fix it or restore it with git -C %s checkout -- %s", file, err, cadre, settings.Rel))
 		if out.Grants, err = settings.ExportDenyOnly(build, sp); err != nil {
 			out.Warnings = append(out.Warnings, "warning: could not write the deny-only copy: "+err.Error())
 		}
@@ -120,7 +120,7 @@ func (p permissions) Prepare(cadre string, places runtime.Places) runtime.Prepar
 		out.Notes = append(out.Notes, "note: one-time grants are still in place; see cadre allow list and remove each when its task is done")
 	}
 	if settings.ChangedOutside(cadre, file, hashFile()) {
-		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: %s was changed outside cadre allow (see git -C %s diff and log -p -- %s); personas still get it because it is valid", file, cadre, settings.Rel))
+		out.Warnings = append(out.Warnings, fmt.Sprintf("warning: %s was changed outside cadre allow (see git -C %s diff and log -p -- %s); members still get it because it is valid", file, cadre, settings.Rel))
 	}
 	return out
 }

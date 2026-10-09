@@ -44,13 +44,13 @@ func TestUpRunsWhatLaunchBuilt(t *testing.T) {
 	}
 	for _, want := range []string{"--fake-name\nwork-dev-engineer\n", "--fake-mode\ndefault\n",
 		"--fake-prompt\n" + home + "/.cadre/work/.fake/build/dev-engineer.md\n", "--fake-grants\nfake-grants\n",
-		"CADRE_FAKE_LAUNCHED=work-dev-engineer", "CADRE_HOME=" + home + "/.cadre/work", "CADRE_PERSONA=work-dev-engineer"} {
+		"CADRE_FAKE_LAUNCHED=work-dev-engineer", "CADRE_HOME=" + home + "/.cadre/work", "CADRE_MEMBER=work-dev-engineer"} {
 		if !strings.Contains(ran, want) {
 			t.Errorf("the fake ran without %q:\n%s", want, ran)
 		}
 	}
-	if _, err := os.Stat(home + "/.cadre/work/.claude/persona-settings.json"); err == nil {
-		t.Error("a persona on the fake runtime made Claude Code's settings file")
+	if _, err := os.Stat(home + "/.cadre/work/.claude/member-settings.json"); err == nil {
+		t.Error("a member on the fake runtime made Claude Code's settings file")
 	}
 }
 
@@ -81,8 +81,8 @@ func TestUpRefusesAnUnfitRuntime(t *testing.T) {
 	}
 }
 
-// ls says what keeps every persona from starting.
-func TestLsListsWhatKeepsPersonasFromStarting(t *testing.T) {
+// ls says what keeps every member from starting.
+func TestLsListsWhatKeepsMembersFromStarting(t *testing.T) {
 	fakeCadre(t)
 	var st cadreStatus
 	if err := json.Unmarshal([]byte(must(t, "ls", "--json")), &st); err != nil {

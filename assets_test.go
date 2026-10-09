@@ -9,7 +9,7 @@ func TestAssetsHoldSkillProtocolAndTemplate(t *testing.T) {
 	for _, name := range []string{
 		"skills/cadre/SKILL.md", "protocol.md", "orchestrator.md",
 		"template/playbook.md", "template/projects.yaml", "template/cadre.conf",
-		"template/.gitignore", "template/teams/.gitkeep", "template/personas/dev/engineer.md",
+		"template/.gitignore", "template/teams/.gitkeep", "template/members/dev/engineer.md",
 	} {
 		if _, err := fs.Stat(Assets, name); err != nil {
 			t.Errorf("%s is not embedded: %v", name, err)

@@ -8,4 +8,4 @@ labels: enhancement
 
 **What you have in mind**
 
-**Could it live in your own cadre instead?** (a persona, a playbook rule, a team)
+**Could it live in your own cadre instead?** (a member, a playbook rule, a team)

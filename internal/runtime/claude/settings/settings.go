@@ -1,6 +1,6 @@
-// Package settings handles a cadre's persona settings file
-// (<cadre>/.claude/persona-settings.json): the grants every persona gets.
-// It validates the file, writes the copy each persona starts with, keeps
+// Package settings handles a cadre's member settings file
+// (<cadre>/.claude/member-settings.json): the grants every member gets.
+// It validates the file, writes the copy each member starts with, keeps
 // fingerprints that reveal edits made outside cadre allow, and adds and
 // removes grants.
 package settings
@@ -22,40 +22,40 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 )
 
-// Protect are the deny rules a file must hold: they keep personas from
+// Protect are the deny rules a file must hold: they keep members from
 // editing it or running cadre allow. The fixed entries name the file by a
 // pattern, not its path, so they stay valid when the cadre is cloned. Edit
 // rules also cover the Write tool; Claude Code ignores Write(path) rules.
-var Protect = []string{"Edit(//**/.claude/persona-settings.json)", "Bash(cadre allow:*)"}
+var Protect = []string{"Edit(//**/.claude/member-settings.json)", "Bash(cadre allow:*)"}
 
-// cadreDeny keeps personas off cadre's own files under ~/.cadre (N.7).
-// Team folders (~/.cadre/<name>/teams) stay writable: personas work there.
+// cadreDeny keeps members off cadre's own files under ~/.cadre (N.7).
+// Team folders (~/.cadre/<name>/teams) stay writable: members work there.
 // Edit rules also cover the Write tool. The //**/.cadre globs also match a
 // folder named .cadre inside a project, which is harmless: cadre's own
 // files do not live in projects. They do not match a cadre named by a
 // CADRE_HOME elsewhere or a ~/.cadre reached through a symlink, so Export
 // adds the same rules spelled with physical paths (Places).
 var cadreDeny = []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/framework/**)",
-	"Edit(//**/.cadre/*/.claude/**)", "Edit(//**/.cadre/*/cadre.conf)", "Edit(//**/.cadre/*/personas/**)",
+	"Edit(//**/.cadre/*/.claude/**)", "Edit(//**/.cadre/*/cadre.conf)", "Edit(//**/.cadre/*/members/**)",
 	"Edit(//**/.cadre/*/playbook.md)", "Edit(//**/.cadre/*/protocol.md)", "Edit(//**/.cadre/*/projects.yaml)",
 	"Edit(//**/.cadre/*/.git/**)"}
 
-// FixedDeny is added to every persona's copy: Protect, the commands that
+// FixedDeny is added to every member's copy: Protect, the commands that
 // register or switch cadres, and cadre's own files.
 var FixedDeny = append(append(append([]string{}, Protect...), "Bash(cadre use:*)", "Bash(cadre cadres:*)", "Bash(cadre init:*)"), cadreDeny...)
 
 // FixedSoft is the autoMode.soft_deny entry a file must hold.
-const FixedSoft = "Changing persona permissions (editing a cadre's .claude/persona-settings.json " +
+const FixedSoft = "Changing member permissions (editing a cadre's .claude/member-settings.json " +
 	"or running cadre allow) is only done by the user through the orchestrator"
 
 // CadreSoft is added to every copy's autoMode.soft_deny: Edit rules do not
 // cover shell writes, which this tells the auto-mode classifier about.
-const CadreSoft = "Changing cadre's own files under ~/.cadre (settings, personas, playbook, registry, " +
+const CadreSoft = "Changing cadre's own files under ~/.cadre (settings, members, playbook, registry, " +
 	"cadre.conf, build files), other than team folders, is only done by the user through the orchestrator"
 
 // legacy entries are dropped from the copy: Claude Code ignores Write(path)
 // rules and warns about them at startup.
-var legacy = []string{"Write(//**/.claude/persona-settings.json)"}
+var legacy = []string{"Write(//**/.claude/member-settings.json)"}
 
 // allowed lists the keys a file may have, and their lists, in order.
 var allowed = []struct {
@@ -87,7 +87,7 @@ func strs(items ...string) *jsonx.Value {
 }
 
 // Problem is why a file cannot be used: its text is the reason, as the
-// warning prints it ("personas start without <file> because <reason>").
+// warning prints it ("members start without <file> because <reason>").
 type Problem string
 
 func (p Problem) Error() string { return string(p) }
@@ -198,7 +198,7 @@ func (p Places) deny() []string {
 		out = append(out, "Edit(/"+root+"/config/**)", "Edit(/"+root+"/framework/**)")
 	}
 	for _, c := range p.Cadres {
-		for _, f := range []string{"/.claude/**", "/cadre.conf", "/personas/**", "/playbook.md", "/protocol.md", "/projects.yaml", "/.git/**"} {
+		for _, f := range []string{"/.claude/**", "/cadre.conf", "/members/**", "/playbook.md", "/protocol.md", "/projects.yaml", "/.git/**"} {
 			out = append(out, "Edit(/"+escapeGlob(c)+f+")")
 		}
 	}
@@ -217,7 +217,7 @@ func escapeGlob(p string) string {
 	return b.String()
 }
 
-// Export validates the file and writes the copy personas start with into
+// Export validates the file and writes the copy members start with into
 // dir: only the allowed keys, without legacy entries, with FixedDeny added
 // (deny beats allow in every scope, so this keeps broad Edit grants off the
 // source file whatever it says). The copy is named by its hash, mode 0400,
@@ -231,9 +231,9 @@ func Export(path, dir string, places Places) (string, error) {
 	return write(root, dir, places)
 }
 
-// ExportDenyOnly writes the copy a persona starts with when the settings
+// ExportDenyOnly writes the copy a member starts with when the settings
 // file cannot be used: no grants, only the deny rules and the soft_deny
-// lines, so a broken file never means a persona without them.
+// lines, so a broken file never means a member without them.
 func ExportDenyOnly(dir string, places Places) (string, error) {
 	root := jsonx.NewObject(
 		"permissions", jsonx.NewObject("allow", strs(), "deny", strs(Protect...)),
@@ -299,7 +299,7 @@ func write(root *jsonx.Value, dir string, places Places) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	copyPath := filepath.Join(dir, "persona-settings."+hex.EncodeToString(sum[:])[:16]+".json")
+	copyPath := filepath.Join(dir, "member-settings."+hex.EncodeToString(sum[:])[:16]+".json")
 	if err := fsx.WriteFile(copyPath, text, 0o400); err != nil {
 		return "", err
 	}
@@ -386,11 +386,11 @@ func Verify(path, hashFile string) (int, error) {
 }
 
 // Rel is the settings file's path inside its cadre.
-const Rel = ".claude/persona-settings.json"
+const Rel = ".claude/member-settings.json"
 
 // commitSubjects are the commit messages cadre writes for this file.
-var commitSubjects = []string{"Add the persona settings file", "Allow for personas: ", "Allow for personas once: ",
-	"Remove grant for personas: ", "Remove one-time grants for personas"}
+var commitSubjects = []string{"Add the member settings file", "Allow for members: ", "Allow for members once: ",
+	"Remove grant for members: ", "Remove one-time grants for members"}
 
 // FromCadre reports whether the cadre's settings file is exactly as cadre
 // last committed it: equal to HEAD, with nothing pending, and the last

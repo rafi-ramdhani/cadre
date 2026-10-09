@@ -14,7 +14,7 @@ func (s Scope) StopTeam(key string) string {
 	return "  " + SessionName(s.Name, key) + " not running"
 }
 
-// StopRole stops one persona: its window in this cadre's session, or in a
+// StopRole stops one member: its window in this cadre's session, or in a
 // legacy one.
 func (s Scope) StopRole(key, role string) string {
 	for _, session := range []string{s.mine(key), s.legacy(key)} {
@@ -22,7 +22,7 @@ func (s Scope) StopRole(key, role string) string {
 			return "  " + session[len("cadre-"):] + "-" + role + " stopped"
 		}
 	}
-	return "  " + PersonaName(s.Name, key, role) + " not running"
+	return "  " + MemberName(s.Name, key, role) + " not running"
 }
 
 // Stopping stops a list of sessions, leaving the one this command runs in

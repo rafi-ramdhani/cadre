@@ -47,12 +47,12 @@ func CopyOldConfig() (string, error) {
 			return "", err
 		}
 	}
-	if raw, err := os.ReadFile(filepath.Join(old, "persona-settings.sha256")); err == nil {
+	if raw, err := os.ReadFile(filepath.Join(old, "member-settings.sha256")); err == nil {
 		merged := string(raw)
-		if mine, err := os.ReadFile(Config("persona-settings.sha256")); err == nil {
+		if mine, err := os.ReadFile(Config("member-settings.sha256")); err == nil {
 			merged = mergeHashes(string(raw), string(mine))
 		}
-		if err := fsx.WriteFile(Config("persona-settings.sha256"), []byte(merged), 0o600); err != nil {
+		if err := fsx.WriteFile(Config("member-settings.sha256"), []byte(merged), 0o600); err != nil {
 			return "", err
 		}
 	}

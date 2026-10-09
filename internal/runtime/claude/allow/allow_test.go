@@ -22,7 +22,7 @@ func layout(t *testing.T, kind string) (*Checker, map[string]string) {
 	home := root + "/home"
 	cadre := home + "/work/demo"
 	other := root + "/multi/b"
-	for _, d := range []string{cadre + "/.claude", cadre + "/personas", other + "/personas", home + "/Documents"} {
+	for _, d := range []string{cadre + "/.claude", cadre + "/members", other + "/members", home + "/Documents"} {
 		os.MkdirAll(d, 0o755)
 	}
 	if kind == "stow" {
@@ -151,14 +151,14 @@ func TestDifferences(t *testing.T) {
 
 func TestNorm(t *testing.T) {
 	for in, want := range map[string]string{
-		"CADRE":          "cadre",
-		"c\u200badre":    "cadre", // a zero-width space (Cf) is dropped
-		"persona\u2011x": "persona-x",
-		"a\u00a0b":       "a b",
-		"ｃａｄｒｅ":          "cadre", // fullwidth letters fold under NFKC
-		"Straße":         "strasse",
-		"ﬁle":            "file",
-		"\u2014":         "-",
+		"CADRE":         "cadre",
+		"c\u200badre":   "cadre", // a zero-width space (Cf) is dropped
+		"member\u2011x": "member-x",
+		"a\u00a0b":      "a b",
+		"ｃａｄｒｅ":         "cadre", // fullwidth letters fold under NFKC
+		"Straße":        "strasse",
+		"ﬁle":           "file",
+		"\u2014":        "-",
 	} {
 		if got := normText(in); got != want {
 			t.Errorf("normText(%q) = %q, want %q", in, got, want)

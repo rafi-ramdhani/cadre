@@ -61,7 +61,7 @@ func TestFirstRunNewCadre(t *testing.T) {
 	if cadres.Default() != "mine" {
 		t.Errorf("default %q", cadres.Default())
 	}
-	if roles, _ := filepath.Glob(c + "/personas/*/*.md"); len(roles) != 2 {
+	if roles, _ := filepath.Glob(c + "/members/*/*.md"); len(roles) != 2 {
 		t.Errorf("starter team %v", roles)
 	}
 	if reg := readFile(t, c+"/projects.yaml"); !strings.Contains(reg, "app:\n") || cadres.Place(cadres.Cadre{Name: "mine", Path: c}, "app") != home+"/src/app" {
@@ -215,7 +215,7 @@ func TestHookOrchestrator(t *testing.T) {
 		!strings.Contains(got.HookSpecificOutput.AdditionalContext, "This session is the cadre orchestrator") {
 		t.Errorf("hook: %d %q", code, out)
 	}
-	for _, v := range []string{"CADRE_PERSONA", "CADRE_OFF", "CADRE_ORCHESTRATOR"} {
+	for _, v := range []string{"CADRE_MEMBER", "CADRE_OFF", "CADRE_ORCHESTRATOR"} {
 		t.Setenv(v, "1")
 		if code, out, errOut := call("hook", "orchestrator"); code != 0 || out != "" || errOut != "" {
 			t.Errorf("with %s: %d %q %q", v, code, out, errOut)
@@ -225,13 +225,13 @@ func TestHookOrchestrator(t *testing.T) {
 }
 
 // backupOf makes the backup repository of a cadre called name, as a
-// machine that backed it up would have pushed it: personas, a registry
+// machine that backed it up would have pushed it: members, a registry
 // with a project that has a repo and one that has none, and no places.
 func backupOf(t *testing.T, name, appRepo string, extra ...func(src string)) string {
 	t.Helper()
 	src := filepath.Join(t.TempDir(), name)
-	os.MkdirAll(src+"/personas/dev", 0o755)
-	os.WriteFile(src+"/personas/dev/engineer.md", []byte("# engineer\n"), 0o644)
+	os.MkdirAll(src+"/members/dev", 0o755)
+	os.WriteFile(src+"/members/dev/engineer.md", []byte("# engineer\n"), 0o644)
 	os.WriteFile(src+"/projects.yaml", []byte("app:\n  repo: "+appRepo+"\n  team: dev\nnotes:\n  team: dev\n"), 0o644)
 	for _, f := range extra {
 		f(src)
@@ -285,7 +285,7 @@ func TestRestoreRefusesARepositoryThatIsNotACadre(t *testing.T) {
 	home := firstMachine(t)
 	notACadre := bareRepo(t, "app")
 	code, _, errOut := callIn("restore\n" + notACadre + "\nwork\n")
-	if code != 1 || !strings.Contains(errOut, "is not a cadre (it has no personas/ folder); nothing was kept") {
+	if code != 1 || !strings.Contains(errOut, "is not a cadre (it has no members/ folder); nothing was kept") {
 		t.Errorf("exit %d, %q", code, errOut)
 	}
 	if _, err := os.Stat(home + "/.cadre/work"); err == nil {
@@ -353,7 +353,9 @@ func TestFirstRunStopsAtTheEndOfInput(t *testing.T) {
 	exec.Command("git", "-C", home+"/src/app", "init", "-q").Run()
 	t.Chdir(home + "/src/app")
 	code, _, errOut := callIn("new\nmine\n")
-	if code != 1 || !strings.Contains(errOut, "input ended before the orchestrator opened") {
+	// Nothing more is asked once the input has ended.
+	if code != 1 || !strings.Contains(errOut, "input ended; your cadre is created, run cadre to finish") ||
+		strings.Contains(errOut, "Make every new") || strings.Contains(errOut, "Link the cadre skill") {
 		t.Errorf("ended after the name: %d %q", code, errOut)
 	}
 	if _, err := os.Stat(home + "/orch-ran"); err == nil {
@@ -471,7 +473,7 @@ func TestTheCadreGitignore(t *testing.T) {
 	c := home + "/.cadre/work"
 	for p, ignored := range map[string]bool{
 		".claude/build/x.md": true, "teams/dev/.env": true, "teams/dev/.env.local": true, "teams/dev/node_modules/x": true,
-		"teams/dev/.env.example": false, "teams/dev/build/report.md": false, "teams/dev/notes.md": false, ".claude/persona-settings.json": false,
+		"teams/dev/.env.example": false, "teams/dev/build/report.md": false, "teams/dev/notes.md": false, ".claude/member-settings.json": false,
 	} {
 		err := exec.Command("git", "-C", c, "check-ignore", "-q", p).Run()
 		if (err == nil) != ignored {
@@ -557,5 +559,24 @@ func TestRestoreRefusesCommittedLinks(t *testing.T) {
 	}
 	if readFile(t, scratch+"/keep.txt") != "scratch\n" {
 		t.Error("the scratch folder was touched")
+	}
+}
+
+// Ctrl-D at the projects question of a restore clones nothing and asks
+// nothing more: the cadre is restored, and cadre stops with one line.
+func TestRestoreStopsAskingAtTheEndOfInput(t *testing.T) {
+	home := firstMachine(t)
+	backup := backupOf(t, "work", bareRepo(t, "app"))
+	code, out, errOut := callIn("restore\n" + backup + "\n\n")
+	if code != 1 || !strings.Contains(errOut, "input ended; the cadre is restored, run cadre to finish") {
+		t.Errorf("exit %d\n%s%s", code, out, errOut)
+	}
+	for _, q := range []string{"Make every new", "Link the cadre skill", "Where do you keep"} {
+		if strings.Contains(errOut, q) {
+			t.Errorf("asked %q after the input ended:\n%s", q, errOut)
+		}
+	}
+	if _, err := os.Stat(home + "/.cadre/work/members"); err != nil || readFile(t, home+"/orch-ran") != "" {
+		t.Error("the cadre was not kept, or the orchestrator opened")
 	}
 }

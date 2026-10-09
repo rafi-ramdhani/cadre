@@ -36,7 +36,7 @@ type Asker func(project string, names []string) (string, error)
 
 // Resolve finds the cadre for a command run in cwd (N.3), first match
 // first:
-//  1. CADRE_HOME, used as given (personas and the orchestrator have it set);
+//  1. CADRE_HOME, used as given (members and the orchestrator have it set);
 //  2. cwd inside a cadre's folder under ~/.cadre;
 //  3. cwd inside a project a cadre links, the deepest one when projects
 //     nest; when several cadres link it, ask, or refuse without a terminal;

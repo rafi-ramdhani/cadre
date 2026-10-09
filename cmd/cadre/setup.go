@@ -45,6 +45,10 @@ func (e *env) firstRun(rt runtime.Runtime) bool {
 			return false
 		}
 		e.offerHook(rt)
+		if e.eof {
+			e.fail("input ended; the cadre is restored, run cadre to finish")
+			return false
+		}
 		return true
 	default:
 		e.fail("answer new or restore; nothing was changed")
@@ -57,6 +61,10 @@ func (e *env) firstRun(rt runtime.Runtime) bool {
 	e.say("Created your cadre %s, with a dev team (an engineer and a reviewer).", c.Name)
 	e.offerLink(rt)
 	e.offerHook(rt)
+	if e.eof {
+		e.fail("input ended; your cadre is created, run cadre to finish")
+		return false
+	}
 	return true
 }
 
@@ -120,8 +128,9 @@ func (e *env) offerLink(rt runtime.Runtime) {
 	if project.CheckName(name) != nil || !e.yes(fmt.Sprintf("Link this folder (%s) to your cadre and trust it in %s?", name, rt.Title()), false) {
 		return
 	}
-	sub := &env{args: []string{name, "--path", top}, stdin: e.stdin, stdout: e.stdout, stderr: e.stderr, lines: e.lines}
+	sub := &env{args: []string{name, "--path", top}, stdin: e.stdin, stdout: e.stdout, stderr: e.stderr, lines: e.lines, eof: e.eof}
 	runProjectAdd(sub)
+	e.lines, e.eof = sub.lines, sub.eof
 }
 
 // offerHook offers the hook that makes every new session of the runtime the
@@ -217,7 +226,7 @@ func (e *env) restoreCadre(rt runtime.Runtime) bool {
 	if !c.Present() {
 		// Only what this command just cloned is removed.
 		os.RemoveAll(c.Path)
-		e.fail("%s is not a cadre (it has no personas/ folder); nothing was kept", repo)
+		e.fail("%s is not a cadre (it has no members/ folder); nothing was kept", repo)
 		return false
 	}
 	// Git checks out a committed link as a link, which cadre would follow
@@ -286,7 +295,7 @@ func (e *env) offerProjects(rt runtime.Runtime, c cadres.Cadre) {
 		e.say("They stay not on this machine; ask the orchestrator to clone them when you want them.")
 		return
 	}
-	sub := &env{stdin: e.stdin, stdout: e.stdout, stderr: e.stderr, lines: e.lines}
+	sub := &env{stdin: e.stdin, stdout: e.stdout, stderr: e.stderr, lines: e.lines, eof: e.eof}
 	runProjectSync(sub)
-	e.lines = sub.lines
+	e.lines, e.eof = sub.lines, sub.eof
 }

@@ -13,7 +13,7 @@ import (
 // out a committed link as a link, so a cloned cadre could point cadre at
 // files outside it.
 func CommittedLinks(dir, runtimeDir string) ([]string, error) {
-	linkedDirs := []string{"personas/", "teams/", runtimeDir + "/"}
+	linkedDirs := []string{"members/", "teams/", runtimeDir + "/"}
 	out, err := exec.Command("git", "-C", dir, "ls-files", "-s", "-z").Output()
 	if err != nil {
 		return nil, fmt.Errorf("could not list the files of %s: %v", dir, err)

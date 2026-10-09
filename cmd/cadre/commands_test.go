@@ -123,7 +123,7 @@ func TestCutCommandsAreUnknown(t *testing.T) {
 	for _, args := range [][]string{
 		{"compact", "dev/pm"}, {"project", "export", "a", "/x"}, {"project", "move", "a", "/x"},
 		{"project", "restore", "a"}, {"project", "relink", "a", "/x"}, {"cadres", "add", "/x"}, {"cadres", "remove", "x"},
-		{"team", "add", "ops"}, {"persona", "add", "ops/sre"}, {"--no-tmux"}, {"hook", "statusline"}, {"hook", "state", "x"},
+		{"team", "add", "ops"}, {"member", "add", "ops/sre"}, {"--no-tmux"}, {"hook", "statusline"}, {"hook", "state", "x"},
 		{"which"}, {"ctx"}, {"start"},
 	} {
 		if code, _, errOut := call(args...); code != 1 || !strings.Contains(errOut, "unknown command") {

@@ -28,7 +28,7 @@ func sandbox(t *testing.T) string {
 	t.Cleanup(func() { hookAnywhereForTests = false })
 	// Nothing may point cadre or Claude Code at the user's own setup: a
 	// set CLAUDE_CONFIG_DIR would send trust edits to the real config.
-	for _, v := range []string{"CADRE_HOME", "CADRE_PERSONA", "CADRE_TEST_TTY", "XDG_CACHE_HOME", "CLAUDE_CONFIG_DIR", "TMUX", "TMUX_PANE"} {
+	for _, v := range []string{"CADRE_HOME", "CADRE_MEMBER", "CADRE_PERSONA", "CADRE_TEST_TTY", "XDG_CACHE_HOME", "CLAUDE_CONFIG_DIR", "TMUX", "TMUX_PANE"} {
 		t.Setenv(v, "")
 		os.Unsetenv(v)
 	}
@@ -80,7 +80,7 @@ func TestInitAndUse(t *testing.T) {
 		t.Error("the template was not written from the embedded assets")
 	}
 	// The starter team: dev, with an engineer and a reviewer.
-	roles, _ := filepath.Glob(home + "/.cadre/work/personas/*/*.md")
+	roles, _ := filepath.Glob(home + "/.cadre/work/members/*/*.md")
 	if len(roles) != 2 || filepath.Base(roles[0]) != "engineer.md" || filepath.Base(roles[1]) != "reviewer.md" {
 		t.Errorf("starter team %v", roles)
 	}
@@ -95,9 +95,9 @@ func TestInitAndUse(t *testing.T) {
 		t.Errorf("default %q", b)
 	}
 	refused(t, "no cadre named nope", "use", "nope")
-	t.Setenv("CADRE_PERSONA", "x")
+	t.Setenv("CADRE_MEMBER", "x")
 	for _, args := range [][]string{{"init", "x"}, {"use", "work"}} {
-		refused(t, "persona sessions cannot create or switch cadres", args...)
+		refused(t, "refused for members: members cannot create or switch cadres", args...)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestInitAndUseTakeOnlyAName(t *testing.T) {
 	if _, err := os.Stat(parent + "/visible"); err == nil {
 		t.Error("a cadre was made outside ~/.cadre")
 	}
-	os.MkdirAll(home+"/elsewhere/other/personas", 0o755)
+	os.MkdirAll(home+"/elsewhere/other/members", 0o755)
 	refused(t, "no cadre named", "use", home+"/elsewhere/other")
 }
 
@@ -166,5 +166,22 @@ func TestCutConfigKeysAreNamed(t *testing.T) {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("no %q in %q", want, errOut)
 		}
+	}
+}
+
+// A session started by 0.1.x carries CADRE_PERSONA: it is read exactly
+// like CADRE_MEMBER, and never set.
+func TestTheOldMemberVariableStillCounts(t *testing.T) {
+	sandbox(t)
+	must(t, "init", "work")
+	t.Setenv("CADRE_PERSONA", "work-dev-engineer")
+	refused(t, "refused for members", "allow", "add", "Bash(true)")
+	refused(t, "refused for members", "init", "other")
+	refused(t, "refused for members", "stop", "--all", "--yes")
+	if code, out, _ := call("hook", "orchestrator"); code != 0 || out != "" {
+		t.Errorf("the hook spoke in a 0.1.x member session: %q", out)
+	}
+	if env := withoutMember([]string{"A=1", "CADRE_PERSONA=x", "CADRE_MEMBER=y"}); len(env) != 1 || env[0] != "A=1" {
+		t.Errorf("the orchestrator's environment keeps %v", env)
 	}
 }

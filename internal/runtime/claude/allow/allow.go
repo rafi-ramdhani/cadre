@@ -1,6 +1,6 @@
-// Package allow decides whether a grant may be added to the persona
+// Package allow decides whether a grant may be added to the member
 // settings: it refuses rules that are too broad or that reach files which
-// run code outside a persona's session or hold cadre's own state, warns
+// run code outside a member's session or hold cadre's own state, warns
 // about others, and checks plain-English --auto entries.
 //
 // It is a port of the bash 0.2.0 checker, which nine review rounds shaped.
@@ -33,7 +33,7 @@ type Checker struct {
 	Root   string   // ~/.cadre, where cadres live (section N)
 	Home   string   // the user's home folder
 	Cache  string   // $XDG_CACHE_HOME, or ~/.cache
-	Cadre  string   // the cadre whose personas get the grant
+	Cadre  string   // the cadre whose members get the grant
 	Cadres []string // every known cadre, this one included
 }
 
@@ -117,8 +117,8 @@ func (c *Checker) rule(rule string) string {
 		spec = rule[m[4]:m[5]]
 	}
 	n := normText(rule)
-	if strings.Contains(n, "persona-settings") || strings.Contains(n, "persona_settings") || cadreAllow.MatchString(n) {
-		refuse("refused: %s targets the persona settings or cadre allow, which only the user changes", rule)
+	if strings.Contains(n, "member-settings") || strings.Contains(n, "member_settings") || cadreAllow.MatchString(n) {
+		refuse("refused: %s targets the member settings or cadre allow, which only the user changes", rule)
 	}
 	if strings.Contains(n, "cadre.conf") {
 		refuse("refused: %s reaches cadre.conf, which cadre runs as shell code; make that edit yourself", rule)
@@ -216,7 +216,7 @@ func (c *Checker) command(rule, spec string) string {
 	if base == "cadre" {
 		switch normText(rest[0]) {
 		case "use", "cadres", "init":
-			refuse("refused: %s lets a persona register or switch cadres, which only the user does", rule)
+			refuse("refused: %s lets a member register or switch cadres, which only the user does", rule)
 		}
 	}
 	sub := ""
@@ -245,7 +245,7 @@ func (c *Checker) command(rule, spec string) string {
 		return fmt.Sprintf("warning: %s lets git run other programs (git -c, aliases); prefer exact git commands", rule)
 	}
 	if subs, ok := fromFiles[base]; wild && (strings.Contains(prog, "/") || (ok && (subs == nil || subs[sub]))) {
-		return fmt.Sprintf("warning: %s runs code from files a persona can change (a Makefile, package.json, a script); prefer exact commands", rule)
+		return fmt.Sprintf("warning: %s runs code from files a member can change (a Makefile, package.json, a script); prefer exact commands", rule)
 	}
 	return ""
 }
@@ -375,14 +375,14 @@ func (c *Checker) path(rule, tool, spec string) string {
 	if tool != "Read" {
 		for _, suffix := range outsideSuffixes {
 			if named(strings.Split(suffix, "/")...) {
-				refuse("refused: %s reaches %s, which runs code outside a persona's session or holds cadre's own state; make that edit yourself", rule, suffix)
+				refuse("refused: %s reaches %s, which runs code outside a member's session or holds cadre's own state; make that edit yourself", rule, suffix)
 			}
 		}
 	}
 	if tool == "Read" {
 		for _, t := range []string{c.Home + "/.ssh/", c.Home + "/.aws/", c.Home + "/.gnupg/", c.Home + "/.config/gh/"} {
 			if hit(t) {
-				return fmt.Sprintf("warning: %s lets personas read secrets (~/.ssh, ~/.aws, ~/.gnupg, ~/.config/gh); keep it as narrow as you can", rule)
+				return fmt.Sprintf("warning: %s lets members read secrets (~/.ssh, ~/.aws, ~/.gnupg, ~/.config/gh); keep it as narrow as you can", rule)
 			}
 		}
 		return ""
@@ -395,7 +395,7 @@ func (c *Checker) path(rule, tool, spec string) string {
 	if named(".claude") || hit(c.Home+"/.claude/") || hit(c.Home+"/.config/git/") {
 		refuse("refused: Claude Code never pre-approves writes under .claude or .config/git; make that edit yourself")
 	}
-	// A relative rule is read from the persona's folder, which may be the cadre itself.
+	// A relative rule is read from the member's folder, which may be the cadre itself.
 	if named("cadre.conf") || (full == "" && reaches(spec, "cadre.conf")) {
 		refuse("refused: %s reaches %s/cadre.conf, which cadre runs as shell code; make that edit yourself", rule, c.Cadre)
 	}
@@ -413,24 +413,24 @@ func (c *Checker) path(rule, tool, spec string) string {
 	for _, t := range c.outside() {
 		if hit(t) {
 			shown := strings.ReplaceAll(strings.TrimSuffix(t, "/"), anyName, "<cadre>")
-			refuse("refused: %s lets a persona change %s, which runs code outside its session or holds cadre's own state; make that edit yourself", rule, shown)
+			refuse("refused: %s lets a member change %s, which runs code outside its session or holds cadre's own state; make that edit yourself", rule, shown)
 		}
 	}
 	for _, x := range outsideNames {
 		if named(x) {
-			refuse("refused: %s lets a persona change files that run code outside its session; make that edit yourself", rule)
+			refuse("refused: %s lets a member change files that run code outside its session; make that edit yourself", rule)
 		}
 	}
 	for _, cadre := range c.Cadres {
 		if cadre != c.Cadre && hit(cadre+"/teams/") {
-			return fmt.Sprintf("warning: %s reaches the team folders of the cadre at %s; this cadre's personas would change that cadre's work", rule, cadre)
+			return fmt.Sprintf("warning: %s reaches the team folders of the cadre at %s; this cadre's members would change that cadre's work", rule, cadre)
 		}
 	}
 	return ""
 }
 
 // outside lists files and folders (ending in /) that run code outside a
-// persona's session, and cadre's own state.
+// member's session, and cadre's own state.
 func (c *Checker) outside() []string {
 	h := c.Home
 	out := []string{h + "/.ssh/", h + "/.config/fish/", h + "/.tmux.conf", h + "/.vimrc",
@@ -447,7 +447,7 @@ func (c *Checker) outside() []string {
 	}
 	for _, cadre := range cadres {
 		// A cadre's own files: everything but its team folders.
-		out = append(out, cadre+"/.claude/build/", cadre+"/.claude/", cadre+"/personas/", cadre+"/playbook.md",
+		out = append(out, cadre+"/.claude/build/", cadre+"/.claude/", cadre+"/members/", cadre+"/playbook.md",
 			cadre+"/protocol.md", cadre+"/projects.yaml", cadre+"/.git/")
 	}
 	return out
@@ -484,7 +484,7 @@ func auto(text string) string {
 	if strings.TrimSpace(n) == "$defaults" {
 		refuse("refused: $defaults is already there")
 	}
-	if autoRefused.MatchString(n) || strings.Contains(n, "persona-settings") {
+	if autoRefused.MatchString(n) || strings.Contains(n, "member-settings") {
 		refuse("refused: an --auto entry may not speak about permissions, settings, grants, cadre allow " +
 			"or the user's approval; describe the work that is expected instead")
 	}

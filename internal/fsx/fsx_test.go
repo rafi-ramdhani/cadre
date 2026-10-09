@@ -143,7 +143,7 @@ func TestCopyTreeAndVerify(t *testing.T) {
 		}
 	}
 	write("playbook.md", "play", 0o644)
-	write(".claude/persona-settings.json", "{}", 0o600)
+	write(".claude/member-settings.json", "{}", 0o600)
 	write("teams/dev/notes.md", "n", 0o644)
 	write("projects/app/README", "skip me", 0o644)
 	os.MkdirAll(filepath.Join(src, "empty"), 0o755)
@@ -163,7 +163,7 @@ func TestCopyTreeAndVerify(t *testing.T) {
 	if got, _ := os.Readlink(filepath.Join(dst, "link")); got != "../elsewhere" {
 		t.Errorf("symlink target %q", got)
 	}
-	if st, _ := os.Stat(filepath.Join(dst, ".claude/persona-settings.json")); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(filepath.Join(dst, ".claude/member-settings.json")); st.Mode().Perm() != 0o600 {
 		t.Errorf("mode not kept: %v", st.Mode().Perm())
 	}
 	if err := CopyTree(src, dst, skip); err == nil {

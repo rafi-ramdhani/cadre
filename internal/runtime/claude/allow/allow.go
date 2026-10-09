@@ -502,19 +502,28 @@ func (c *Checker) commandWord(rule, w string) {
 		}
 		return
 	default:
-		parts := strings.Split(w, "/")
-		climbs := 0
+		// Cleaned first, so ../../teams/../members and ..//../members
+		// read as ../../members. A member works in teams/<team>, two
+		// folders below its cadre: k leading ".." climb k-2 folders above
+		// the cadre, so an own name within the next k-1 parts may be the
+		// cadre's (../../members, ../../../w/members).
+		parts := strings.Split(path.Clean(w), "/")
 		for _, p := range parts {
-			if spells(normText(p), "..") {
-				climbs++
-				continue
+			if spells(normText(p), ".cadre") {
+				refuse("refused: %s reaches a .cadre folder, which holds cadre's own files; only the user changes those, through the orchestrator", rule)
 			}
-			if climbs >= 2 {
-				if name := c.ownName(p); name != "" {
-					refuse("refused: %s climbs out to %s, a cadre's own file; only the user changes those, through the orchestrator", rule, name)
-				}
+		}
+		k := 0
+		for k < len(parts) && spells(normText(parts[k]), "..") {
+			k++
+		}
+		if k < 2 {
+			return
+		}
+		for _, p := range parts[k:min(len(parts), 2*k-1)] {
+			if name := c.ownName(p); name != "" {
+				refuse("refused: %s climbs out to %s, a cadre's own file; only the user changes those, through the orchestrator", rule, name)
 			}
-			climbs = 0
 		}
 		return
 	}

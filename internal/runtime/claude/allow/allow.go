@@ -10,8 +10,10 @@ package allow
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path"
 	"regexp"
+	"runtime"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -439,19 +441,46 @@ var redirect = regexp.MustCompile(`^[0-9]*[<>]+&?`)
 // relative path climbing out of a team folder (../../members) names them.
 var ownNames = []string{"members", "personas", ".claude", ".git", "playbook.md", "protocol.md", "projects.yaml", "cadre.conf"}
 
-// commandPath refuses a word of a Bash rule that names one of cadre's own
-// files: a member's shell could otherwise change what the fixed Edit
+// foldCase compares paths without letter case, as macOS's default
+// case-insensitive volumes do (~/.CADRE/W/PLAYBOOK.MD is the playbook).
+var foldCase = runtime.GOOS == "darwin"
+
+// commandPath refuses a word of a Bash rule that reaches one of cadre's
+// own files: a member's shell could otherwise change what the fixed Edit
 // denies keep it from editing. Only words at or inside ~/.cadre or a known
 // cadre count, so a command on a folder that merely holds them (ls ~)
-// stays allowed; a relative word counts when it climbs out with "..".
+// stays allowed. A relative word counts when two or more ".." lead
+// straight to an own name (../../members from a team folder); a word that
+// starts with a variable counts when it names an own file after it.
 func (c *Checker) commandPath(rule, word string) {
 	w := redirect.ReplaceAllString(word, "")
-	if i := strings.Index(w, "="); i >= 0 && strings.HasPrefix(w, "-") {
-		w = w[i+1:] // --output=<path>
+	words := []string{w}
+	if i := strings.Index(w, "="); i >= 0 {
+		words = append(words, w[i+1:]) // --output=<path>, of=<path>
 	}
-	for _, home := range []string{"$HOME", "${HOME}"} {
-		if w == home || strings.HasPrefix(w, home+"/") {
-			w = "~" + w[len(home):]
+	for _, w := range words {
+		c.commandWord(rule, w)
+	}
+}
+
+func (c *Checker) commandWord(rule, w string) {
+	for _, v := range []string{"$CADRE_HOME", "${CADRE_HOME}"} {
+		if w == v || strings.HasPrefix(w, v+"/") {
+			w = c.Cadre + w[len(v):]
+		}
+	}
+	for _, v := range []string{"$HOME", "${HOME}"} {
+		if w == v || strings.HasPrefix(w, v+"/") {
+			w = "~" + w[len(v):]
+		}
+	}
+	if strings.HasPrefix(w, "~") && !strings.HasPrefix(w, "~/") && w != "~" {
+		// ~<user>: the current user's is the checker's home.
+		name, rest, _ := strings.Cut(w[1:], "/")
+		if u, err := user.Current(); err == nil && u.Username == name {
+			w = c.Home + "/" + rest
+		} else if u, err := user.Lookup(name); err == nil && u.HomeDir != "" {
+			w = u.HomeDir + "/" + rest
 		}
 	}
 	full := ""
@@ -463,23 +492,29 @@ func (c *Checker) commandPath(rule, word string) {
 		}
 	case w == "~" || strings.HasPrefix(w, "~/"):
 		full = c.Home + w[1:]
+	case strings.HasPrefix(w, "$") || strings.HasPrefix(w, "`"):
+		// Another variable, or a command, could be any cadre.
+		parts := strings.Split(w, "/")
+		for _, p := range parts[1:] {
+			if name := c.ownName(p); name != "" {
+				refuse("refused: %s reaches %s in whatever folder %s names, and a cadre's %s is its own file; only the user changes those, through the orchestrator", rule, name, parts[0], name)
+			}
+		}
+		return
 	default:
 		parts := strings.Split(w, "/")
-		climbs := false
+		climbs := 0
 		for _, p := range parts {
 			if spells(normText(p), "..") {
-				climbs = true
+				climbs++
+				continue
 			}
-		}
-		if !climbs {
-			return
-		}
-		for _, p := range parts {
-			for _, name := range ownNames {
-				if spells(normText(p), name) {
-					refuse("refused: %s reaches a cadre's %s, which only the user changes, through the orchestrator; make that change yourself", rule, name)
+			if climbs >= 2 {
+				if name := c.ownName(p); name != "" {
+					refuse("refused: %s climbs out to %s, a cadre's own file; only the user changes those, through the orchestrator", rule, name)
 				}
 			}
+			climbs = 0
 		}
 		return
 	}
@@ -488,13 +523,20 @@ func (c *Checker) commandPath(rule, word string) {
 	if head == "" {
 		head = "/"
 	}
+	fold := func(s string) string {
+		if foldCase {
+			return cases.Fold().String(s)
+		}
+		return s
+	}
 	forms := []string{full, strings.TrimRight(paths.Real(head), "/") + "/" + full[len(head):]}
 	scopes := append([]string{c.Root}, c.Cadres...)
 	for _, f := range forms {
+		f = fold(f)
 		fixed := strings.TrimRight(fixedPart(f), "/")
 		inScope := false
 		for _, sc := range scopes {
-			if sc != "" && (paths.Within(fixed, sc) || paths.Within(fixed, paths.Real(sc))) {
+			if sc != "" && (paths.Within(fixed, fold(sc)) || paths.Within(fixed, fold(paths.Real(sc)))) {
 				inScope = true
 			}
 		}
@@ -506,12 +548,24 @@ func (c *Checker) commandPath(rule, word string) {
 			if strings.HasSuffix(t, "/") {
 				real += "/"
 			}
-			if reaches(f, t) || reaches(f, real) {
+			if reaches(f, fold(t)) || reaches(f, fold(real)) {
 				shown := strings.ReplaceAll(strings.TrimSuffix(t, "/"), anyName, "<cadre>")
-				refuse("refused: %s reaches %s, which only the user changes, through the orchestrator; make that change yourself", rule, shown)
+				refuse("refused: %s reaches %s, one of cadre's own files; only the user changes those, through the orchestrator", rule, shown)
 			}
 		}
 	}
+}
+
+// ownName returns the own name a path part spells (members, playbook.md
+// and the like), or "".
+func (c *Checker) ownName(part string) string {
+	p := normText(part)
+	for _, name := range ownNames {
+		if spells(p, name) {
+			return name
+		}
+	}
+	return ""
 }
 
 // own lists cadre's own files and folders (ending in /): the config and

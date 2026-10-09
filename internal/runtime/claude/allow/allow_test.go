@@ -3,6 +3,7 @@ package allow
 import (
 	"bufio"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -228,6 +229,12 @@ func TestNeverWeakerThanBash(t *testing.T) {
 // or on a folder that only holds a cadre, stay allowed.
 func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
 	c, ph := layout(t, "plain")
+	defer func(f bool) { foldCase = f }(foldCase)
+	foldCase = true
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, rule := range []string{
 		"Bash(rm {CADRE}/members/dev/engineer.md)",
 		"Bash(rm {CADRE}/personas/dev/engineer.md)",
@@ -242,15 +249,30 @@ func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
 		"Bash(rm ~/.cadre/w/members/dev/engineer.md)",
 		"Bash(rm ~/.cadre/w/playbook.md)",
 		"Bash(rm -rf ~/.cadre/w)",
+		"Bash(ls ~/.cadre)",
 		"Bash(cp x ~/.cadre/config/default)",
 		"Bash(rm -rf ~/.cadre/framework)",
 		"Bash(cp x $HOME/.cadre/w/playbook.md)",
 		"Bash(mv x {HOME}/Documents/link/protocol.md)",
 		"Bash(cp --target-directory={CADRE}/members/dev x)",
-		"Bash(sed -i s/a/b/ ../../members/dev/x.md)",
-		"Bash(rm ../../playbook.md)",
+		"Bash(dd if=x of=~/.cadre/w/playbook.md)",
 		"Bash(rm {OTHER}/members/x.md)",
 		"Bash(rm {CADRE}/members/*)",
+		// The variable every member has, pinned to its cadre.
+		"Bash(rm $CADRE_HOME/playbook.md)",
+		"Bash(rm ${CADRE_HOME}/members/dev/engineer.md)",
+		"Bash(rm -rf $CADRE_HOME)",
+		// Any other variable could be a cadre.
+		"Bash(rm $X/playbook.md)",
+		"Bash(rm ${WORK}/members/dev/x.md)",
+		// The current user's home by name, and another spelling of the case.
+		"Bash(rm ~" + me.Username + "/.cadre/w/playbook.md)",
+		"Bash(rm ~/.CADRE/W/PLAYBOOK.MD)",
+		// Two or more .. straight to an own name: out of a team folder.
+		"Bash(sed -i s/a/b/ ../../members/dev/x.md)",
+		"Bash(rm ../../playbook.md)",
+		"Bash(cat ../../members/list.json)",
+		"Bash(rm ../../../w/../../playbook.md)",
 	} {
 		if got, msg := check(c, "R", fill(rule, ph)); got != "refuse" || !strings.Contains(msg, "only the user changes") {
 			t.Errorf("%s: %s %q", rule, got, mask(msg, ph))
@@ -259,6 +281,9 @@ func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
 	for _, rule := range []string{
 		"Bash(ls ~)", "Bash(du -sh ~/work)", "Bash(npm test)", "Bash(cat {CADRE}/teams/dev/notes.md)",
 		"Bash(rm {CADRE}/teams/dev/old.md)", "Bash(cp a ../b/c.md)", "Bash(ls ~/.cadre-notes)", "Bash(cat members/dev/x.md)",
+		// A project's own subfolders, one .. up.
+		"Bash(cat ../.git/config)", "Bash(ls ../.claude)", "Bash(cat ../docs/playbook.md)",
+		"Bash(cat $PROJECT/src/main.go)", "Bash(echo $HOME)", "Bash(dd if=in.img of=out.img)",
 	} {
 		if got, msg := check(c, "R", fill(rule, ph)); got == "refuse" {
 			t.Errorf("%s was refused: %q", rule, mask(msg, ph))

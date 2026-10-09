@@ -273,6 +273,12 @@ func TestBashRulesCannotReachCadresOwnFiles(t *testing.T) {
 		"Bash(rm ../../playbook.md)",
 		"Bash(cat ../../members/list.json)",
 		"Bash(rm ../../../w/../../playbook.md)",
+		// The same climbs, not written in their simplest form.
+		"Bash(rm ../../teams/../members/dev/engineer.md)",
+		"Bash(rm ../.././members/dev/engineer.md)",
+		"Bash(rm ..//../members/dev/engineer.md)",
+		"Bash(rm ../../../w/members/dev/engineer.md)",
+		"Bash(rm ../../../../.cadre/w/playbook.md)",
 	} {
 		if got, msg := check(c, "R", fill(rule, ph)); got != "refuse" || !strings.Contains(msg, "only the user changes") {
 			t.Errorf("%s: %s %q", rule, got, mask(msg, ph))

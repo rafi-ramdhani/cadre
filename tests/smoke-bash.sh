@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-# End-to-end smoke test. Runs everything in a throwaway HOME with a stub
-# `claude` and a private tmux server, so it never touches a real setup.
+# End-to-end smoke test of the bash implementation. Runs everything in a
+# throwaway HOME with a stub `claude` and a private tmux server, so it never
+# touches a real setup.
 #
-#   tests/smoke.sh
+#   tests/smoke-bash.sh
+#
+# The bash line is frozen at its last commit, the base of the Go rewrite.
+# This suite tests a clone of that commit (its scripts, skill and
+# template), not the files the Go implementation has moved on from.
 
 set -euo pipefail
 
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+BASH_HEAD=500863b
+REPO=$(cd "$(dirname "$0")/.." && pwd)
 # Physical, as cadre keeps the paths of cadres (macOS: /var is /private/var).
 T=$(cd "$(mktemp -d)" && pwd -P)
 export HOME="$T/home" CADRE_TMUX_SOCKET="cadre-test-$$"
@@ -16,6 +22,8 @@ export GIT_CONFIG_GLOBAL="$T/gitconfig"
 git config --global user.name "Cadre Test"
 git config --global user.email "test@example.com"
 git config --global init.defaultBranch main
+git clone -q "$REPO" "$T/bash-line" && git -C "$T/bash-line" checkout -q "$BASH_HEAD"
+ROOT="$T/bash-line"
 mkdir -p "$HOME/.claude" "$T/bin"
 # Run from a folder outside every cadre: cadre resolves the cadre from the
 # current folder, and the repo under test may sit inside a real cadre.

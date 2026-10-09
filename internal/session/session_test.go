@@ -516,3 +516,21 @@ func TestEnsureBuildRefusesALink(t *testing.T) {
 		t.Errorf("a new cadre: %v", err)
 	}
 }
+
+// A session with this cadre's home but no team or project markers is not
+// a team session: up refuses to start members in it, as stop and attach
+// do not match it.
+func TestUpRefusesASessionWithoutMarkers(t *testing.T) {
+	tm := private(t)
+	c, _ := cadreDir(t, "work")
+	tm.command("new-session", "-d", "-s", "cadre-work-dev", "-n", "x", "sleep", "60").Run()
+	tm.command("set-option", "-q", "-t", "=cadre-work-dev:", "@cadre_home", c).Run()
+	s := Scope{Name: "work", Path: c, T: tm}
+	err := s.CheckSession("dev", "")
+	if err == nil || !strings.Contains(err.Error(), "a session named cadre-work-dev exists without cadre's markers; stop it with tmux kill-session -t cadre-work-dev, or cadre stop --yes") {
+		t.Errorf("CheckSession: %v", err)
+	}
+	if line := s.StopTeam("dev", ""); !strings.Contains(line, "not running") {
+		t.Errorf("stop: %q", line)
+	}
+}

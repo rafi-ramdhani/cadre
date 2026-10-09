@@ -140,7 +140,13 @@ func (s Scope) CheckSession(team, project string) error {
 		return fmt.Errorf("tmux session %s belongs to cadre %s (%s), not cadre %s (%s); rename a team or one of the cadre folders", name, filepath.Base(home), home, s.Name, s.Path)
 	}
 	t, p := s.T.Option(name, "@cadre_team"), s.T.Option(name, "@cadre_project")
-	if t != "" && (t != team || p != project) {
+	// A session with this cadre's home but no team (a start that died
+	// before its options were set, or one made by hand) is not one stop
+	// and attach match, so up does not start members in it either.
+	if t == "" {
+		return fmt.Errorf("a session named %s exists without cadre's markers; stop it with tmux kill-session -t %s, or cadre stop --yes", name, name)
+	}
+	if t != team || p != project {
 		held := t
 		if p != "" {
 			held += " for project " + p

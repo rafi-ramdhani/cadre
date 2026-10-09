@@ -191,6 +191,31 @@ func TestA01CadreIsLeftAsItIs(t *testing.T) {
 	}
 }
 
+// A 0.1.x ~/.config/cadre is never changed, and a command without a
+// terminal creates nothing before asking.
+func TestTheOldConfigIsLeftAlone(t *testing.T) {
+	home := sandbox(t)
+	os.RemoveAll(home + "/.cadre") // the sandbox's own state, not cadre's
+	os.MkdirAll(home+"/Documents/demo/personas", 0o755)
+	os.MkdirAll(home+"/.config/cadre", 0o755)
+	os.WriteFile(home+"/.config/cadre/home", []byte(home+"/Documents/demo\n"), 0o644)
+	os.WriteFile(home+"/.config/cadre/persona-settings.sha256", []byte("abc x\n"), 0o600)
+	before, _ := exec.Command("ls", "-lnR", home+"/.config").Output()
+	if code, _, _ := call(); code != 1 {
+		t.Errorf("plain cadre with no cadre and no terminal exited %d", code)
+	}
+	if _, err := os.Stat(home + "/.cadre"); err == nil {
+		t.Error("~/.cadre was created before asking")
+	}
+	for _, args := range [][]string{{"ls", "--all"}, {"--check"}, {"init", "work"}, {"ls"}} {
+		call(args...)
+	}
+	after, _ := exec.Command("ls", "-lnR", home+"/.config").Output()
+	if string(after) != string(before) || readFile(t, home+"/.config/cadre/home") != home+"/Documents/demo\n" {
+		t.Errorf("~/.config/cadre changed:\n%s\n%s", before, after)
+	}
+}
+
 func TestCutConfigKeysAreNamed(t *testing.T) {
 	home := sandbox(t)
 	must(t, "init", "work")

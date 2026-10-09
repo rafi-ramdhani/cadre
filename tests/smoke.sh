@@ -110,9 +110,12 @@ for root in sys.argv[1:]:
 echo "first run"
 out=$(cadre </dev/null 2>&1 || true)
 check "without a terminal it says what to run" grep -q "run cadre in a terminal to set one up" <<<"$out"
-check "and creates nothing" test ! -e "$HOME/.cadre/config/default"
+check "and creates nothing" test ! -e "$HOME/.cadre"
+check "Ctrl-D at the first question changes nothing" bash -c "printf '' | CADRE_TEST_TTY=1 cadre 2>&1 | grep -q 'input ended; nothing was changed' && test ! -e '$HOME/.cadre'"
 mkdir -p "$T/start" && cd "$T/start"
-out=$(printf 'new\nfirst\ny\ny\n' | CADRE_TEST_TTY=1 cadre 2>&1)
+# The hook names this test build, which lives in a temporary folder: a
+# release build refuses that.
+out=$(printf 'new\nfirst\ny\ny\n' | CADRE_TEST_TTY=1 CADRE_TEST_HOOK_ANYWHERE=1 cadre 2>&1)
 check "a new cadre with the starter team" bash -c "test -f '$HOME/.cadre/first/members/dev/engineer.md' -a -f '$HOME/.cadre/first/members/dev/reviewer.md' && test \"\$(ls '$HOME/.cadre/first/members')\" = dev"
 check "it is the default" grep -qx first "$HOME/.cadre/config/default"
 check "the skill is written out and linked, after a yes" test "$(readlink "$HOME/.claude/skills/cadre")" = "$HOME/.cadre/framework/skills/cadre" -a -f "$HOME/.cadre/framework/skills/cadre/SKILL.md"
@@ -159,7 +162,7 @@ echo "a 0.1.x cadre is left as it is"
 mkdir -p "$T/old/visible/personas" "$T/old/visible/projects" "$HOME/.config/cadre"
 touch "$T/old/visible/projects.yaml"
 echo "$T/old/visible" > "$HOME/.config/cadre/home"
-snap() { find "$T/old/visible" "$HOME/.config/cadre" -type f -exec cksum {} + | sort; }
+snap() { find "$T/old/visible" "$HOME/.config/cadre" -exec ls -ldn {} + | sort; find "$T/old/visible" "$HOME/.config/cadre" -type f -exec cksum {} + | sort; }
 before=$(snap)
 cadre ls >/dev/null 2>&1; cadre ls --all >/dev/null 2>&1; cadre --check >/dev/null 2>&1 || true
 check "cadre leaves the 0.1.x cadre and ~/.config/cadre byte for byte" test "$(snap)" = "$before"

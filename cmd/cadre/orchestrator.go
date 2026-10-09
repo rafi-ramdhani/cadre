@@ -65,6 +65,9 @@ func runPlain(e *env) int {
 	if _, fatal := e.health(rt, first); fatal {
 		return 1
 	}
+	if e.eof {
+		return e.fail("input ended before the orchestrator opened; run cadre again to open it")
+	}
 	if err := runtime.CanOrchestrate(rt); err != nil {
 		return e.fail("%s", err)
 	}

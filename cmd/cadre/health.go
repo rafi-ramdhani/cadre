@@ -3,12 +3,15 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	cadre "github.com/rafi-ramdhani/cadre"
@@ -30,21 +33,26 @@ type finding struct {
 	declined func()       // remembers a no, when it should not be asked again
 }
 
-// ensureFramework writes the skill out to ~/.cadre/framework when this
-// binary's version differs from the one written there (a build from source
-// writes it every time, since its version does not change).
-func (e *env) ensureFramework() {
-	if version != "dev" && framework.Current(version) {
-		return
+// ensureFramework keeps ~/.cadre/framework exactly as this binary
+// carries it, on every run: the skill holds the orchestrator's consent
+// rules, and a member's shell could change it. A change made outside cadre
+// is undone and reported.
+func (e *env) ensureFramework() []finding {
+	restored, err := framework.Sync(cadre.Assets, version)
+	if err != nil {
+		return []finding{{Problem: runtime.Problem{What: "could not write cadre's skill to " + display(framework.Dir()) + ": " + err.Error(),
+			Fix: "check that folder's permissions"}}}
 	}
-	if err := framework.Write(cadre.Assets, version); err != nil {
-		fmt.Fprintf(e.stderr, "warning: could not write cadre's skill to %s: %s\n", framework.Dir(), err)
+	if len(restored) > 0 {
+		return []finding{{Problem: runtime.Problem{What: "the cadre skill was changed outside cadre (" + strings.Join(restored, ", ") + "); cadre restored it",
+			Fix: "nothing to do; if a member's session made the change, look at what it was doing"}}}
 	}
+	return nil
 }
 
 // findings runs the health check: fast checks only look at files and PATH;
 // full ones also run programs.
-func findings(rt runtime.Runtime, full bool) []finding {
+func (e *env) findings(rt runtime.Runtime, full bool) []finding {
 	var out []finding
 	var dirs []string
 	if list, err := cadres.List(); err == nil {
@@ -71,7 +79,7 @@ func findings(rt runtime.Runtime, full bool) []finding {
 	}
 	out = append(out, guardFindings()...)
 	out = append(out, skillFindings(rt)...)
-	out = append(out, hookFindings(rt)...)
+	out = append(out, e.hookFindings(rt)...)
 	if f, ok := pathFinding(); ok {
 		out = append(out, f)
 	}
@@ -100,25 +108,42 @@ func skillFindings(rt runtime.Runtime) []finding {
 	want := framework.SkillDir()
 	target, err := ops.Target()
 	link := func() error { return ops.Link(want) }
+	kept := func(state string) func() { return func() { cadres.SetState(cadres.SkillKept, state) } }
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
+		if cadres.GetState(cadres.SkillKept) == "missing" {
+			return nil
+		}
 		return []finding{{Problem: runtime.Problem{What: "the cadre skill is not linked into " + rt.Title() + " (" + display(ops.Path()) + ")",
-			Fix: "run cadre in a terminal and answer yes"}, ask: "Link the cadre skill into " + rt.Title() + "?", yes: true, fix: link}}
+			Fix: "run cadre in a terminal and answer yes"}, ask: "Link the cadre skill into " + rt.Title() + "?", yes: true, fix: link, declined: kept("missing")}}
 	case errors.Is(err, runtime.ErrNotLink):
 		return []finding{{Problem: runtime.Problem{What: display(ops.Path()) + " is not a link to cadre's skill",
 			Fix: "move it aside, then run cadre again"}}}
 	case err != nil:
 		return []finding{{Problem: runtime.Problem{What: "cannot read " + display(ops.Path()) + ": " + err.Error(), Fix: "check the folder's permissions"}}}
 	case paths.Real(target) != paths.Real(want):
+		if cadres.GetState(cadres.SkillKept) == target {
+			return nil
+		}
 		return []finding{{Problem: runtime.Problem{What: "the cadre skill links to " + display(target) + ", not to this cadre's (" + display(want) + ")",
-			Fix: "run cadre in a terminal and answer yes"}, ask: "Link the skill to this cadre?", yes: true, fix: link}}
+			Fix: "run cadre in a terminal and answer yes"}, ask: "Link the skill to this cadre?", yes: true, fix: link, declined: kept(target)}}
 	}
 	return nil
 }
 
+// hookPlaced says why the hook must not name bin, or nil (see
+// framework.Placed).
+func (e *env) hookPlaced(bin string) error {
+	if hookAnywhere() {
+		return nil
+	}
+	return framework.Placed(bin)
+}
+
 // hookFindings checks that an orchestrator hook, when there is one, runs
-// this binary. A no is remembered for that pair of programs.
-func hookFindings(rt runtime.Runtime) []finding {
+// this binary. A no is remembered for that pair of programs. The hook is
+// pointed here only when this binary is safely placed.
+func (e *env) hookFindings(rt runtime.Runtime) []finding {
 	hooks := rt.Hooks()
 	progs, err := hooks.Find()
 	if err != nil {
@@ -126,6 +151,7 @@ func hookFindings(rt runtime.Runtime) []finding {
 			Fix: "fix the file, or remove cadre's hook from it"}}}
 	}
 	bin := framework.Binary()
+	placed := e.hookPlaced(bin)
 	var out []finding
 	for _, p := range progs {
 		if paths.Real(p) == paths.Real(bin) {
@@ -135,11 +161,16 @@ func hookFindings(rt runtime.Runtime) []finding {
 		if cadres.GetState(cadres.HookKept) == pair {
 			continue
 		}
-		out = append(out, finding{Problem: runtime.Problem{What: "the orchestrator hook runs " + display(p) + ", not this cadre (" + display(bin) + ")",
-			Fix: "run cadre in a terminal and answer yes"},
-			ask:      "Point the hook at this cadre?",
-			fix:      func() error { _, err := hooks.Set(bin); return err },
-			declined: func() { cadres.SetState(cadres.HookKept, pair) }})
+		f := finding{Problem: runtime.Problem{What: "the orchestrator hook runs " + display(p) + ", not this cadre (" + display(bin) + ")",
+			Fix: "run cadre in a terminal and answer yes"}}
+		if placed != nil {
+			f.Fix = "install cadre (with Homebrew or install.sh) and run it from there; " + placed.Error()
+		} else {
+			f.ask = "Point the hook at this cadre?"
+			f.fix = func() error { _, err := hooks.Set(bin); return err }
+			f.declined = func() { cadres.SetState(cadres.HookKept, pair) }
+		}
+		out = append(out, f)
 	}
 	return out
 }
@@ -161,15 +192,18 @@ func pathFinding() (finding, bool) {
 
 // health runs the health check, silent unless something is wrong: fast
 // checks every time, full ones when forced, after a version change, or
-// when a fast check finds something. It offers each fix it can make, and
-// reports how many problems it found and whether cadre must stop.
+// when a fast check finds something new (a lasting finding does not slow
+// every start). It offers each fix it can make, and reports how many
+// problems it found and whether cadre must stop.
 func (e *env) health(rt runtime.Runtime, force bool) (found int, fatal bool) {
-	e.ensureFramework()
-	full := force || cadres.GetState(cadres.CheckedVersion) != version
-	list := findings(rt, full)
-	if len(list) > 0 && !full {
-		full = true
-		list = findings(rt, true)
+	list := e.ensureFramework()
+	fast := e.findings(rt, false)
+	key := findingsKey(fast)
+	full := force || cadres.GetState(cadres.CheckedVersion) != version || (len(fast) > 0 && cadres.GetState(cadres.LastFindings) != key)
+	if full {
+		list = append(list, e.findings(rt, true)...)
+	} else {
+		list = append(list, fast...)
 	}
 	for _, f := range list {
 		fmt.Fprintf(e.stderr, "problem: %s\n", f.What)
@@ -188,10 +222,26 @@ func (e *env) health(rt runtime.Runtime, force bool) (found int, fatal bool) {
 		fmt.Fprintf(e.stderr, "  fix: %s\n", f.Fix)
 		fatal = fatal || f.Fatal
 	}
+	cadres.SetState(cadres.LastFindings, key)
 	if full && !fatal {
 		cadres.SetState(cadres.CheckedVersion, version)
 	}
 	return len(list), fatal
+}
+
+// findingsKey identifies a set of findings, to tell a new one from those
+// already reported.
+func findingsKey(list []finding) string {
+	if len(list) == 0 {
+		return ""
+	}
+	var whats []string
+	for _, f := range list {
+		whats = append(whats, f.What)
+	}
+	sort.Strings(whats)
+	sum := sha256.Sum256([]byte(strings.Join(whats, "\n")))
+	return hex.EncodeToString(sum[:8])
 }
 
 // yes asks a yes-or-no question; Enter gives def.
@@ -200,7 +250,11 @@ func (e *env) yes(question string, def bool) bool {
 	if def {
 		hint = " [Y/n] "
 	}
-	switch strings.ToLower(e.ask(question + hint)) {
+	answer, ok := e.answer(question + hint)
+	if !ok {
+		return false // the end of the input is never a yes
+	}
+	switch strings.ToLower(answer) {
 	case "":
 		return def
 	case "y", "yes":

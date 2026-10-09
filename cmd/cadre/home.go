@@ -32,12 +32,24 @@ func (e *env) interactive() bool {
 
 // ask prints question on stderr and reads one line of answer.
 func (e *env) ask(question string) string {
+	answer, _ := e.answer(question)
+	return answer
+}
+
+// answer asks like ask, and reports false when the input has ended (Ctrl-D
+// on a terminal): never an answer, so it never accepts a default.
+func (e *env) answer(question string) (string, bool) {
 	fmt.Fprint(e.stderr, question)
 	if e.lines == nil {
 		e.lines = bufio.NewReader(e.stdin)
 	}
-	line, _ := e.lines.ReadString('\n')
-	return strings.TrimSpace(line)
+	line, err := e.lines.ReadString('\n')
+	if err != nil && line == "" {
+		e.eof = true
+		fmt.Fprintln(e.stderr)
+		return "", false
+	}
+	return strings.TrimSpace(line), true
 }
 
 // resolve finds the cadre this command acts on (N.3), asking which one

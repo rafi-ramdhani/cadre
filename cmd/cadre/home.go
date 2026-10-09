@@ -39,6 +39,11 @@ func (e *env) ask(question string) string {
 // answer asks like ask, and reports false when the input has ended (Ctrl-D
 // on a terminal): never an answer, so it never accepts a default.
 func (e *env) answer(question string) (string, bool) {
+	// Once the input has ended, nothing more is asked: a terminal would
+	// read again after Ctrl-D.
+	if e.eof {
+		return "", false
+	}
 	fmt.Fprint(e.stderr, question)
 	if e.lines == nil {
 		e.lines = bufio.NewReader(e.stdin)

@@ -92,7 +92,7 @@ func (u Up) start(out io.Writer, role string) error {
 	if _, err := os.Stat(memberFile); err != nil {
 		return fmt.Errorf("  no member %s/%s", u.Team, role)
 	}
-	if u.T.HasWindow(session, role) && u.mine(key) == session {
+	if u.T.HasWindow(session, role) && u.mine(u.Team, u.Project) == session {
 		fmt.Fprintf(out, "  %s already running\n", name)
 		return nil
 	}

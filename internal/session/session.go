@@ -73,32 +73,55 @@ func (s Scope) Running() []Info {
 	return out
 }
 
-// mine returns this cadre's own session for key, when it runs.
-func (s Scope) mine(key string) string {
-	name := SessionName(s.Name, key)
-	if s.T.Has(name) && s.T.Option(name, "@cadre_home") == s.Path {
+// mine returns this cadre's own session for team and project, when it
+// runs. The session name alone is not enough: my.app and my_app share
+// one, so the session's team and project must match too.
+func (s Scope) mine(team, project string) string {
+	name := SessionName(s.Name, Key(team, project))
+	if s.T.Has(name) && s.T.Option(name, "@cadre_home") == s.Path &&
+		s.T.Option(name, "@cadre_team") == team && s.T.Option(name, "@cadre_project") == project {
 		return name
 	}
 	return ""
 }
 
+// Instead says which of this cadre's teams runs under the session name
+// that team and project would have, when it is another one ("dev my.app"
+// for dev my_app), or "".
+func (s Scope) Instead(team, project string) string {
+	name := SessionName(s.Name, Key(team, project))
+	if !s.T.Has(name) || s.T.Option(name, "@cadre_home") != s.Path {
+		return ""
+	}
+	t, p := s.T.Option(name, "@cadre_team"), s.T.Option(name, "@cadre_project")
+	if t == team && p == project {
+		return ""
+	}
+	return strings.TrimSpace(t + " " + p)
+}
+
 // legacy returns, in the default cadre, the legacy session for key, when it
 // runs.
 func (s Scope) legacy(key string) string {
-	name := LegacyName(key)
-	if s.Default && s.T.Has(name) && s.T.Option(name, "@cadre_home") == "" {
-		return name
+	if !s.Default {
+		return ""
+	}
+	// tmux 3.5 and later kept a dot in a 0.1.x session's name.
+	for _, name := range []string{LegacyName(key), "cadre-" + key} {
+		if s.T.Has(name) && s.T.Option(name, "@cadre_home") == "" {
+			return name
+		}
 	}
 	return ""
 }
 
 // Live returns the session that runs key for this cadre: its own, else a
 // legacy one.
-func (s Scope) Live(key string) string {
-	if m := s.mine(key); m != "" {
+func (s Scope) Live(team, project string) string {
+	if m := s.mine(team, project); m != "" {
 		return m
 	}
-	return s.legacy(key)
+	return s.legacy(Key(team, project))
 }
 
 // CheckSession refuses when this cadre's session name for team and project

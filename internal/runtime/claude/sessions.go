@@ -34,20 +34,23 @@ func (sessions) NewID() string {
 // it for the folder the session ran in, <config>/projects/<folder>/<id>.jsonl,
 // the folder written with every character but letters and digits as "-":
 // that is where claude --resume looks.
-func (s sessions) Exists(id, dir string) bool { return !s.LastWrite(id, dir).IsZero() }
+func (s sessions) Exists(id, dir string) bool {
+	_, _, ok := s.Transcript(id, dir)
+	return ok
+}
 
-// LastWrite is the transcript's modification time, or zero.
-func (sessions) LastWrite(id, dir string) time.Time {
+// Transcript is the transcript's modification time and size.
+func (sessions) Transcript(id, dir string) (time.Time, int64, bool) {
 	if !uuidRule.MatchString(id) || dir == "" {
-		return time.Time{}
+		return time.Time{}, 0, false
 	}
 	for _, d := range []string{dir, paths.Real(dir)} {
 		f := filepath.Join(ConfigDir(), "projects", projectFolder(d), id+".jsonl")
 		if st, err := os.Lstat(f); err == nil && st.Mode().IsRegular() {
-			return st.ModTime()
+			return st.ModTime(), st.Size(), true
 		}
 	}
-	return time.Time{}
+	return time.Time{}, 0, false
 }
 
 var notAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)

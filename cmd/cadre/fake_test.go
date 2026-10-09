@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rafi-ramdhani/cadre/internal/runtime"
 	"github.com/rafi-ramdhani/cadre/internal/runtime/fake"
 )
 
@@ -202,5 +203,33 @@ func TestTheOrchestratorResumesOnlyWhatCadreIssued(t *testing.T) {
 	// The one cadre issued is resumed.
 	if out := must(t); !strings.Contains(out, "The orchestrator: resumed its conversation.") {
 		t.Errorf("issued: %q", out)
+	}
+}
+
+// A transcript counts as written when its size changed, even when its time
+// did not (filesystems with 1 or 2 second times).
+func TestUntouchedReadsTheSizeToo(t *testing.T) {
+	fakeCadre(t)
+	rt, err := runtime.Get("fake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, ".fake-transcripts", "id")
+	if !untouched(rt, "id", dir, time.Time{}, 0) {
+		t.Error("a missing transcript was written")
+	}
+	os.MkdirAll(filepath.Dir(f), 0o755)
+	os.WriteFile(f, []byte("{}\n"), 0o600)
+	when := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	os.Chtimes(f, when, when)
+	mod, size, _ := rt.Sessions().Transcript("id", dir)
+	if !untouched(rt, "id", dir, mod, size) {
+		t.Error("an unchanged transcript was written")
+	}
+	os.WriteFile(f, []byte("{}\n{}\n"), 0o600)
+	os.Chtimes(f, when, when)
+	if untouched(rt, "id", dir, mod, size) {
+		t.Error("a transcript that grew in the same tick reads as untouched")
 	}
 }

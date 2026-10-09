@@ -189,3 +189,12 @@ func TestOnlyLocksCadreWritesAreRead(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanTTY(t *testing.T) {
+	for in, want := range map[string]string{"/dev/ttys004": "/dev/ttys004", "/dev/pts/3": "/dev/pts/3",
+		"pipe:[123]": "", "/dev/fd/0": "/dev/fd/0", "": "", "/dev/tty\x1b[2J": ""} {
+		if got := CleanTTY(in); got != want {
+			t.Errorf("CleanTTY(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

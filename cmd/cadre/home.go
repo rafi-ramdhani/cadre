@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"golang.org/x/term"
@@ -83,17 +82,13 @@ func (e *env) persona(why string) bool {
 }
 
 func runInit(e *env) int {
-	if len(e.args) < 1 || len(e.args) > 2 || strings.HasPrefix(e.args[0], "-") {
+	if len(e.args) != 1 || strings.HasPrefix(e.args[0], "-") {
 		return e.fail("usage: cadre init <name>")
 	}
-	if e.persona("register or switch cadres") || !e.home() {
+	if e.persona("create or switch cadres") || !e.home() {
 		return 1
 	}
-	parent := ""
-	if len(e.args) == 2 {
-		parent = e.args[1] // the 0.1.x form: a visible cadre at <dir>/<name>
-	}
-	c, note, err := cadres.Create(e.args[0], parent, cadre.Assets)
+	c, note, err := cadres.Create(e.args[0], cadre.Assets)
 	if err != nil {
 		return e.fail("%s", err)
 	}
@@ -113,175 +108,21 @@ func runInit(e *env) int {
 	return 0
 }
 
-// isDirArg reports whether a use or cadres argument names a folder rather
-// than a cadre.
-func isDirArg(arg string) bool {
-	if strings.ContainsRune(arg, '/') || arg == "." || arg == ".." || strings.HasPrefix(arg, "~") {
-		return true
-	}
-	st, err := os.Stat(arg)
-	return err == nil && st.IsDir()
-}
-
-// outsideCadre checks a folder to list as an outside cadre and returns it.
-func outsideCadre(dir string) (cadres.Cadre, error) {
-	p := paths.Real(dir)
-	c := cadres.Cadre{Name: filepath.Base(p), Path: p, External: !cadres.Inside(p)}
-	if !c.Present() {
-		return c, fmt.Errorf("%s is not a cadre (no personas/ folder)", dir)
-	}
-	if err := cadres.CheckName(c.Name); err != nil {
-		return c, err
-	}
-	if other, ok := cadres.Clash(c.Name, p); ok {
-		return c, fmt.Errorf("a cadre named %s is already at %s; rename one of the folders", other.Name, other.Path)
-	}
-	return c, nil
-}
-
 func runUse(e *env) int {
-	if len(e.args) != 1 {
+	if len(e.args) != 1 || strings.HasPrefix(e.args[0], "-") {
 		return e.fail("usage: cadre use <name>")
 	}
-	if e.persona("register or switch cadres") || !e.home() {
+	if e.persona("create or switch cadres") || !e.home() {
 		return 1
 	}
-	var c cadres.Cadre
-	if isDirArg(e.args[0]) {
-		var err error
-		if c, err = outsideCadre(e.args[0]); err != nil {
-			return e.fail("%s", err)
-		}
-		if c.External {
-			if err := cadres.AddExternal(c.Path); err != nil {
-				return e.fail("%s", err)
-			}
-		}
-	} else {
-		var ok bool
-		if c, ok = cadres.Find(e.args[0]); !ok || !c.Present() {
-			return e.fail("no cadre named %s (see cadre ls --all)", e.args[0])
-		}
+	c, ok := cadres.Find(e.args[0])
+	if !ok || !c.Present() {
+		return e.fail("no cadre named %s in ~/.cadre (see cadre ls --all)", e.args[0])
 	}
 	if err := cadres.SetDefault(c.Name); err != nil {
 		return e.fail("%s", err)
 	}
 	e.say("default cadre: %s (%s)", c.Name, c.Path)
-	return 0
-}
-
-func runCadresAdd(e *env) int {
-	if len(e.args) != 1 {
-		return e.fail("usage: cadre cadres add <dir>")
-	}
-	if e.persona("register or switch cadres") || !e.home() {
-		return 1
-	}
-	c, err := outsideCadre(e.args[0])
-	if err != nil {
-		return e.fail("%s", err)
-	}
-	if !c.External {
-		return e.fail("%s is in ~/.cadre, where every cadre is found without adding it", c.Path)
-	}
-	if err := cadres.AddExternal(c.Path); err != nil {
-		return e.fail("%s", err)
-	}
-	e.say("added cadre %s (%s)", c.Name, c.Path)
-	return 0
-}
-
-func runCadresRemove(e *env) int {
-	if len(e.args) != 1 {
-		return e.fail("usage: cadre cadres remove <name|dir>")
-	}
-	if e.persona("register or switch cadres") || !e.home() {
-		return 1
-	}
-	arg := e.args[0]
-	list, _ := cadres.List()
-	var match []cadres.Cadre
-	for _, c := range list {
-		if (isDirArg(arg) && c.Path == paths.Real(arg)) || strings.EqualFold(c.Name, arg) {
-			match = append(match, c)
-		}
-	}
-	switch {
-	case len(match) == 0:
-		return e.fail("%s is not a known cadre (see cadre ls --all)", arg)
-	case len(match) > 1:
-		return e.fail("several known cadres are named %s; give the path instead", arg)
-	case !match[0].External:
-		return e.fail("%s lives in ~/.cadre; cadre cadres remove only forgets cadres kept outside it", match[0].Name)
-	case match[0].Name == cadres.Default() && match[0].Present():
-		return e.fail("%s is the default cadre; make another one the default first (cadre use <name>)", match[0].Name)
-	}
-	if err := cadres.RemoveExternal(match[0].Path); err != nil {
-		return e.fail("%s", err)
-	}
-	e.say("forgot cadre %s (%s); its folder is untouched", match[0].Name, match[0].Path)
-	return 0
-}
-
-// partName is a team or role name: part of session names and of paths.
-var partName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
-
-func runTeamAdd(e *env) int {
-	if len(e.args) != 1 {
-		return e.fail("usage: cadre team add <team>")
-	}
-	if !partName.MatchString(e.args[0]) {
-		return e.fail("a team's name may use letters, digits, - and _")
-	}
-	if e.persona("add teams") {
-		return 1
-	}
-	r, ok := e.resolve()
-	if !ok {
-		return 1
-	}
-	if err := os.MkdirAll(filepath.Join(r.Path, "personas", e.args[0]), 0o755); err != nil {
-		return e.fail("%s", err)
-	}
-	e.say("  team %s added; add personas with cadre persona add %s/<role>", e.args[0], e.args[0])
-	return 0
-}
-
-func runPersonaAdd(e *env) int {
-	team, role, ok := strings.Cut(strings.Join(e.args, " "), "/")
-	if len(e.args) != 1 || !ok {
-		return e.fail("usage: cadre persona add <team>/<role>")
-	}
-	if !partName.MatchString(team) || !partName.MatchString(role) {
-		return e.fail("a team's and a role's name may use letters, digits, - and _")
-	}
-	// A new persona's prompt is launched later with the cadre's grants.
-	if e.persona("add personas") {
-		return 1
-	}
-	r, ok := e.resolve()
-	if !ok {
-		return 1
-	}
-	f := filepath.Join(r.Path, "personas", team, role+".md")
-	if _, err := os.Lstat(f); err == nil {
-		return e.fail("%s already exists", f)
-	}
-	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
-		return e.fail("%s", err)
-	}
-	body := fmt.Sprintf("# Persona: %s (%s team)\n\nYou are the %s. Describe what you own, how you work, and what your reply to the orchestrator contains.\n", role, team, role)
-	if err := os.WriteFile(f, []byte(body), 0o644); err != nil {
-		return e.fail("%s", err)
-	}
-	note, err := cadres.Commit(r.Path, "Add persona "+team+"/"+role, f)
-	if err != nil {
-		return e.fail("%s", err)
-	}
-	if note != "" {
-		e.say("%s", note)
-	}
-	e.say("  created %s; edit it to describe the role", f)
 	return 0
 }
 
@@ -329,28 +170,5 @@ func runProjectPath(e *env) int {
 		return e.fail("project '%s' is not at %s (run cadre project sync)", e.args[0], d)
 	}
 	e.say("%s", d)
-	return 0
-}
-
-// runProjects is the 0.1.x listing, kept as an old name: a ? marks a
-// project missing on this machine.
-func runProjects(e *env) int {
-	r, ok := e.resolve()
-	if !ok {
-		return 1
-	}
-	reg, err := registry.Load(r.Registry())
-	if err != nil {
-		return e.fail("%s", err)
-	}
-	for _, entry := range reg.Entries() {
-		mark := "  "
-		if d := cadres.ProjectDir(r.Cadre, entry); d == "" {
-			mark = "? "
-		} else if st, err := os.Stat(d); err != nil || !st.IsDir() {
-			mark = "? "
-		}
-		e.say("%s%-14s %-8s %s", mark, entry.Name, entry.Get("team"), entry.Get("about"))
-	}
 	return 0
 }

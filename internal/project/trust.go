@@ -15,8 +15,8 @@ import (
 // when it may be. Only the top folder of a project's git repository is
 // trusted: never /, the home folder, ~/.cadre or a folder containing it,
 // a cadre's folder or anything in it (team folders included), a folder
-// containing an outside cadre (N.7), or anything inside a folder the
-// runtime loads code from (protected).
+// containing a cadre, or anything inside a folder the runtime loads code
+// from (protected).
 func TrustRefusal(dir string, protected []string) string {
 	home := paths.Home()
 	root := paths.Real(cadres.Root())

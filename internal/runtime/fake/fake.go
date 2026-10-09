@@ -41,10 +41,9 @@ func off(name string) bool {
 
 func (Fake) Caps() runtime.Capabilities {
 	c := runtime.Capabilities{
-		Grants: !off("Grants"), AutoModeText: !off("AutoModeText"), FixedDenies: !off("FixedDenies"),
+		FixedDenies:     !off("FixedDenies"),
 		PermissionModes: []string{"default", "fake-mode"},
-		ContextUsage:    !off("ContextUsage"), Compact: !off("Compact"), StateSignals: !off("StateSignals"),
-		Resume: !off("Resume"), AssignSessionID: !off("AssignSessionID"), Trust: !off("Trust"),
+		Resume:          !off("Resume"), AssignSessionID: !off("AssignSessionID"), Trust: !off("Trust"),
 		Instructions: !off("Instructions"), OrchestratorHook: !off("OrchestratorHook"), Messaging: runtime.Native,
 	}
 	if off("Messaging") {

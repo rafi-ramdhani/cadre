@@ -12,21 +12,15 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 )
 
-// Create makes a new cadre from the template (fs holds template/ at its
-// root, as the embedded assets do). With parent "", it goes to
-// ~/.cadre/<name>, with no projects/ folder (N.1). With a parent folder
-// (the 0.1.x form), it goes to <parent>/<name> as an outside cadre, with
-// projects/ as before, and is listed in config/external. The cadre is a
-// git repository; its first commit is made when git has an identity, and
-// note says so otherwise.
-func Create(name, parent string, tmpl fs.FS) (c Cadre, note string, err error) {
+// Create makes a new cadre in ~/.cadre/<name> from the template (fs holds
+// template/ at its root, as the embedded assets do). The cadre is a git
+// repository; its first commit is made when git has an identity, and note
+// says so otherwise.
+func Create(name string, tmpl fs.FS) (c Cadre, note string, err error) {
 	if err := CheckName(name); err != nil {
 		return c, "", err
 	}
 	dest := filepath.Join(Root(), name)
-	if parent != "" {
-		dest = filepath.Join(paths.Real(parent), name)
-	}
 	if _, err := os.Lstat(dest); err == nil {
 		return c, "", fmt.Errorf("%s already exists", dest)
 	}
@@ -36,21 +30,10 @@ func Create(name, parent string, tmpl fs.FS) (c Cadre, note string, err error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return c, "", err
 	}
-	external := parent != ""
-	if err := writeTemplate(tmpl, dest, name, external); err != nil {
+	if err := writeTemplate(tmpl, dest, name); err != nil {
 		return c, "", err
 	}
-	if external {
-		if err := os.MkdirAll(filepath.Join(dest, "projects"), 0o755); err != nil {
-			return c, "", err
-		}
-	}
-	c = Cadre{Name: name, Path: paths.Real(dest), External: external}
-	if external {
-		if err := AddExternal(c.Path); err != nil {
-			return c, "", err
-		}
-	}
+	c = Cadre{Name: name, Path: paths.Real(dest)}
 	if out, err := git(c.Path, "init", "-q", "-b", "main"); err != nil {
 		return c, "", fmt.Errorf("git init in %s: %s", c.Path, out)
 	}
@@ -59,9 +42,9 @@ func Create(name, parent string, tmpl fs.FS) (c Cadre, note string, err error) {
 }
 
 // writeTemplate copies template/ into dest, putting the cadre's name into
-// its Markdown files. A cadre in ~/.cadre has no projects/ folder, so the
-// .gitignore lines for it are left out.
-func writeTemplate(tmpl fs.FS, dest, name string, external bool) error {
+// its Markdown files. A cadre has no projects/ folder, so the .gitignore
+// lines for it are left out.
+func writeTemplate(tmpl fs.FS, dest, name string) error {
 	return fs.WalkDir(tmpl, "template", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -78,7 +61,7 @@ func writeTemplate(tmpl fs.FS, dest, name string, external bool) error {
 		if strings.HasSuffix(p, ".md") {
 			data = bytes.ReplaceAll(data, []byte("{{name}}"), []byte(name))
 		}
-		if rel == ".gitignore" && !external {
+		if rel == ".gitignore" {
 			data = withoutProjects(data)
 		}
 		return os.WriteFile(to, data, 0o644)

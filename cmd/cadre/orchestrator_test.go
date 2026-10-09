@@ -113,7 +113,7 @@ func TestPlainCadreFromAProjectAndNotes(t *testing.T) {
 	os.WriteFile(home+"/old/demo/projects.yaml", nil, 0o644)
 	os.WriteFile(home+"/old/demo/cadre.conf", []byte("touch "+home+"/marker\n"), 0o644)
 	t.Chdir(home + "/old/demo")
-	if out := must(t); !strings.Contains(out, home+"/old/demo looks like a cadre that cadre does not know") {
+	if out := must(t); !strings.Contains(out, home+"/old/demo looks like a cadre from before 0.2.0: move it into ~/.cadre with cadre migrate") {
 		t.Errorf("look-alike: %q", out)
 	}
 	if _, err := os.Stat(home + "/marker"); err == nil {
@@ -142,9 +142,9 @@ func TestOrchestratorInTmux(t *testing.T) {
 	if out := must(t, "ls"); !strings.Contains(out, "orchestrator: running in tmux (cadre-work)") {
 		t.Errorf("ls:\n%s", out)
 	}
-	// With one in tmux, plain cadre goes to it (M.3).
-	if out := must(t, "--no-tmux"); !strings.Contains(out, "the orchestrator of work is already running") {
-		t.Errorf("--no-tmux with one in tmux: %q", out)
+	// With one in tmux, plain cadre goes to it.
+	if out := must(t); !strings.Contains(out, "the orchestrator of work is already running") {
+		t.Errorf("plain cadre with one in tmux: %q", out)
 	}
 	refused(t, "needs a terminal", "attach")
 	// stop leaves the orchestrator alone unless asked.
@@ -153,27 +153,28 @@ func TestOrchestratorInTmux(t *testing.T) {
 	if tmuxIn(socket, "has-session", "-t", "=cadre-work") != "" {
 		t.Error("stop stopped the orchestrator")
 	}
-	out = must(t, "stop", "--with-orchestrator", "--yes")
-	if !strings.Contains(out, "cadre-work stopped") {
-		t.Errorf("stop --with-orchestrator: %q", out)
+	must(t, "stop", "--all", "--yes")
+	if tmuxIn(socket, "has-session", "-t", "=cadre-work") != "" {
+		t.Error("stop --all stopped the orchestrator")
 	}
-	refused(t, "not running in tmux", "attach")
 }
 
-func TestOrchestratorRuntimeRules(t *testing.T) {
+// The orchestrator runs with the cadre's PERMISSION_MODE, and a mode the
+// runtime lacks is refused before it starts.
+func TestOrchestratorPermissionMode(t *testing.T) {
 	home := sandbox(t)
 	withTmux(t, home)
+	stubClaude(t, home)
+	os.WriteFile(home+"/release", nil, 0o644)
 	must(t, "init", "work")
-	for conf, want := range map[string]string{"ORCHESTRATOR_RUNTIME=codex\n": "runtime codex is not supported yet",
-		"ORCHESTRATOR_PERMISSION_MODE=yolo\n": "has no permission mode yolo"} {
-		os.WriteFile(home+"/.cadre/work/cadre.conf", []byte(conf), 0o644)
-		if code, _, errOut := call(); code != 1 || !strings.Contains(errOut, want) {
-			t.Errorf("%s: %d %q", conf, code, errOut)
-		}
+	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("PERMISSION_MODE=yolo\n"), 0o644)
+	if code, _, errOut := call(); code != 1 || !strings.Contains(errOut, "has no permission mode yolo") {
+		t.Errorf("yolo: %d %q", code, errOut)
 	}
-	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("ORCHESTRATOR_TMUX=yes\n"), 0o644)
-	if out := must(t); !strings.Contains(out, "started the orchestrator of work") {
-		t.Errorf("ORCHESTRATOR_TMUX=yes: %q", out)
+	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("PERMISSION_MODE=plan\n"), 0o644)
+	must(t)
+	if ran := readFile(t, home+"/orch-ran"); !strings.Contains(ran, "--permission-mode\nplan\n") {
+		t.Errorf("the orchestrator ran without the cadre's mode:\n%s", ran)
 	}
 }
 
@@ -209,7 +210,7 @@ func TestATmuxLockIsCheckedBeforeAttaching(t *testing.T) {
 	tmuxIn(socket, "new-session", "-d", "-s", "cadre-work", "-n", "orchestrator", "sleep", "60")
 	for _, plant := range []struct{ name, session string }{{"another session", "evil"}, {"an unmarked session", "cadre-work"}} {
 		plantLock(t, lock, pane("="+plant.session+":"), plant.session)
-		out := must(t, "--no-tmux")
+		out := must(t)
 		if strings.Contains(out, "already running") {
 			t.Errorf("%s was taken for the orchestrator: %q", plant.name, out)
 		}
@@ -219,7 +220,7 @@ func TestATmuxLockIsCheckedBeforeAttaching(t *testing.T) {
 	// The marked session with another process's pid: the lock is not
 	// trusted, and removed (cadre then finds the session itself).
 	plantLock(t, lock, pane("=evil:"), "cadre-work")
-	must(t, "--no-tmux")
+	must(t)
 	if _, err := os.Stat(lock); err == nil {
 		t.Error("a lock naming another process was left")
 	}

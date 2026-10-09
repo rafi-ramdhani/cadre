@@ -24,19 +24,17 @@ import (
 )
 
 // runPlain is plain cadre: open this cadre's orchestrator in this
-// terminal, or in tmux with --tmux (or ORCHESTRATOR_TMUX=yes) (M.3, K).
+// terminal, or in tmux with --tmux.
 func runPlain(e *env) int {
-	useTmux, noTmux, detach := false, false, false
+	useTmux, detach := false, false
 	for _, a := range e.args {
 		switch a {
 		case "--tmux":
 			useTmux = true
-		case "--no-tmux":
-			noTmux = true
 		case "--detach":
 			detach = true
 		default:
-			return e.fail("usage: cadre [--tmux [--detach] | --no-tmux]")
+			return e.fail("usage: cadre [--tmux [--detach]]")
 		}
 	}
 	if detach && !useTmux {
@@ -53,27 +51,16 @@ func runPlain(e *env) int {
 		return 1
 	}
 	e.openingNotes(r)
-	values := e.conf(r)
-	name := values["ORCHESTRATOR_RUNTIME"]
-	if name == "" {
-		name = runtime.Default()
-	}
-	rt, err := runtime.Get(name)
-	if err != nil {
-		return e.fail("%s", err)
+	rt, ok := e.cadreRuntime(r)
+	if !ok {
+		return 1
 	}
 	if err := runtime.CanOrchestrate(rt); err != nil {
 		return e.fail("%s", err)
 	}
-	mode := values["ORCHESTRATOR_PERMISSION_MODE"]
-	if mode == "" {
-		mode = e.mode(values)
-	}
+	mode := e.mode(e.conf(r))
 	if err := runtime.Usable(rt, mode); err != nil {
 		return e.fail("%s", err)
-	}
-	if !noTmux && strings.EqualFold(values["ORCHESTRATOR_TMUX"], "yes") {
-		useTmux = true
 	}
 	if useTmux && !e.tmuxReady() {
 		return 1
@@ -97,7 +84,8 @@ func runPlain(e *env) int {
 	defer release()
 	t := session.Default()
 	lockPath := orchestrator.LockPath(build)
-	if l := openOrchestrator(t, r.Name, r.Path, lockPath); l != nil {
+	orchestrator.ClearStale(lockPath)
+	if l := openOrchestrator(t, r.Name, r.Path, lockPath, true); l != nil {
 		if l.Mode == orchestrator.Tmux {
 			release()
 			e.say("the orchestrator of %s is already running", r.Name)
@@ -157,15 +145,18 @@ func orchestratorSession(t session.Tmux, name, home string, pid int) bool {
 // openOrchestrator returns the cadre's open orchestrator from its lock, or
 // nil. A tmux lock counts only when it names this cadre's orchestrator
 // session running the recorded process; otherwise the lock was not
-// cadre's (a persona's shell can write it) and is removed, so cadre never
-// attaches the user to a session that only claims to be the orchestrator.
-func openOrchestrator(t session.Tmux, cadre, home, lockPath string) *orchestrator.Lock {
+// cadre's (a persona's shell can write it), so cadre never attaches the
+// user to a session that only claims to be the orchestrator. A caller
+// holding the start guard sets clear, and such a lock is removed.
+func openOrchestrator(t session.Tmux, cadre, home, lockPath string, clear bool) *orchestrator.Lock {
 	l := orchestrator.ReadLock(lockPath)
 	if l == nil || l.Mode != orchestrator.Tmux {
 		return l
 	}
 	if l.Session != orchestrator.SessionName(cadre) || !orchestratorSession(t, l.Session, home, l.PID) {
-		orchestrator.RemoveLock(lockPath, l)
+		if clear {
+			orchestrator.RemoveLock(lockPath, l)
+		}
 		return nil
 	}
 	return l
@@ -183,7 +174,7 @@ func (e *env) openingNotes(r *cadres.Resolved) {
 		return
 	}
 	if look := lookalike(wd); look != "" {
-		e.say("%s looks like a cadre that cadre does not know: use it with cadre cadres add %s, or move it into ~/.cadre with cadre migrate.", look, look)
+		e.say("%s looks like a cadre from before 0.2.0: move it into ~/.cadre with cadre migrate.", look)
 		return
 	}
 	if top, err := exec.Command("git", "-C", wd, "rev-parse", "--show-toplevel").Output(); err == nil && len(top) > 0 {
@@ -248,7 +239,14 @@ func (e *env) runTerminal(c runtime.Command, lockPath string, release func()) in
 	if err != nil {
 		fmt.Fprintf(e.stderr, "warning: could not record the open orchestrator: %s\n", err)
 	} else {
-		defer orchestrator.RemoveLock(lockPath, lock)
+		// Removed under the start guard, so a run starting now never
+		// loses the lock it just wrote.
+		defer func() {
+			if g, err := orchestrator.Guard(filepath.Dir(lockPath)); err == nil {
+				orchestrator.RemoveLock(lockPath, lock)
+				g.Release()
+			}
+		}()
 	}
 	// A closed terminal or a kill ends the orchestrator; the lock goes with it.
 	stop := make(chan os.Signal, 1)

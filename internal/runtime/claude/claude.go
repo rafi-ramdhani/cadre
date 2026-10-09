@@ -30,9 +30,9 @@ func (Claude) Title() string { return "Claude Code" }
 
 func (Claude) Caps() runtime.Capabilities {
 	return runtime.Capabilities{
-		Grants: true, AutoModeText: true, FixedDenies: true,
+		FixedDenies:     true,
 		PermissionModes: []string{"default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"},
-		ContextUsage:    true, Compact: true, StateSignals: true, Resume: true, AssignSessionID: true,
+		Resume:          true, AssignSessionID: true,
 		Trust: true, Instructions: true, OrchestratorHook: true, Messaging: runtime.Native,
 	}
 }
@@ -61,11 +61,7 @@ func (c Claude) Launch(s runtime.LaunchSpec) (runtime.Command, error) {
 	if s.Grants != "" {
 		argv = append(argv, "--settings", s.Grants)
 	}
-	var env []string
-	if s.ConfigDir != "" {
-		env = append(env, "CLAUDE_CONFIG_DIR="+s.ConfigDir)
-	}
-	return runtime.Command{Argv: argv, Env: env, Dir: s.WorkDir}, nil
+	return runtime.Command{Argv: argv, Dir: s.WorkDir}, nil
 }
 
 // BuildDir is <cadre>/.claude/build: inside a .claude folder, which Claude

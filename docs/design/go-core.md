@@ -36,7 +36,7 @@ internal/
   tmux/        exact targets, options, sessions and windows, argv commands only
   sessions/    names, attribution (@cadre_home), legacy, start, stop, ls data
   conf/        cadre.conf parsed as KEY=VALUE, never sourced (N.1)
-  home/        the ~/.cadre layout: config/, framework/, <name>/, external
+  home/        the ~/.cadre layout: config/, framework/, <name>/
   cadres/      the cadre list, reserved names, resolution (N.3), the
                ~/.config/cadre copy (N.1), migration (N.6)
   registry/    projects.yaml: projects linked by path, the projects folder
@@ -61,20 +61,20 @@ Dependencies, kept small and vendored:
 - No CLI framework: a hand-written dispatch table, so the advanced commands
   and old names stay one table that `help` and `help advanced` print from.
 
-## The runtime boundary (section P)
+## The runtime boundary
 
-Built in O-T4 (P-T1):
-- `internal/runtime` holds the interface (`Runtime`, `Capabilities`, `LaunchSpec`, `Command`, `PermissionOps`, `TrustOps`), the registry, selection (`For`: role `.runtime`, team `.runtime`, `RUNTIME`, then the default) and `Usable` (fixed denies, messaging, permission mode).
+Built in O-T4, trimmed in O-T5b:
+- `internal/runtime` holds the interface (`Runtime`, `Capabilities`, `LaunchSpec`, `Command`, `PermissionOps`, `TrustOps`), the registry, the default runtime and `Usable` (fixed denies, messaging, permission mode). Claude Code is the only runtime and there is no user-facing choice (no `.runtime` files, no `RUNTIME` or `ORCHESTRATOR_RUNTIME`); a test build alone may name the fake with `CADRE_TEST_RUNTIME` (`cmd/cadre/runtime_cadretest.go`).
 - `internal/runtime/claude` is the only adapter, and the only code that names Claude Code: its command and flags, `.claude` folders, `~/.claude.json` trust and hooks. It holds `settings` and `allow` (moved there) and the trust and hook edits that used to be in `jsonx`, which is now a generic editor.
 - `internal/runtime/fake` (`-tags cadretest` only) is the test adapter.
 - `session.Up` runs what `Launch` returns, as argv with `-e` environment, never through a shell. The prompt goes into the runtime's `BuildDir`.
-- A Go test parses every other source file and fails on Claude Code names in string literals (AC-P2).
+- A Go test parses every other source file and fails on Claude Code names in string literals.
 - Operations of later steps (health, hooks and instructions, sessions, context) join the interface in those steps.
 
 ## Data model (section N)
 
 ```
-~/.cadre/config/{default, projects-dir, persona-settings.sha256, external, state.json}
+~/.cadre/config/{default, projects-dir, persona-settings.sha256, state.json}
 ~/.cadre/framework/            install.sh installs only
 ~/.cadre/<name>/               one cadre, its own git repository
 ```
@@ -83,34 +83,34 @@ Built in O-T4 (P-T1):
   each (`home.Config("default")`, `home.Cadre(name)`, `home.Build(name)`), so
   no package concatenates paths by hand.
 - **The cadre list** is the directory listing of `~/.cadre` (entries with
-  `personas/`, minus the reserved `config`, `framework` and dot names) plus
-  the physical paths in `config/external`. A cadre's name is its folder's
+  `personas/`, minus the reserved `config`, `framework`, dot names and
+  symlinks). Cadres live only there. A cadre's name is its folder's
   basename, compared case-insensitively for clashes (I-T1 review).
 - **Resolution** (`cadres.Resolve(cwd)`) returns the cadre, how it was found
   and the default:
   1. `CADRE_HOME`;
-  2. cwd inside `~/.cadre/<name>/` or an external cadre;
+  2. cwd inside `~/.cadre/<name>/`;
   3. cwd inside a linked project (deepest match, by physical path); several
      linking cadres means a prompt with a terminal and a refusal without one;
   4. the default from `config/default`.
 
-  Configuration is only ever read from `~/.cadre/`, `external` or
-  `CADRE_HOME`, never from a folder the user is in.
+  Configuration is only ever read from `~/.cadre/` or `CADRE_HOME`, never
+  from a folder the user is in.
 - **`~/.config/cadre` copy** (N.1): runs once, under the config lock, before
-  any command reads config. It copies `home` as a name into `default`, the
-  old cadres list into `external` for cadres not under `~/.cadre`, and the
-  fingerprints (re-recorded for moved paths), then removes the old folder.
-  Until then, reads fall back to the old folder.
+  any command reads config. It copies `home` as a name into `default` and
+  the fingerprints, then moves the old folder aside (the migration reads the
+  old cadres list there). A 0.1.x cadre opens only once `cadre migrate` has
+  moved it into `~/.cadre`.
 - **`cadre.conf`** (`conf.Parse`) reads `KEY=VALUE` lines, `#` comments and
   optional single or double quotes, with no expansion. Any other line is
-  ignored with a warning naming it. Only known keys are used
-  (`PERMISSION_MODE`, then `ORCHESTRATOR_PERMISSION_MODE`, `RESUME` and the
-  others from M), so a stray key never changes behaviour.
+  ignored with a warning naming it. Only `PERMISSION_MODE` is read (for the
+  personas and the orchestrator alike), so a stray key never changes
+  behaviour.
 - **The registry** (`projects.yaml`) keeps its flat format (written by cadre,
   read by the orchestrator). The bash reader's rules are ported, with `path`
   stored as `~/...` under home and absolute otherwise. An entry without `path`
-  means `<projects-dir>/<name>` for a cadre in `~/.cadre`, and
-  `<cadre>/projects/<name>` for an external one.
+  means `<projects-dir>/<name>`. (O-T6a moves the paths into a per-machine
+  places map.)
 - **Migration** (N.6) lives in `cadres` and is built on `fsx`: copy, verify
   (file list, sizes, symlink targets, `git rev-parse HEAD` and
   `git status --porcelain`), rewrite paths, commit, then move the old files
@@ -269,7 +269,7 @@ ASCII-only.
 Targets from section N (N.7):
 - refused, as OUTSIDE entries:
   - `~/.cadre/config/` and `~/.cadre/framework/`;
-  - for every cadre (under `~/.cadre` and in `external`): `.claude/`,
+  - for every cadre under `~/.cadre`: `.claude/`,
     `cadre.conf`, `personas/`, `playbook.md`, `protocol.md`, `projects.yaml`
     and `.git/`;
 - warned: another cadre's `teams/`;
@@ -305,18 +305,8 @@ second layer, as N.7 says.
 
 ## Porting order
 
-1. Core: `paths`, `fsx`, `jsonx`, `jsonedit`, `psettings`, `shellwords`,
-   `glob`, `allow`, with the full allow tables and the regression tests. No
-   CLI yet beyond `cadre allow` for testing.
-2. Section N's data model and resolution (N-T1, N-T2), with M-T1's command
-   surface: dispatch, help, `ls --json` and `stop` start here with their
-   final names.
-3. Sessions: up, stop, ls (`--json`), attach, names, legacy, collisions.
-   smoke.sh becomes the acceptance suite from here.
-4. Plain `cadre`, the orchestrator lock, the health check (M-T2, M-T3).
-5. update, uninstall, Homebrew and the install route (M-T4).
-6. Resume, ctx and compact (M-T7, J).
-7. Docs (M-T6) and the release.
+The remaining tasks are in section 12 of the spec
+(`docs/specs/0.2.0-update-allow-trust.md`).
 
 ## Known pitfalls carried from the bash reviews
 

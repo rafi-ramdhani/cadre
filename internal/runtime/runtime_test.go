@@ -1,8 +1,6 @@
 package runtime
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,25 +16,11 @@ func (t testRuntime) BuildDir(string) string             { return "" }
 func (t testRuntime) Permissions() PermissionOps         { return nil }
 func (t testRuntime) Trust() TrustOps                    { return nil }
 
-func TestForFollowsTheLayers(t *testing.T) {
-	c := t.TempDir()
-	team := filepath.Join(c, "personas", "dev")
-	os.MkdirAll(team, 0o755)
+func TestTheDefaultRuntime(t *testing.T) {
 	RegisterDefault(testRuntime{})
 	defer func() { delete(registry, "test"); defaultName = "" }()
-	if For(c, "dev", "pm", "") != "test" {
-		t.Error("the default runtime is not used")
-	}
-	if For(c, "dev", "pm", "codex") != "codex" {
-		t.Error("RUNTIME in cadre.conf is not used")
-	}
-	os.WriteFile(filepath.Join(team, ".runtime"), []byte("agy\n"), 0o644)
-	if For(c, "dev", "pm", "codex") != "agy" {
-		t.Error("the team's .runtime does not win over RUNTIME")
-	}
-	os.WriteFile(filepath.Join(team, "pm.runtime"), []byte("  fake  \nignored\n"), 0o644)
-	if For(c, "dev", "pm", "codex") != "fake" || For(c, "dev", "eng", "codex") != "agy" {
-		t.Error("the role's .runtime does not win, or leaks to another role")
+	if Default() != "test" || len(Supported()) != 1 {
+		t.Errorf("default %q, supported %v", Default(), Supported())
 	}
 }
 

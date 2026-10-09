@@ -31,7 +31,7 @@ func TestHelpListsExactlyTheVisibleCommands(t *testing.T) {
 			got = append(got, strings.Fields(l)[1])
 		}
 	}
-	want := []string{"open", "ls", "attach", "stop", "help", "--version", "uninstall"}
+	want := []string{"open", "--tmux", "ls", "attach", "stop", "help", "--version", "uninstall"}
 	// Plain cadre's line starts with its summary, so its second field is "open".
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("help lists %v, want %v", got, want)
@@ -41,7 +41,7 @@ func TestHelpListsExactlyTheVisibleCommands(t *testing.T) {
 	}
 }
 
-func TestHelpAdvancedListsEveryCommandAndOldName(t *testing.T) {
+func TestHelpAdvancedListsEveryCommand(t *testing.T) {
 	_, out, _ := call("help", "advanced")
 	for _, c := range commands {
 		if c.group == "" || c.hidden {
@@ -52,8 +52,8 @@ func TestHelpAdvancedListsEveryCommandAndOldName(t *testing.T) {
 		}
 	}
 	for _, o := range oldNames {
-		if !strings.Contains(out, "cadre "+o.name) {
-			t.Errorf("help advanced lacks the old name cadre %s", o.name)
+		if strings.Contains(out, "cadre "+o.name+" ") {
+			t.Errorf("help advanced lists the old name cadre %s", o.name)
 		}
 	}
 	if strings.Contains(out, "hook") {
@@ -61,23 +61,49 @@ func TestHelpAdvancedListsEveryCommandAndOldName(t *testing.T) {
 	}
 }
 
-func TestOldNamesRunTheirNewCommand(t *testing.T) {
+// Old 0.1.x names are not aliases: each says what to do now and exits 1.
+func TestOldNamesPointToTheNewWay(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"down", "dev"}, "use cadre stop"},
+		{[]string{"down", "--all"}, "use cadre stop"},
+		{[]string{"projects"}, "use cadre ls"},
+		{[]string{"path", "app"}, "use cadre project path"},
+		{[]string{"sync"}, "use cadre project sync"},
+		{[]string{"add", "project", "app", "me/app"}, "ask the orchestrator, or use cadre project add"},
+		{[]string{"add", "team", "ops"}, "ask the orchestrator"},
+		{[]string{"add", "persona", "ops/sre"}, "ask the orchestrator"},
+		{[]string{"version"}, "use cadre --version"},
+	} {
+		code, out, errOut := call(tc.args...)
+		if code != 1 || out != "" || strings.Count(errOut, "\n") != 1 || !strings.Contains(errOut, tc.want) {
+			t.Errorf("%v: exit %d, %q %q; want one line naming %q", tc.args, code, out, errOut, tc.want)
+		}
+	}
+	for _, o := range oldNames {
+		if _, _, err := lookup(strings.Fields(o.name)); err == nil {
+			t.Errorf("old name cadre %s runs a command", o.name)
+		}
+	}
+}
+
+func TestCommandsStillNamedAsBefore(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
 		want string
 		rest string
 	}{
-		{[]string{"down", "dev"}, "stop", "dev"},
-		{[]string{"down", "--all", "--yes"}, "stop", "--yes"},
-		{[]string{"path", "app"}, "project path", "app"},
-		{[]string{"sync"}, "project sync", ""},
-		{[]string{"add", "project", "app", "me/app"}, "project add", "app me/app"},
-		{[]string{"add", "team", "ops"}, "team add", "ops"},
-		{[]string{"add", "persona", "ops/sre"}, "persona add", "ops/sre"},
-		{[]string{"version"}, "--version", ""},
 		{[]string{"up", "dev"}, "up", "dev"},
+		{[]string{"init", "x"}, "init", "x"},
+		{[]string{"use", "x"}, "use", "x"},
+		{[]string{"attach", "dev"}, "attach", "dev"},
 		{[]string{"ls", "--json"}, "ls --json", ""},
 		{[]string{"ls", "--all", "--json"}, "ls", "--all --json"},
+		{[]string{"-h"}, "help", ""},
+		{[]string{"--help", "advanced"}, "help", "advanced"},
+		{[]string{"-v"}, "--version", ""},
 	} {
 		c, rest, err := lookup(tc.args)
 		if err != nil {
@@ -90,28 +116,20 @@ func TestOldNamesRunTheirNewCommand(t *testing.T) {
 	}
 }
 
-func TestRenamedUnreleasedNamesPointToTheNewName(t *testing.T) {
-	for _, tc := range []struct {
-		args []string
-		want string
-	}{
-		{[]string{"which"}, "cadre ls"},
-		{[]string{"cadres"}, "cadre ls"},
-		{[]string{"cadres", "list"}, "cadre ls"},
-		{[]string{"ctx"}, "cadre ls"},
-		{[]string{"start"}, "cadre --tmux"},
-		{[]string{"trust", "app"}, "cadre project trust"},
-		{[]string{"remove", "project", "app"}, "cadre project unlink"},
-		{[]string{"export", "project", "app", "/tmp/x"}, "cadre project export"},
-		{[]string{"down", "--all", "--all-cadres"}, "cadre stop --all"},
+// Commands of features that were cut are gone, not stubs.
+func TestCutCommandsAreUnknown(t *testing.T) {
+	for _, args := range [][]string{
+		{"compact", "dev/pm"}, {"update"}, {"project", "export", "a", "/x"}, {"project", "move", "a", "/x"},
+		{"project", "restore", "a"}, {"project", "relink", "a", "/x"}, {"cadres", "add", "/x"}, {"cadres", "remove", "x"},
+		{"team", "add", "ops"}, {"persona", "add", "ops/sre"}, {"--no-tmux"}, {"hook", "statusline"}, {"hook", "state", "x"},
+		{"which"}, {"ctx"}, {"start"}, {"trust", "app"},
 	} {
-		code, _, errOut := call(tc.args...)
-		if code == 0 || !strings.Contains(errOut, tc.want) {
-			t.Errorf("%v: exit %d, %q; want a refusal naming %q", tc.args, code, errOut, tc.want)
+		if code, _, errOut := call(args...); code != 1 || !strings.Contains(errOut, "unknown command") {
+			t.Errorf("%v: exit %d, %q", args, code, errOut)
 		}
 	}
-	if c, _, err := lookup([]string{"cadres", "add", "/x"}); err != nil || c.name != "cadres add" {
-		t.Errorf("cadres add is still a command: %v %v", c.name, err)
+	if code, _, errOut := call("stop", "--with-orchestrator"); code != 1 || !strings.Contains(errOut, "usage") {
+		t.Errorf("stop --with-orchestrator: exit %d, %q", code, errOut)
 	}
 }
 
@@ -123,7 +141,7 @@ func TestUnknownCommand(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	for _, a := range []string{"--version", "version"} {
+	for _, a := range []string{"--version", "-v"} {
 		code, out, _ := call(a)
 		if code != 0 || out != "cadre dev\n" {
 			t.Errorf("%s: exit %d, %q", a, code, out)
@@ -147,55 +165,8 @@ func TestEveryCommandHasARunner(t *testing.T) {
 	}
 }
 
-func TestEveryOldNameResolves(t *testing.T) {
-	for _, o := range oldNames {
-		if _, _, err := lookup(strings.Fields(o.name)); err != nil {
-			t.Errorf("old name cadre %s: %v", o.name, err)
-		}
-	}
-	for _, a := range []string{"-h", "--help"} {
-		if c, _, err := lookup([]string{a}); err != nil || c.name != "help" {
-			t.Errorf("%s runs %q (%v), want help", a, c.name, err)
-		}
-	}
-	if c, _, err := lookup([]string{"-v"}); err != nil || c.name != "--version" {
-		t.Errorf("-v runs %q (%v), want --version", c.name, err)
-	}
-	if c, _, err := lookup([]string{"projects"}); err != nil || c.name != "projects" {
-		t.Errorf("projects runs %q (%v)", c.name, err)
-	}
-}
-
-func TestEveryRenamedNameIsRefused(t *testing.T) {
-	for _, r := range renames {
-		if _, _, err := lookup(strings.Fields(r.name)); err == nil || !strings.Contains(err.Error(), r.use) {
-			t.Errorf("cadre %s: %v, want a refusal naming %q", r.name, err, r.use)
-		}
-	}
-}
-
-func TestUnreleasedFormsOfOldNamesAreRefused(t *testing.T) {
-	for _, tc := range []struct {
-		args []string
-		want string
-	}{
-		{[]string{"add", "project", "x", "--path", "/d"}, "cadre project add <name> --path <dir>"},
-		{[]string{"ls", "--all-cadres"}, "cadre ls --all"},
-		{[]string{"down", "--all-cadres"}, "cadre stop --all"},
-		{[]string{"project", "remove", "x"}, "cadre project unlink"},
-	} {
-		if _, _, err := lookup(tc.args); err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("%v: %v, want a refusal naming %q", tc.args, err, tc.want)
-		}
-	}
-}
-
 func TestUnknownSubcommandIsNamed(t *testing.T) {
-	_, _, err := lookup([]string{"cadres", "foo"})
-	if err == nil || !strings.Contains(err.Error(), "unknown command 'cadres foo'") {
-		t.Errorf("cadres foo: %v", err)
-	}
-	_, _, err = lookup([]string{"project", "bogus", "x"})
+	_, _, err := lookup([]string{"project", "bogus", "x"})
 	if err == nil || !strings.Contains(err.Error(), "unknown command 'project bogus'") {
 		t.Errorf("project bogus: %v", err)
 	}

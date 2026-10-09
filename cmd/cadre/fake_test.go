@@ -13,14 +13,15 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/runtime/fake"
 )
 
-// fakeCadre makes a cadre whose dev/engineer runs on the fake runtime, and
-// a stub for the fake to launch that records its arguments and environment.
+// fakeCadre makes a cadre whose sessions run on the fake runtime (a test
+// build's CADRE_TEST_RUNTIME), and a stub for the fake to launch that
+// records its arguments and environment.
 func fakeCadre(t *testing.T) string {
 	t.Helper()
 	home := sandbox(t)
 	withTmux(t, home)
 	must(t, "init", "work")
-	os.WriteFile(home+"/.cadre/work/personas/dev/engineer.runtime", []byte("fake\n"), 0o644)
+	t.Setenv("CADRE_TEST_RUNTIME", "fake")
 	stub := filepath.Join(home, "fake-agent")
 	os.WriteFile(stub, []byte("#!/bin/sh\n{ printf '%s\\n' \"$@\"; env; } > \""+home+"/fake-ran\"\nexec sleep 300\n"), 0o755)
 	t.Setenv("CADRE_FAKE_BIN", stub)
@@ -28,7 +29,7 @@ func fakeCadre(t *testing.T) string {
 	return home
 }
 
-// AC-P6: what runs in tmux is what the runtime's Launch built.
+// What runs in tmux is what the runtime's Launch built.
 func TestUpRunsWhatLaunchBuilt(t *testing.T) {
 	home := fakeCadre(t)
 	out := must(t, "up", "dev/engineer")
@@ -53,8 +54,8 @@ func TestUpRunsWhatLaunchBuilt(t *testing.T) {
 	}
 }
 
-// AC-P5: a runtime that cannot enforce the fixed denies, has no messaging,
-// or lacks the permission mode is refused, with a message.
+// A runtime that cannot enforce the fixed denies, has no messaging, or
+// lacks the permission mode is refused, with a message.
 func TestUpRefusesAnUnfitRuntime(t *testing.T) {
 	fakeCadre(t)
 	for _, tc := range []struct{ off, want string }{
@@ -80,36 +81,18 @@ func TestUpRefusesAnUnfitRuntime(t *testing.T) {
 	}
 }
 
-// AC-P3: ls --json shows each persona's runtime.
-func TestLsShowsEachPersonasRuntime(t *testing.T) {
+// ls says what keeps every persona from starting.
+func TestLsListsWhatKeepsPersonasFromStarting(t *testing.T) {
 	fakeCadre(t)
 	var st cadreStatus
 	if err := json.Unmarshal([]byte(must(t, "ls", "--json")), &st); err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]string{}
-	for _, p := range st.Teams["dev"] {
-		got[p.Role] = p.Runtime
+	if len(st.Problems) != 0 {
+		t.Errorf("problems with a fit runtime: %v", st.Problems)
 	}
-	if got["engineer"] != "fake" || got["pm"] != "claude" {
-		t.Errorf("runtimes %v", got)
-	}
-}
-
-// AC-P5: cadre allow says which personas a grant cannot reach.
-func TestAllowSaysWhichPersonasCannotReceiveGrants(t *testing.T) {
-	fakeCadre(t)
-	fake.Off = map[string]bool{"Grants": true}
-	out := must(t, "allow", "add", "Bash(npm test)")
-	if !strings.Contains(out, "these personas cannot receive grants, because their runtime has none: dev/engineer (fake)") {
-		t.Errorf("Grants off: %q", out)
-	}
-	fake.Off = map[string]bool{"AutoModeText": true}
-	out = must(t, "allow", "add", "--auto", "Running the tests is expected")
-	if !strings.Contains(out, "stored but not applied to these personas") || !strings.Contains(out, "dev/engineer (fake)") {
-		t.Errorf("AutoModeText off: %q", out)
-	}
-	if out := must(t, "allow", "add", "Bash(make)"); strings.Contains(out, "cannot receive") {
-		t.Errorf("a rule with AutoModeText off: %q", out)
+	fake.Off = map[string]bool{"Messaging": true}
+	if out := must(t, "ls"); !strings.Contains(out, "problem: runtime fake has no way to message the orchestrator") {
+		t.Errorf("ls with messaging off:\n%s", out)
 	}
 }

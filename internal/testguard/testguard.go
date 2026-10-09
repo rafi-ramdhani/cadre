@@ -35,6 +35,14 @@ func Main(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv("HOME", home)
+	// tmux keeps its sockets here, not in the user's own tmux folder, so
+	// none is left there. A short path: a socket's path has a length limit.
+	sockets, err := os.MkdirTemp("/tmp", "cadre-tmux-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "testguard:", err)
+		os.Exit(1)
+	}
+	os.Setenv("TMUX_TMPDIR", sockets)
 	socket := fmt.Sprintf("cadre-gotest-%d", os.Getpid())
 	os.Setenv("CADRE_TMUX_SOCKET", socket)
 	for _, v := range cleared {
@@ -47,6 +55,7 @@ func Main(m *testing.M) {
 	code := m.Run()
 	exec.Command("tmux", "-L", socket, "kill-server").Run()
 	os.RemoveAll(home)
+	os.RemoveAll(sockets)
 	os.Exit(code)
 }
 
@@ -60,6 +69,8 @@ func Unsafe() error {
 		return fmt.Errorf("HOME is the user's real home (%s)", home)
 	case os.Getenv("CADRE_TMUX_SOCKET") == "":
 		return fmt.Errorf("CADRE_TMUX_SOCKET is not set, so tmux commands would reach the user's server")
+	case os.Getenv("TMUX_TMPDIR") == "":
+		return fmt.Errorf("TMUX_TMPDIR is not set, so tmux sockets would land in the user's tmux folder")
 	case os.Getenv("CLAUDE_CONFIG_DIR") != "" && within(os.Getenv("CLAUDE_CONFIG_DIR"), realHome):
 		return fmt.Errorf("CLAUDE_CONFIG_DIR points into the user's real home")
 	}
@@ -82,11 +93,23 @@ func MustBeSafe() {
 	}
 }
 
+// real resolves symlinks in the longest part of p that exists, so a path
+// that does not exist yet under a symlinked folder (/var on macOS) is
+// still compared physically.
 func real(p string) string {
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		return r
+	p = filepath.Clean(p)
+	rest := ""
+	for {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return filepath.Join(p, rest)
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = parent
 	}
-	return filepath.Clean(p)
 }
 
 func same(a, b string) bool { return real(a) == real(b) }

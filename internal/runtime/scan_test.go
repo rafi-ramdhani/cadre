@@ -11,12 +11,12 @@ import (
 	"testing"
 )
 
-// Claude Code specifics that only internal/runtime/claude may name
-// (AC-P2): its command, flags, folders and files, hook events and
+// Claude Code specifics that only internal/runtime/claude may name: its
+// command, flags, folders and files, hook events and
 // settings keys.
 var (
 	exact = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "Notification", "Stop",
-		"PostCompact", "statusLine", "permissions", "autoMode"}
+		"permissions", "autoMode"}
 	inside = []string{"--permission-mode", "--append-system-prompt-file", "--settings", "--session-id", "--resume",
 		".claude", "CLAUDE_CONFIG_DIR", "hasTrustDialogAccepted", "soft_deny", "$defaults", "orchestrator-hook.sh"}
 )

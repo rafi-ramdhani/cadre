@@ -21,9 +21,9 @@ func TestLaunch(t *testing.T) {
 	if strings.Join(cmd.Argv, " ") != want || cmd.Dir != "/w" || len(cmd.Env) != 0 {
 		t.Errorf("Launch: %+v", cmd)
 	}
-	cmd, _ = Claude{}.Launch(runtime.LaunchSpec{Name: "x", Mode: "default", ConfigDir: "/profiles/work"})
-	if strings.Join(cmd.Env, " ") != "CLAUDE_CONFIG_DIR=/profiles/work" || strings.Contains(strings.Join(cmd.Argv, " "), "--settings") {
-		t.Errorf("a cadre's own config folder: %+v", cmd)
+	cmd, _ = Claude{}.Launch(runtime.LaunchSpec{Name: "x", Mode: "default"})
+	if strings.Contains(strings.Join(cmd.Argv, " "), "--settings") || strings.Contains(strings.Join(cmd.Argv, " "), "--append-system-prompt-file") {
+		t.Errorf("no grants and no prompt: %+v", cmd)
 	}
 	t.Setenv("PATH", t.TempDir())
 	if _, err := (Claude{}).Launch(runtime.LaunchSpec{}); err == nil || !strings.Contains(err.Error(), "not on your PATH") {

@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/rafi-ramdhani/cadre/internal/fsx"
@@ -45,7 +45,16 @@ func LockPath(build string) string { return filepath.Join(build, "orchestrator.l
 // maxLock is more than a lock cadre writes ever holds.
 const maxLock = 4096
 
-// read reads the lock file as it is, or nil.
+// Lock fields cadre prints: a terminal device and a tmux session name.
+var (
+	ttyRule     = regexp.MustCompile(`^/dev/[A-Za-z0-9._/-]+$`)
+	sessionRule = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+)
+
+// read reads the lock file as it is, or nil for anything cadre would not
+// have written: a file that is not the user's own regular file (a
+// symlink, a FIFO), too large, not a lock, or with a mode, terminal or
+// session cadre does not write. What it returns is safe to print.
 func read(path string) *Lock {
 	raw, err := fsx.ReadOwn(path, maxLock)
 	if err != nil {
@@ -55,23 +64,33 @@ func read(path string) *Lock {
 	if json.Unmarshal(raw, &l) != nil || l.PID <= 0 {
 		return nil
 	}
+	switch {
+	case l.Mode == Terminal && l.Session == "" && (l.TTY == "" || ttyRule.MatchString(l.TTY)):
+	case l.Mode == Tmux && l.TTY == "" && sessionRule.MatchString(l.Session):
+	default:
+		return nil
+	}
 	return &l
 }
 
-// ReadLock returns the open orchestrator, or nil. A lock whose process is
-// gone or restarted under the same pid is stale, and so is a file cadre
-// did not write (a symlink, a FIFO, another user's, too large, not a
-// lock): it is removed.
+// ReadLock returns the open orchestrator, or nil when the lock is missing,
+// stale (its process is gone or restarted under the same pid) or not one
+// cadre wrote. It changes nothing: only a run holding Guard clears a lock
+// (ClearStale), so a cadre ls can never remove a lock being written.
 func ReadLock(path string) *Lock {
-	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
 	l := read(path)
 	if l == nil || !proc.Same(l.PID, proc.Info{Start: l.Start}) {
-		os.Remove(path)
 		return nil
 	}
 	return l
+}
+
+// ClearStale removes the lock file unless it records a live orchestrator.
+// The caller holds Guard.
+func ClearStale(path string) {
+	if _, err := os.Lstat(path); err == nil && ReadLock(path) == nil {
+		os.Remove(path)
+	}
 }
 
 // WriteLock records the orchestrator running as pid.
@@ -92,7 +111,7 @@ func WriteLock(path string, pid int, mode, tty, session string) (*Lock, error) {
 }
 
 // RemoveLock removes the lock only while it still records the process l
-// does, so a run never removes another run's lock.
+// does, so a run never removes another run's lock. The caller holds Guard.
 func RemoveLock(path string, l *Lock) {
 	if cur := read(path); cur != nil && cur.PID == l.PID && cur.Start == l.Start {
 		os.Remove(path)

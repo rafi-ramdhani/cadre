@@ -131,10 +131,9 @@ type Added struct {
 	Notes []string
 }
 
-// Add registers a project and clones it (section N.2): into the projects
-// folder for a cadre in ~/.cadre, into <cadre>/projects/ for an outside
-// cadre, as in 0.1.x. A folder already there is linked when it is the same
-// repository and refused otherwise. The clone comes first, so a failed
+// Add registers a project and clones it into the projects folder. A
+// folder already there is linked when it is the same repository and
+// refused otherwise. The clone comes first, so a failed
 // clone registers nothing.
 func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added, error) {
 	var a Added
@@ -148,10 +147,7 @@ func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added,
 	if reg.Get(s.Name) != nil {
 		return a, fmt.Errorf("project '%s' is already in projects.yaml", s.Name)
 	}
-	dir := filepath.Join(c.Path, "projects", s.Name)
-	if !c.External {
-		dir = filepath.Join(projectsDir, s.Name)
-	}
+	dir := filepath.Join(projectsDir, s.Name)
 	if why := DestRefusal(paths.Real(dir), protected); why != "" {
 		return a, fmt.Errorf("cannot clone into %s: %s", dir, why)
 	}
@@ -167,10 +163,8 @@ func Add(c cadres.Cadre, s Spec, projectsDir string, protected []string) (Added,
 		a.Where = "cloned to " + dir
 	}
 	a.Dir = dir
-	fields := []registry.Field{{Key: "repo", Value: s.Repo}, {Key: "team", Value: s.Team}, {Key: "about", Value: s.About}}
-	if !c.External {
-		fields = append(fields, registry.Field{Key: "path", Value: cadres.Tilde(paths.Real(dir))})
-	}
+	fields := []registry.Field{{Key: "repo", Value: s.Repo}, {Key: "team", Value: s.Team}, {Key: "about", Value: s.About},
+		{Key: "path", Value: cadres.Tilde(paths.Real(dir))}}
 	reg.Add(s.Name, fields...)
 	if err := reg.Save(c.Registry()); err != nil {
 		return a, err

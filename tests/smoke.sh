@@ -20,13 +20,17 @@ T=$(cd "$(mktemp -d)" && pwd -P)
 GOMODCACHE=$(go env GOMODCACHE) GOCACHE=$(go env GOCACHE) GOPATH=$(go env GOPATH)
 export GOMODCACHE GOCACHE GOPATH
 export HOME="$T/home" CADRE_TMUX_SOCKET="cadre-test-$$"
-unset TMUX CADRE_HOME CADRE_PERSONA CADRE_OFF CLAUDE_CONFIG_DIR XDG_CACHE_HOME
+# tmux keeps the test server's socket here, not in the user's tmux folder
+# (a short path: socket paths have a length limit).
+TMUX_TMPDIR=$(mktemp -d /tmp/cadre-smoke.XXXXXX)
+export TMUX_TMPDIR
+unset TMUX TMUX_PANE CADRE_HOME CADRE_PERSONA CADRE_OFF CADRE_ORCHESTRATOR CLAUDE_CONFIG_DIR XDG_CACHE_HOME
 export GIT_CONFIG_GLOBAL="$T/gitconfig"
 git config --global user.name "Cadre Test"
 git config --global user.email "test@example.com"
 git config --global init.defaultBranch main
 mkdir -p "$HOME" "$T/bin" "$T/rel"
-trap 'command tmux -L "$CADRE_TMUX_SOCKET" kill-server 2>/dev/null || true; rm -rf "$T"' EXIT
+trap 'command tmux -L "$CADRE_TMUX_SOCKET" kill-server 2>/dev/null || true; rm -rf "$T" "$TMUX_TMPDIR"' EXIT
 
 # The binary under test, built with the test-only parts (the fake runtime,
 # the JSON race hook), and a release build for the checks that need one.
@@ -105,32 +109,32 @@ check "cadre.conf is never run" bash -c "echo 'touch $T/marker' >> '$C/cadre.con
 check "and its command line is named" bash -c "cd '$C' && cadre ls 2>&1 | grep -q 'ignored (only KEY=VALUE'"
 git -C "$C" checkout -q -- cadre.conf
 
-echo "the old ~/.config/cadre is moved once (N.1)"
+echo "the old ~/.config/cadre is moved once"
 mkdir -p "$T/old/visible/personas" "$HOME/.config/cadre"
 echo "$T/old/visible" > "$HOME/.config/cadre/home"
 mv "$HOME/.cadre/config/default" "$T/default.saved"
 err=$(cadre ls 2>&1 >/dev/null || true)
 check "moved, with a note" grep -q "moved cadre's settings" <<<"$err"
 check "the old folder is kept aside" test -f "$HOME/.config/cadre.moved-to-0.2.0/home" -a ! -e "$HOME/.config/cadre"
-check "the visible cadre is outside" grep -qx "$T/old/visible" "$HOME/.cadre/config/external"
+check "the default is kept by name" grep -qx visible "$HOME/.cadre/config/default"
+check "a 0.1.x cadre is not listed as an outside cadre" test ! -e "$HOME/.cadre/config/external"
+check "nor opened where it is, until it is migrated" bash -c "cd '$T' && ! cadre ls >/dev/null 2>&1"
 mv "$T/default.saved" "$HOME/.cadre/config/default"
-cadre cadres remove visible >/dev/null
 
 echo "grow"
 cd "$C"
-cadre team add ops >/dev/null
-cadre persona add ops/sre >/dev/null
-check "persona created" test -f "$C/personas/ops/sre.md"
-check "team and role names that leave personas/ refused" bash -c "! cadre team add ../x 2>/dev/null && ! cadre persona add dev/../../pw 2>/dev/null"
+# Teams and personas are files the orchestrator writes; no command.
+mkdir -p "$C/personas/ops" && printf '# Persona: sre\n' > "$C/personas/ops/sre.md"
+git -C "$C" add personas && git -C "$C" commit -qm "Add persona ops/sre"
+check "team and persona commands are gone" bash -c "cadre team add ops 2>&1 | grep -q 'unknown command' && cadre persona add ops/x 2>&1 | grep -q 'unknown command'"
 check "no projects folder: refused without a terminal" bash -c "cadre project add app '$T/remote.git' 2>&1 | grep -q 'the projects folder is not set'"
 cadre project dir "$HOME/Developer" >/dev/null
 out=$(cadre project add app "$T/remote.git")
 check "project cloned into the projects folder" test -d "$HOME/Developer/app/.git"
 check "its path stored with ~" grep -qx "  path: ~/Developer/app" "$C/projects.yaml"
 check "no config: explained" grep -q "has not created its config yet" <<<"$out"
-check "project listed" bash -c "cadre projects | grep -q app"
+check "project listed" bash -c "cadre ls | grep -q '^projects: app'"
 check "project path" test "$(cadre project path app)" = "$HOME/Developer/app"
-check "old name path" test "$(cadre path app)" = "$HOME/Developer/app"
 check "duplicate project refused" bash -c "! cadre project add app '$T/remote.git' 2>/dev/null"
 git clone -q "$T/remote.git" "$HOME/src/mine"
 check "a folder is linked with --path" bash -c "cadre project add mine --path '$HOME/src/mine' --no-trust | grep -q 'mine added, linked at'"
@@ -158,6 +162,7 @@ cp "$CFG" "$T/cfg.before"
 cadre project add t2 "$T/remote.git" --no-trust >/dev/null
 check "--no-trust leaves the config alone" cmp -s "$CFG" "$T/cfg.before"
 check "persona sessions cannot trust" bash -c "! CADRE_PERSONA=x cadre project trust t2 2>/dev/null"
+check "persona sessions cannot add projects" bash -c "CADRE_PERSONA=x cadre project add t9 '$T/remote.git' 2>&1 | grep -q 'persona sessions cannot add projects' && ! grep -q '^t9:' '$C/projects.yaml'"
 # A writer that changes the config while cadre writes: once (cadre retries
 # and keeps the change), then on every attempt (cadre gives up).
 cat > "$T/race-once.sh" <<'EOF'
@@ -192,6 +197,53 @@ check "symlinked config: link kept" test -L "$CFG"
 check "symlinked config: target written" trusted "$T/real.json" "$HOME/Developer/t3"
 rm "$CFG"; cp "$T/cfg.good" "$CFG"
 
+echo "trust, in detail"
+mtime() { py 'import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$1"; }
+check "a name not in the registry is refused" bash -c "cadre project trust nope 2>&1 | grep -q 'not a registered project'"
+check "a plain folder is not a project" bash -c "! cadre project trust '$C/teams' 2>/dev/null"
+cp "$CFG" "$T/cfg.good"
+printf '{not json' > "$CFG"; cp "$CFG" "$T/cfg.bad"; rm -f "$CFG.bak-cadre"
+out=$(cadre project trust t3 2>&1)
+check "invalid config: unchanged" cmp -s "$CFG" "$T/cfg.bad"
+check "invalid config: the warning names it" grep -q "warning: $CFG" <<<"$out"
+check "invalid config: no backup" test ! -e "$CFG.bak-cadre"
+printf '{"projects": []}' > "$CFG"; cp "$CFG" "$T/cfg.bad"
+check "projects not an object: exit 0, unchanged" bash -c "cadre project trust t3 >/dev/null && cmp -s '$CFG' '$T/cfg.bad'"
+cp "$T/cfg.good" "$CFG"; cp "$CFG" "$T/cfg.first"
+cadre project trust t3 >/dev/null
+cadre project trust app >/dev/null
+check "the first backup is kept" cmp -s "$CFG.bak-cadre" "$T/cfg.first"
+out=$(cadre project trust --all)
+check "--all: already trusted" grep -q "t1: already trusted" <<<"$out"
+check "--all: trusted" grep -q "mine: trusted" <<<"$out"
+m=$(mtime "$CFG")
+cadre project trust --all >/dev/null
+check "--all again changes nothing" test "$(mtime "$CFG")" = "$m"
+untrust() { py 'import json,sys; d=json.load(open(sys.argv[1])); [d["projects"].pop(k) for k in list(d["projects"]) if k.endswith("/"+sys.argv[2])]; json.dump(d, open(sys.argv[1], "w"))' "$CFG" "$1"; }
+mv "$HOME/Developer/t2" "$T/t2.away"; untrust t2
+check "--all: a missing project is skipped" bash -c "cadre project trust --all | grep -q 't2: missing locally'"
+out=$(cadre project sync)
+check "sync clones and trusts" bash -c "grep -q 't2: cloned to $HOME/Developer/t2' <<<'$out' && grep -q 't2: trusted' <<<'$out'"
+check "sync: present projects left alone" grep -q "app: present" <<<"$out"
+rm -rf "$HOME/Developer/t2"; untrust t2; cp "$CFG" "$T/cfg.before"
+cadre project sync --no-trust >/dev/null
+check "sync --no-trust clones, and leaves the config alone" bash -c "test -d '$HOME/Developer/t2/.git' && cmp -s '$CFG' '$T/cfg.before'"
+if [ "$(id -u)" != 0 ]; then
+  cp "$CFG" "$T/cfg.good"; rm -f "$CFG.bak-cadre"; chmod 000 "$CFG"
+  out=$(cadre project trust t3 2>&1)
+  chmod 600 "$CFG"
+  check "unreadable config: warned, unchanged, no backup" bash -c "grep -q 'not a file cadre can safely edit' <<<'$out' && cmp -s '$CFG' '$T/cfg.good' && test ! -e '$CFG.bak-cadre'"
+  mkdir -p "$T/ro"; cp "$T/cfg.good" "$T/ro/.claude.json"; untrust t3; cp "$CFG" "$T/ro/.claude.json"; chmod 555 "$T/ro"
+  out=$(CLAUDE_CONFIG_DIR="$T/ro" cadre project trust t3 2>&1)
+  chmod 755 "$T/ro"
+  check "unwritable folder: warned, unchanged" bash -c "grep -q 'could not write next to' <<<'$out' && cmp -s '$T/ro/.claude.json' '$CFG'"
+fi
+chmod 644 "$CFG"; untrust t3
+cadre project trust t3 >/dev/null
+check "mode 0644 kept" test "$(mode "$CFG")" = 0o644
+check "no temporary files left" bash -c "! ls -a '$HOME' | grep -q '^\.cadre-'"
+chmod 600 "$CFG"
+
 echo "resolution (N.3)"
 cd "$T"
 check "outside every cadre: the default" bash -c "cadre ls | grep -q '^cadre demo  (~/.cadre/demo, the default cadre)'"
@@ -224,7 +276,7 @@ check "the copy is read-only" test "$(mode "$copy")" = 0o400
 check "the copy denies cadre's own files" grep -q '//\*\*/.cadre/\*/personas/\*\*' "$copy"
 check "the copy names this cadre by its path" grep -qF "Edit(/$C/personas/**)" "$copy"
 check "ls shows it" bash -c "cadre ls | grep -q '^  dev app *engineer'"
-check "ls --json names its runtime" bash -c "cadre ls --json | grep -q '\"runtime\": \"claude\"'"
+check "ls --json lists it, with no runtime field" bash -c "cadre ls --json | grep -q '\"name\": \"demo-dev-app-engineer\"' && ! cadre ls --json | grep -q '\"runtime\"'"
 check "a second up: already running" bash -c "cadre up dev/engineer app | grep -q 'already running'"
 cd "$HOME/.cadre/life"
 cadre up dev/engineer >/dev/null
@@ -276,6 +328,41 @@ py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"].a
 check "an edit outside cadre allow is warned about" bash -c "cadre stop dev/engineer app >/dev/null; cadre up dev/engineer app 2>&1 | grep -q 'changed outside cadre allow'"
 git -C "$C" checkout -q -- .claude/persona-settings.json
 cadre stop dev app >/dev/null
+
+echo "sessions, in detail"
+cd "$C"
+cadre up dev/engineer app >/dev/null
+check "the persona's prompt is built" bash -c "test -s '$C/.claude/build/dev-app-engineer.md' && args_of demo-dev-app-engineer | grep -qx '$C/.claude/build/dev-app-engineer.md'"
+check "generated files stay out of git" test -z "$(git -C "$C" status --porcelain)"
+copy=$(grep -A1 -x -- --settings <<<"$(args_of demo-dev-app-engineer)" | tail -1)
+chmod u+w "$copy"
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"]=["Bash(*)"]; json.dump(d, open(sys.argv[1], "w"))' "$copy"
+chmod 400 "$copy"
+relaunch >/dev/null
+copy=$(grep -A1 -x -- --settings <<<"$(args_of demo-dev-app-engineer)" | tail -1)
+check "a tampered copy is rebuilt at the next start" bash -c "! grep -q 'Bash(\*)' '$copy'"
+cadre stop dev app >/dev/null
+mkdir -p "$T/it's a dir"
+cadre up dev/engineer "$T/it's a dir" >/dev/null
+check "a quote in a path: the persona runs there" bash -c "tm list-panes -a -F '#{pane_current_path}' | grep -qxF \"$T/it's a dir\""
+cadre stop --yes >/dev/null
+mv "$T/bin/claude" "$T/claude.saved"; printf '#!/bin/sh\nexit 1\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
+code=0; out=$(cadre up ops 2>&1) || code=$?
+check "a failed start exits non-zero, and says so" bash -c "test '$code' != 0 && grep -q 'demo-ops-sre failed to start' <<<'$out'"
+tm new-session -d -s keepalive "sleep 300"
+tm set-option -g remain-on-exit on
+code=0; out=$(cadre up ops 2>&1) || code=$?
+tm set-option -g remain-on-exit off
+mv "$T/claude.saved" "$T/bin/claude"
+cadre stop ops >/dev/null
+tm kill-session -t =keepalive
+check "a dead pane kept by remain-on-exit is a failed start" bash -c "test '$code' != 0 && grep -q 'demo-ops-sre failed to start' <<<'$out'"
+cadre up ops >/dev/null
+check "a team without a project runs in its team folder" bash -c "cadre ls | grep -q '^  ops *sre' && test \"\$(tm display -p -t =cadre-demo-ops:=sre '#{pane_current_path}')\" = '$C/teams/ops'"
+cadre stop ops >/dev/null
+check "attach needs a terminal" bash -c "cadre attach dev app </dev/null 2>&1 | grep -q 'is not running\|needs a terminal'"
+check "no git identity: the note says the change was left uncommitted" bash -c "GIT_CONFIG_GLOBAL=/dev/null cadre init noid | grep -q 'left uncommitted'"
+mv "$HOME/.cadre/noid" "$T/noid.away"
 
 echo "allow"
 cp "$PS" "$T/ps.before"
@@ -343,8 +430,87 @@ check "no lock left in the cadre" bash -c "! ls -a '$C/.claude' | grep -q lock"
 check "cadre repo clean after allow" test -z "$(git -C "$C" status --porcelain)"
 check "persona cannot add" bash -c "CADRE_PERSONA=x cadre allow add 'Bash(true)' 2>&1 | grep -q 'persona sessions cannot change permissions'"
 
-echo "runtime boundary (P)"
-echo fake > "$C/personas/ops/sre.runtime"
+echo "allow, in detail"
+cd "$C"
+has_grant() { py 'import json,sys; d=json.load(open(sys.argv[1])); k,l=sys.argv[2].split("."); sys.exit(0 if sys.argv[3] in d[k][l] else 1)' "$PS" "$1" "$2"; }
+last_commit() { git -C "$C" log -1 --format=%s; }
+cadre up dev/engineer app >/dev/null
+check "the changed file still validates" bash -c "! cadre stop dev/engineer app >/dev/null; ! cadre up dev/engineer app 2>&1 | grep -q warning"
+cadre stop dev app >/dev/null
+cadre allow add --auto "Merging a reviewed feature branch into main is expected" >/dev/null
+# shellcheck disable=SC2016 # python reads "$defaults" literally
+check "an autoMode entry goes after \$defaults" py 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d["autoMode"]["allow"] == ["$defaults", "Merging a reviewed feature branch into main is expected"] else 1)' "$PS"
+cp "$PS" "$T/ps.before"
+out=$(cadre allow add 'Bash(git push origin HEAD:main)')
+check "a duplicate is a no-op" bash -c "grep -q 'already granted' <<<'$out' && cmp -s '$PS' '$T/ps.before'"
+for rule in '*' 'Bash' 'Edit' 'Write' 'WebFetch' 'PowerShell' 'Bash(*)' 'Read(**)' 'Bash(:*)' 'Bash(python:*)' \
+    'Bash(sudo *)' 'Bash(sh:*)' 'Bash(/usr/bin/env *)' 'mcp__srv' 'mcp__srv__*' 'Edit(//x/.claude/persona-settings.json)' \
+    'Bash(cadre allow add x)' 'Bash(cadre:*)'; do
+  if err=$(cadre allow add "$rule" 2>&1); then fail "refused: $rule"; fi
+  grep -q "refused" <<<"$err" || fail "refused with a reason: $rule"
+  cmp -s "$PS" "$T/ps.before" || fail "refused leaves the file: $rule"
+done
+ok "blanket rules refused, file unchanged"
+for rule in 'Bash(a \\; bash *)' 'Bash(a \\| bash *)' 'Bash(a \\& bash *)' 'Bash(npm test \\; rm -rf *)' 'Bash(echo x\\;bash -c *)'; do
+  if cadre allow add "$rule" >/dev/null 2>&1; then fail "refused: $rule"; fi
+done
+ok "an escaped backslash before an operator leaves the operator real"
+for text in "Editing the cadre conf file is routine" "Editing cadre . conf is routine" "Editing the cadre_conf is fine"; do
+  if cadre allow add --auto "$text" >/dev/null 2>&1; then fail "refused --auto: $text"; fi
+done
+ok "--auto paraphrases of cadre.conf refused"
+check "an escaped ; is an argument, not an operator" cadre allow add 'Bash(find . -name x -exec rm {} \;)'
+cadre allow remove 'Bash(find . -name x -exec rm {} \;)' >/dev/null
+check "find -exec with a wildcard is still refused" bash -c "! cadre allow add 'Bash(find . -name *.x -exec rm {} \;)'"
+check "an unescaped ; is still refused" bash -c "! cadre allow add 'Bash(npm test ; rm x)'"
+check "git with a wildcard gets its own warning" bash -c "cadre allow add 'Bash(git *)' | grep -q 'lets git run other programs'"
+cadre allow remove 'Bash(git *)' >/dev/null
+check "reads in the ssh folder are warned about" bash -c "cadre allow add 'Read(~/.ssh/**)' 2>&1 | grep -q warning"
+cadre allow remove 'Read(~/.ssh/**)' >/dev/null
+check "an escaped slash cannot hide ~/.ssh" bash -c "! cadre allow add 'Edit(~/.ssh\/config)' 2>/dev/null"
+cp "$PS" "$T/ps.before"
+check "a non-rule needs --auto" bash -c "cadre allow add 'run the tests' 2>&1 | grep -q -- --auto"
+check "a long --auto entry refused" bash -c "! cadre allow add --auto '$(printf 'x%.0s' $(seq 301))' 2>/dev/null"
+check "\$defaults refused" bash -c "! cadre allow add --auto '\$defaults' 2>/dev/null"
+check "the refusals left the file unchanged" cmp -s "$PS" "$T/ps.before"
+out=$(cadre allow add 'Bash(ls docs/*)')
+check "a wildcard rule is accepted with a warning" grep -q "warning: Bash(ls docs/\*) contains \*" <<<"$out"
+out=$(cadre allow add --auto "Running anything in the scratch folder is fine")
+check "a blanket --auto entry is warned" grep -q 'warning: the entry says "anything"' <<<"$out"
+cadre allow add --once 'Bash(make deploy)' >/dev/null
+check "--once is recorded in the sidecar" grep -q "	Bash(make deploy)$" "$C/.claude/persona-settings.once"
+out=$(cadre allow list)
+check "list numbers the grants" grep -qx "  1. rule  Bash(git push origin HEAD:main)" <<<"$out"
+check "list flags wildcards" grep -q "Bash(ls docs/\*)   \[wide: contains \*\]" <<<"$out"
+check "list shows autoMode entries" grep -q "auto  Merging a reviewed" <<<"$out"
+check "list hides the built-in entries" bash -c "! grep -q 'cadre allow:' <<<'$out'"
+check "plain cadre allow lists" test "$(cadre allow)" = "$out"
+n=$(grep 'Bash(ls docs/\*)' <<<"$out" | sed 's/^ *\([0-9]*\)\..*/\1/')
+cadre allow remove "$n" >/dev/null
+check "remove by number, and commit" bash -c "! grep -q 'ls docs' '$PS' && test \"\$(git -C '$C' log -1 --format=%s)\" = 'Remove grant for personas: Bash(ls docs/*)'"
+cadre allow remove 'Bash(git push origin HEAD:main)' >/dev/null
+check "remove by text" bash -c "! grep -q 'git push origin' '$PS'"
+check "removing a missing grant fails" bash -c "! cadre allow remove 'Bash(git push origin HEAD:main)' 2>/dev/null"
+check "removing a missing number fails" bash -c "! cadre allow remove 99 2>/dev/null"
+cadre allow remove --once >/dev/null
+check "remove --once removes one-time grants" bash -c "! grep -q 'make deploy' '$PS' && ! grep -q . '$C/.claude/persona-settings.once'"
+check "and keeps the others" has_grant autoMode.allow "Merging a reviewed feature branch into main is expected"
+cadre allow add --once 'Bash(make ship)' >/dev/null
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"].remove("Bash(make ship)"); json.dump(d, open(sys.argv[1], "w"), indent=2)' "$PS"
+git -C "$C" commit -qm "Remove grant for personas: Bash(make ship)" -- .claude/persona-settings.json
+out=$(cadre allow remove --once)
+check "a stale one-time record is not reported as removed" bash -c "grep -q 'already gone: Bash(make ship)' <<<'$out' && ! grep -q 'removed:' <<<'$out'"
+check "and it is dropped" bash -c "! grep -q 'make ship' '$C/.claude/persona-settings.once'"
+cp "$PS" "$T/ps.before"
+check "persona cannot remove" bash -c "! CADRE_PERSONA=x cadre allow remove 1 2>/dev/null"
+check "persona changed nothing" cmp -s "$PS" "$T/ps.before"
+check "persona can list" env CADRE_PERSONA=x cadre allow list
+py 'import json,sys; d=json.load(open(sys.argv[1])); d["permissions"]["allow"].append("Bash(true2)"); json.dump(d, open(sys.argv[1], "w"), indent=2)' "$PS"
+check "list warns about a hand edit" bash -c "cadre allow list 2>&1 | grep -q 'changed outside cadre allow'"
+git -C "$C" checkout -q -- .claude/persona-settings.json
+check "cadre repo clean after it all" test -z "$(git -C "$C" status --porcelain)"
+
+echo "runtime boundary"
 cat > "$T/fake-agent" <<EOF
 #!/bin/sh
 { printf '%s\\n' "\$@"; env; } > "$T/fake-ran"
@@ -352,16 +518,21 @@ exec sleep 300
 EOF
 chmod +x "$T/fake-agent"
 export CADRE_FAKE_BIN="$T/fake-agent"
-cadre up ops/sre >/dev/null
+CADRE_TEST_RUNTIME=fake cadre up ops/sre >/dev/null
 for _ in $(seq 50); do [ -s "$T/fake-ran" ] && break; sleep 0.1; done
 check "what runs is what the runtime's Launch built" bash -c "grep -qx -- '--fake-name' '$T/fake-ran' && grep -qx 'CADRE_FAKE_LAUNCHED=demo-ops-sre' '$T/fake-ran'"
-check "ls --json names the fake runtime" bash -c "cadre ls --json | grep -q '\"runtime\": \"fake\"'"
 cadre stop ops >/dev/null
-check "a runtime without fixed denies is refused" bash -c "CADRE_FAKE_OFF=FixedDenies cadre up ops/sre 2>&1 | grep -q 'cannot enforce cadre.s fixed denies'"
-check "a runtime without messaging is refused" bash -c "CADRE_FAKE_OFF=Messaging cadre up ops/sre 2>&1 | grep -q 'no way to message the orchestrator'"
-check "an unknown mode is refused" bash -c "CADRE_PERMISSION_MODE=auto cadre up ops/sre 2>&1 | grep -q 'has no permission mode auto'"
-check "a release build refuses the fake runtime" bash -c "'$T/rel/cadre' up ops/sre 2>&1 | grep -q 'runtime fake is not supported yet (supported: claude)'"
-check "and ls names the problem" bash -c "'$T/rel/cadre' ls | grep -q 'problem: ops/sre: runtime fake is not supported yet'"
+check "a runtime without fixed denies is refused" bash -c "CADRE_TEST_RUNTIME=fake CADRE_FAKE_OFF=FixedDenies cadre up ops/sre 2>&1 | grep -q 'cannot enforce cadre.s fixed denies'"
+check "a runtime without messaging is refused" bash -c "CADRE_TEST_RUNTIME=fake CADRE_FAKE_OFF=Messaging cadre up ops/sre 2>&1 | grep -q 'no way to message the orchestrator'"
+check "an unknown mode is refused" bash -c "CADRE_PERMISSION_MODE=yolo cadre up ops/sre 2>&1 | grep -q 'has no permission mode yolo'"
+echo PERMISSION_MODE=yolo > "$C/cadre.conf"
+check "and ls names it as a problem" bash -c "cadre ls | grep -q 'problem: runtime claude has no permission mode yolo'"
+git -C "$C" checkout -q -- cadre.conf
+echo fake > "$C/personas/ops/sre.runtime"
+rm -f "$T/args-demo-ops-sre"
+CADRE_TEST_RUNTIME=fake "$T/rel/cadre" up ops/sre >/dev/null
+check "Claude Code is the only runtime: .runtime files and the test variable are not read" bash -c "args_of demo-ops-sre | grep -qx -- --name"
+cadre stop ops >/dev/null
 rm "$C/personas/ops/sre.runtime"
 mkdir -p "$T/nopy"
 for tool in tmux git; do ln -s "$(command -v "$tool")" "$T/nopy/$tool"; done
@@ -396,12 +567,24 @@ check "its session is marked as the orchestrator" test "$(tm show-options -qv -t
 check "with the way back in its status line" bash -c "tm show-options -qv -t =cadre-demo: status-right | grep -q 'then d: back to your terminal'"
 check "ls shows it" bash -c "cadre ls | grep -q 'orchestrator: running in tmux (cadre-demo)'"
 check "stop leaves it" bash -c "cadre stop --all --yes >/dev/null; running cadre-demo"
-check "unless asked" bash -c "cadre stop --all --with-orchestrator --yes | grep -q 'cadre-demo stopped'"
+check "stop has no --with-orchestrator" bash -c "! cadre stop --all --with-orchestrator --yes 2>/dev/null && running cadre-demo"
+tm kill-session -t =cadre-demo
+
+echo "cadres"
+cd "$T"
+check "use names a cadre, by name only" bash -c "cadre use life | grep -q 'default cadre: life' && ! cadre use '$HOME/.cadre/life' 2>/dev/null && cadre use demo >/dev/null"
+check "use refuses an unknown cadre" bash -c "cadre use nope 2>&1 | grep -q 'no cadre named nope'"
+mkdir -p "$T/elsewhere/personas"; ln -s "$T/elsewhere" "$HOME/.cadre/linked"
+check "a symlink in ~/.cadre is not a cadre" bash -c "! cadre ls --all | grep -q '^cadre linked'"
+rm "$HOME/.cadre/linked"
+mkdir -p "$T/old0/personas"; touch "$T/old0/projects.yaml"
+check "a 0.1.x cadre gets the migrate hint" bash -c "cd '$T/old0' && cadre </dev/null 2>/dev/null | grep -q 'looks like a cadre from before 0.2.0: move it into ~/.cadre with cadre migrate'"
 
 echo "help"
 check "help lists the visible commands" bash -c "cadre help | grep -q 'cadre stop' && ! cadre help | grep -q 'cadre allow'"
 check "help advanced lists the rest" bash -c "cadre help advanced | grep -q 'cadre allow add'"
-check "renamed names point to the new one" bash -c "cadre which 2>&1 | grep -q 'use cadre ls'"
-check "old names keep working" bash -c "cadre version | grep -q '^cadre ' && cadre down dev | grep -q 'not running'"
+check "cut commands are unknown" bash -c "cadre which 2>&1 | grep -q 'unknown command' && cadre --no-tmux 2>&1 | grep -q 'unknown command'"
+check "old names point to the new way, and exit 1" bash -c "! cadre down dev 2>/dev/null && cadre down dev 2>&1 | grep -qx 'cadre: down is not a command since cadre 0.2.0; use cadre stop' && cadre path app 2>&1 | grep -q 'use cadre project path'"
+check "-h and -v still work" bash -c "cadre -h | grep -q 'cadre help advanced' && cadre -v | grep -q '^cadre '"
 
 echo "$pass checks passed"

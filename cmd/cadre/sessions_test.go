@@ -280,3 +280,18 @@ func TestLsNamesWhatCannotStart(t *testing.T) {
 		}
 	}
 }
+
+// A session with this cadre's home but no team markers (a start that died
+// early, or one made by hand): up refuses with how to stop it, and starts
+// no member in it.
+func TestUpRefusesASessionWithoutMarkers(t *testing.T) {
+	home := sandbox(t)
+	socket := withTmux(t, home)
+	must(t, "init", "work")
+	tmuxIn(socket, "new-session", "-d", "-s", "cadre-work-dev", "-n", "x", "sleep", "60")
+	tmuxIn(socket, "set-option", "-q", "-t", "=cadre-work-dev:", "@cadre_home", home+"/.cadre/work")
+	refused(t, "a session named cadre-work-dev exists without cadre's markers; stop it with tmux kill-session -t cadre-work-dev, or cadre stop --yes", "up", "dev/engineer")
+	if out := tmuxIn(socket, "list-windows", "-t", "=cadre-work-dev:", "-F", "#W"); out != "x" {
+		t.Errorf("a member started in it: %q", out)
+	}
+}

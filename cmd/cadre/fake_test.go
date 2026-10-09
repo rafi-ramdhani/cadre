@@ -96,3 +96,109 @@ func TestLsListsWhatKeepsMembersFromStarting(t *testing.T) {
 		t.Errorf("ls with messaging off:\n%s", out)
 	}
 }
+
+// A member resumes its last conversation on the next start, and starts a
+// new one, saying why, when asked or when it cannot resume.
+func TestUpResumesConversations(t *testing.T) {
+	home := fakeCadre(t)
+	ran := func() string {
+		for i := 0; i < 100; i++ {
+			if b, _ := os.ReadFile(home + "/fake-ran"); len(b) > 0 {
+				return string(b)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return ""
+	}
+	restart := func(args ...string) string {
+		call("stop", "dev/engineer")
+		os.Remove(home + "/fake-ran")
+		return must(t, append([]string{"up", "dev/engineer"}, args...)...)
+	}
+	out := must(t, "up", "dev/engineer")
+	if !strings.Contains(out, "(a new conversation)") || !strings.Contains(ran(), "--fake-session\nfake-session\n") {
+		t.Errorf("first start: %q", out)
+	}
+	record := home + "/.cadre/work/.fake/build/sessions/work-dev-engineer.json"
+	if !strings.Contains(readFile(t, record), `"id":"fake-session"`) {
+		t.Errorf("record %q", readFile(t, record))
+	}
+	if out := restart(); !strings.Contains(out, "(resumed its conversation)") || !strings.Contains(ran(), "--fake-resume\nfake-session\n") {
+		t.Errorf("second start: %q", out)
+	}
+	t.Setenv("CADRE_FAKE_GONE", "fake-session")
+	if out := restart(); !strings.Contains(out, "(a new conversation: the last one is gone)") {
+		t.Errorf("a lost conversation: %q", out)
+	}
+	t.Setenv("CADRE_FAKE_GONE", "")
+	if out := restart("--fresh"); !strings.Contains(out, "(a new conversation, as asked)") {
+		t.Errorf("--fresh: %q", out)
+	}
+	call("stop", "dev/engineer", "--fresh")
+	if _, err := os.Stat(record); err == nil {
+		t.Error("stop --fresh kept the record")
+	}
+	os.Remove(home + "/fake-ran")
+	if out := must(t, "up", "dev/engineer"); !strings.Contains(out, "(a new conversation)") {
+		t.Errorf("after stop --fresh: %q", out)
+	}
+}
+
+// The orchestrator resumes too; when the runtime will not resume, a new
+// conversation starts at once.
+func TestTheOrchestratorResumes(t *testing.T) {
+	home := fakeCadre(t)
+	// It exits at once: with an error when asked to resume, as a runtime
+	// that lost the conversation does.
+	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\ncase \"$*\" in *'--fake-resume fake-session'*) echo 'no conversation found' >&2; exit 1 ;; esac\nexit 0\n"), 0o755)
+	out := must(t)
+	if !strings.Contains(out, "The orchestrator: a new conversation.") {
+		t.Errorf("first: %q", out)
+	}
+	out = must(t)
+	if !strings.Contains(out, "The orchestrator: resumed its conversation.") || !strings.Contains(out, "The orchestrator: a new conversation: resuming failed.") {
+		t.Errorf("second: %q", out)
+	}
+	if runs := readFile(t, home+"/orch-runs"); strings.Count(runs, "--fake-name work-orchestrator") != 3 {
+		t.Errorf("runs:\n%s", runs)
+	}
+	// A resumed orchestrator that quits at once for another reason ends
+	// there, with its status: no new conversation opens.
+	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\nexit 3\n"), 0o755)
+	code, out, _ := call()
+	if code != 3 || strings.Contains(out, "resuming failed") {
+		t.Errorf("a quick quit: %d %q", code, out)
+	}
+	if runs := readFile(t, home+"/orch-runs"); strings.Count(runs, "--fake-name work-orchestrator") != 4 {
+		t.Errorf("a quick quit ran again:\n%s", runs)
+	}
+}
+
+// The orchestrator resumes only a conversation cadre itself started: a
+// record that names another id is not resumed.
+func TestTheOrchestratorResumesOnlyWhatCadreIssued(t *testing.T) {
+	home := fakeCadre(t)
+	os.WriteFile(home+"/fake-agent", []byte("#!/bin/sh\necho \"$@\" >> \""+home+"/orch-runs\"\nexit 0\n"), 0o755)
+	must(t)
+	c := home + "/.cadre/work"
+	record := c + "/.fake/build/sessions/work-orchestrator.json"
+	if _, err := os.Stat(record); err != nil {
+		matches, _ := filepath.Glob(c + "/*/build/sessions/work-orchestrator.json")
+		if len(matches) != 1 {
+			t.Fatalf("no orchestrator record: %v", matches)
+		}
+		record = matches[0]
+	}
+	os.WriteFile(record, []byte(`{"id":"planted","dir":"`+c+`"}`), 0o600)
+	out := must(t)
+	if !strings.Contains(out, "The orchestrator: a new conversation: its record is not one cadre wrote.") {
+		t.Errorf("planted record: %q", out)
+	}
+	if strings.Contains(readFile(t, home+"/orch-runs"), "--fake-resume planted") {
+		t.Error("the planted conversation was resumed")
+	}
+	// The one cadre issued is resumed.
+	if out := must(t); !strings.Contains(out, "The orchestrator: resumed its conversation.") {
+		t.Errorf("issued: %q", out)
+	}
+}

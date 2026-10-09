@@ -8,7 +8,9 @@
 package fake
 
 import (
+	"bufio"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,9 +63,10 @@ func (Fake) Detect() (runtime.Install, error) {
 func (f Fake) Launch(s runtime.LaunchSpec) (runtime.Command, error) {
 	in, _ := f.Detect()
 	return runtime.Command{
-		Argv: []string{in.Path, "--fake-name", s.Name, "--fake-mode", s.Mode, "--fake-prompt", s.PromptFile, "--fake-grants", s.Grants},
-		Env:  []string{"CADRE_FAKE_LAUNCHED=" + s.Name},
-		Dir:  s.WorkDir,
+		Argv: []string{in.Path, "--fake-name", s.Name, "--fake-mode", s.Mode, "--fake-prompt", s.PromptFile, "--fake-grants", s.Grants,
+			"--fake-session", s.SessionID, "--fake-resume", s.Resume},
+		Env: []string{"CADRE_FAKE_LAUNCHED=" + s.Name},
+		Dir: s.WorkDir,
 	}, nil
 }
 
@@ -74,6 +77,20 @@ func (Fake) Health(bool, []string) []runtime.Problem { return nil }
 
 func (Fake) Instructions() runtime.InstructionOps { return instructions{} }
 func (Fake) Hooks() runtime.HookOps               { return hooks{} }
+func (Fake) Sessions() runtime.SessionOps         { return sessions{} }
+
+// sessions hand out counted ids and know every one they gave.
+type sessions struct{}
+
+func (sessions) NewID() string              { return "fake-session" }
+func (sessions) Exists(id, dir string) bool { return os.Getenv("CADRE_FAKE_GONE") != id }
+func (sessions) ResumeFailed(output string) bool {
+	return strings.Contains(output, "no conversation found")
+}
+func (sessions) FromHook(input io.Reader) string {
+	line, _ := bufio.NewReader(input).ReadString('\n')
+	return strings.TrimSpace(line)
+}
 
 // instructions link the skill under $HOME/.fake, as the real adapter does
 // under Claude Code's folder.

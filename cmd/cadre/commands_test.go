@@ -31,8 +31,8 @@ func TestHelpListsExactlyTheVisibleCommands(t *testing.T) {
 			got = append(got, strings.Fields(l)[1])
 		}
 	}
-	want := []string{"open", "--tmux", "ls", "attach", "stop", "help", "--version", "uninstall"}
-	// Plain cadre's line starts with its summary, so its second field is "open".
+	want := []string{"[--fresh]", "--tmux", "ls", "attach", "stop", "help", "--version", "uninstall"}
+	// Plain cadre's line has no name, so its second field is its usage.
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("help lists %v, want %v", got, want)
 	}

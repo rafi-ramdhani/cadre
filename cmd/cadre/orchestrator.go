@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -27,15 +28,17 @@ import (
 // runPlain is plain cadre: open this cadre's orchestrator in this
 // terminal, or in tmux with --tmux.
 func runPlain(e *env) int {
-	useTmux, detach := false, false
+	useTmux, detach, fresh := false, false, false
 	for _, a := range e.args {
 		switch a {
 		case "--tmux":
 			useTmux = true
 		case "--detach":
 			detach = true
+		case "--fresh":
+			fresh = true
 		default:
-			return e.fail("usage: cadre [--tmux [--detach]]")
+			return e.fail("usage: cadre [--tmux [--detach]] [--fresh]")
 		}
 	}
 	if detach && !useTmux {
@@ -133,18 +136,71 @@ func runPlain(e *env) int {
 	if err := fsx.WriteFile(prompt, orchestrator.Prompt(text, r.Name, r.Path, r.Project, from), 0o644); err != nil {
 		return e.fail("%s", err)
 	}
-	cmd, err := rt.Launch(runtime.LaunchSpec{Role: runtime.Orchestrator, Name: orchestrator.Name(r.Name), Cadre: r.Path,
-		WorkDir: r.Path, Mode: mode, PromptFile: prompt})
+	// The orchestrator resumes its last conversation, as members do.
+	record := session.RecordPath(build, orchestrator.Name(r.Name))
+	launch := func(conv session.Conversation) (runtime.Command, error) {
+		if conv.Note != "" {
+			e.say("The orchestrator: %s.", conv.Note)
+		}
+		if conv.SessionID != "" {
+			session.WriteRecord(record, session.Record{ID: conv.SessionID, Dir: r.Path, Since: time.Now()})
+			cadres.SetState(cadres.OrchestratorID(r.Name), conv.SessionID)
+		}
+		cmd, err := rt.Launch(runtime.LaunchSpec{Role: runtime.Orchestrator, Name: orchestrator.Name(r.Name), Cadre: r.Path,
+			WorkDir: r.Path, Mode: mode, PromptFile: prompt, SessionID: conv.SessionID, Resume: conv.Resume})
+		// Pinned to this cadre, and marked as the orchestrator, so the
+		// hook adds nothing more (K.3).
+		cmd.Env = append(cmd.Env, "CADRE_HOME="+r.Path, "CADRE_ORCHESTRATOR=1")
+		return cmd, err
+	}
+	conv := session.Plan(rt, record, r.Path, fresh)
+	// Only a conversation cadre itself started for this orchestrator is
+	// resumed: a record written by anything else is not.
+	if conv.Resume != "" && conv.Resume != cadres.GetState(cadres.OrchestratorID(r.Name)) {
+		conv = session.Conversation{SessionID: rt.Sessions().NewID(), Note: "a new conversation: its record is not one cadre wrote"}
+	}
+	cmd, err := launch(conv)
 	if err != nil {
 		return e.fail("%s", err)
 	}
-	// Pinned to this cadre, and marked as the orchestrator, so the hook
-	// adds nothing more (K.3).
-	cmd.Env = append(cmd.Env, "CADRE_HOME="+r.Path, "CADRE_ORCHESTRATOR=1")
-	if useTmux {
-		return e.startTmux(r, cmd, lockPath, detach, release)
+	// When the runtime will not resume the conversation, a new one.
+	var renew func() (runtime.Command, error)
+	if conv.Resume != "" {
+		renew = func() (runtime.Command, error) {
+			return launch(session.Conversation{SessionID: rt.Sessions().NewID(), Note: "a new conversation: resuming failed"})
+		}
 	}
-	return e.runTerminal(cmd, lockPath, release)
+	if useTmux {
+		return e.startTmux(r, cmd, lockPath, detach, release, renew)
+	}
+	start := time.Now()
+	var errTail tail
+	var capture io.Writer
+	if renew != nil {
+		capture = &errTail
+	}
+	code := e.runTerminal(cmd, lockPath, release, capture)
+	// A new conversation only when the runtime could not find the one to
+	// resume: a quick quit, or a closed terminal, is not that.
+	if renew != nil && code != 0 && time.Since(start) < 5*time.Second && rt.Sessions().ResumeFailed(errTail.String()) {
+		// Under the start guard again, so no other cadre run opens a
+		// second orchestrator meanwhile.
+		g, err := orchestrator.Guard(build)
+		if err != nil {
+			return e.fail("%s", err)
+		}
+		orchestrator.ClearStale(lockPath)
+		if l := openOrchestrator(t, r.Name, r.Path, lockPath, true); l != nil {
+			g.Release()
+			return e.fail("the orchestrator of %s was opened elsewhere meanwhile; use that one", r.Name)
+		}
+		if cmd, err = renew(); err != nil {
+			g.Release()
+			return e.fail("%s", err)
+		}
+		code = e.runTerminal(cmd, lockPath, func() { g.Release() }, nil)
+	}
+	return code
 }
 
 func haveTmux() bool {
@@ -222,11 +278,14 @@ func lookalike(dir string) string {
 // runTerminal runs the orchestrator as a child in this terminal, holding
 // the lock while it runs, and returns its exit code. release ends the
 // start guard once the lock is written.
-func (e *env) runTerminal(c runtime.Command, lockPath string, release func()) int {
+func (e *env) runTerminal(c runtime.Command, lockPath string, release func(), capture io.Writer) int {
 	cmd := exec.Command(c.Argv[0], c.Argv[1:]...)
 	cmd.Dir = c.Dir
 	cmd.Env = append(withoutMember(os.Environ()), c.Env...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = e.stdin, e.stdout, e.stderr
+	if capture != nil {
+		cmd.Stderr = io.MultiWriter(e.stderr, capture)
+	}
 	// The terminal comes back as it was, even if the child dies raw.
 	if f, ok := e.stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
 		if saved, err := term.GetState(int(f.Fd())); err == nil {
@@ -301,7 +360,7 @@ func withoutMember(env []string) []string {
 
 // startTmux starts the orchestrator in its tmux session (K.1), or finds
 // the running one, and attaches unless detach is set.
-func (e *env) startTmux(r *cadres.Resolved, c runtime.Command, lockPath string, detach bool, release func()) int {
+func (e *env) startTmux(r *cadres.Resolved, c runtime.Command, lockPath string, detach bool, release func(), renew func() (runtime.Command, error)) int {
 	t := session.Default()
 	name := orchestrator.SessionName(r.Name)
 	if t.Has(name) {
@@ -313,16 +372,30 @@ func (e *env) startTmux(r *cadres.Resolved, c runtime.Command, lockPath string, 
 		return e.fail("tmux session %s exists and is not this cadre's orchestrator; rename it (tmux rename-session) or keep using it by hand", name)
 	}
 	hint, hooks := t.HintOptions()
-	err := t.Start(session.StartSpec{Session: name, Window: "orchestrator", Dir: c.Dir, Env: c.Env, Argv: c.Argv,
-		SessionOptions: append([]session.Option{{Name: "@cadre_home", Value: r.Path}, {Name: "@cadre_role", Value: "orchestrator"}}, hint...),
-		SessionHooks:   hooks})
+	start := func(c runtime.Command) error {
+		err := t.Start(session.StartSpec{Session: name, Window: "orchestrator", Dir: c.Dir, Env: c.Env, Argv: c.Argv,
+			SessionOptions: append([]session.Option{{Name: "@cadre_home", Value: r.Path}, {Name: "@cadre_role", Value: "orchestrator"}}, hint...),
+			SessionHooks:   hooks})
+		if err != nil {
+			return err
+		}
+		time.Sleep(upWaitOr(500 * time.Millisecond))
+		if !t.HasWindow(name, "orchestrator") || t.PaneDead(name, "orchestrator") {
+			return fmt.Errorf("the orchestrator failed to start: its command exited at once; run it by hand in %s to see why:\n    %s",
+				c.Dir, session.Line(append(c.Env, c.Argv...)))
+		}
+		return nil
+	}
+	err := start(c)
+	if err != nil && renew != nil {
+		// The runtime would not resume it: start a new conversation.
+		t.KillSession(name)
+		if c, err = renew(); err == nil {
+			err = start(c)
+		}
+	}
 	if err != nil {
 		return e.fail("%s", err)
-	}
-	time.Sleep(500 * time.Millisecond)
-	if !t.HasWindow(name, "orchestrator") || t.PaneDead(name, "orchestrator") {
-		return e.fail("the orchestrator failed to start: its command exited at once; run it by hand in %s to see why:\n    %s",
-			c.Dir, session.Line(append(c.Env, c.Argv...)))
 	}
 	// Without the lock, cadre still finds it by its session (runPlain).
 	pid, err := t.PanePID(name, "orchestrator")
@@ -379,3 +452,26 @@ func terminalName() string {
 	}
 	return orchestrator.CleanTTY("/dev/" + name)
 }
+
+// upWaitOr is how long a start is given before it is checked: the test
+// build's setting, else d.
+func upWaitOr(d time.Duration) time.Duration {
+	if w := upWait(); w > 0 {
+		return w
+	}
+	return d
+}
+
+// tail keeps the last few kilobytes written to it: enough of a run's
+// error output to tell why it ended.
+type tail struct{ b []byte }
+
+func (t *tail) Write(p []byte) (int, error) {
+	t.b = append(t.b, p...)
+	if len(t.b) > 8<<10 {
+		t.b = t.b[len(t.b)-(8<<10):]
+	}
+	return len(p), nil
+}
+
+func (t *tail) String() string { return string(t.b) }

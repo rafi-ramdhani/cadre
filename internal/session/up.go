@@ -29,6 +29,8 @@ type Up struct {
 	// ("" for none), or why the role cannot start.
 	Pick func(role string) (runtime.Runtime, string, error)
 	Wait time.Duration
+	// Fresh starts new conversations instead of resuming recorded ones.
+	Fresh bool
 }
 
 // Roles lists a team's roles: the .md files in members/<team>.
@@ -119,10 +121,36 @@ func (u Up) start(out io.Writer, role string) error {
 	if err != nil {
 		return fmt.Errorf("  %s not started: %s", name, err)
 	}
-	cmd, err := rt.Launch(runtime.LaunchSpec{Role: runtime.Member, Name: name, Cadre: u.Path, WorkDir: dir,
-		Mode: u.Mode, PromptFile: prompt, Grants: grants})
+	record := RecordPath(rt.BuildDir(u.Path), name)
+	conv := Plan(rt, record, dir, u.Fresh)
+	started, err := u.run(rt, session, role, name, dir, prompt, grants, conv)
+	if err != nil && conv.Resume != "" {
+		// The runtime would not resume it: start a new conversation.
+		u.T.KillWindow(session, role)
+		conv = Conversation{SessionID: rt.Sessions().NewID(), Note: "a new conversation: resuming failed"}
+		started, err = u.run(rt, session, role, name, dir, prompt, grants, conv)
+	}
 	if err != nil {
-		return fmt.Errorf("  %s not started: %s", name, err)
+		return err
+	}
+	if conv.SessionID != "" {
+		WriteRecord(record, Record{ID: conv.SessionID, Dir: started, Since: time.Now()})
+	}
+	if conv.Note != "" {
+		fmt.Fprintf(out, "  %s started in %s (%s)\n", name, started, conv.Note)
+	} else {
+		fmt.Fprintf(out, "  %s started in %s\n", name, started)
+	}
+	return nil
+}
+
+// run starts one member's window with the conversation conv, and checks
+// that it is still there a moment later. It returns the folder it runs in.
+func (u Up) run(rt runtime.Runtime, session, role, name, dir, prompt, grants string, conv Conversation) (string, error) {
+	cmd, err := rt.Launch(runtime.LaunchSpec{Role: runtime.Member, Name: name, Cadre: u.Path, WorkDir: dir,
+		Mode: u.Mode, PromptFile: prompt, Grants: grants, SessionID: conv.SessionID, Resume: conv.Resume})
+	if err != nil {
+		return "", fmt.Errorf("  %s not started: %s", name, err)
 	}
 	if cmd.Dir != "" {
 		dir = cmd.Dir
@@ -138,7 +166,7 @@ func (u Up) start(out io.Writer, role string) error {
 		SessionHooks:   hooks,
 		WindowOptions:  []Option{{"@cadre_member", name}}})
 	if err != nil {
-		return fmt.Errorf("  %s not started: %s", name, err)
+		return "", fmt.Errorf("  %s not started: %s", name, err)
 	}
 	// A command that cannot run ends at once: its window closes, or stays
 	// with a dead pane when the user's tmux sets remain-on-exit.
@@ -148,11 +176,10 @@ func (u Up) start(out io.Writer, role string) error {
 	}
 	time.Sleep(wait)
 	if !u.T.HasWindow(session, role) || u.T.PaneDead(session, role) {
-		return fmt.Errorf("  %s failed to start: its command exited at once; run it by hand in %s to see why:\n    %s",
+		return "", fmt.Errorf("  %s failed to start: its command exited at once; run it by hand in %s to see why:\n    %s",
 			name, dir, Line(append(env, argv...)))
 	}
-	fmt.Fprintf(out, "  %s started in %s\n", name, dir)
-	return nil
+	return dir, nil
 }
 
 // writePrompt builds the member's prompt, rebuilt and swapped in whole at

@@ -9,6 +9,7 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -52,6 +53,11 @@ type LaunchSpec struct {
 	Mode       string // cadre's PERMISSION_MODE
 	PromptFile string // instructions to add to the session's own
 	Grants     string // the runtime's grants artifact (from Permissions().Prepare), or ""
+	// SessionID starts a new conversation with this id (cadre chose it, to
+	// resume it later); Resume continues the conversation with this id.
+	// At most one is set, and only for a runtime with those capabilities.
+	SessionID string
+	Resume    string
 }
 
 // Command is what cadre runs: in tmux for a member, or as a child process.
@@ -81,10 +87,12 @@ type TrustResult struct {
 }
 
 // Places are the physical folders a runtime's fixed denies must name:
-// ~/.cadre as resolved, and every known cadre.
+// ~/.cadre as resolved, and every known cadre. Binary is the cadre program
+// a member's session hooks run (to keep its conversation id current).
 type Places struct {
 	Root   string
 	Cadres []string
+	Binary string
 }
 
 // Prepared is what Permissions().Prepare made for a start.
@@ -203,6 +211,22 @@ type HookOps interface {
 	Output(text string) []byte
 }
 
+// SessionOps are a runtime's conversations, for resuming them.
+type SessionOps interface {
+	// NewID is a new conversation id, for LaunchSpec.SessionID.
+	NewID() string
+	// Exists reports whether the conversation with this id can still be
+	// resumed in dir, the folder it ran in (its transcript is where the
+	// runtime looks for that folder).
+	Exists(id, dir string) bool
+	// ResumeFailed reports whether a run's error output says it could not
+	// find the conversation it was asked to resume.
+	ResumeFailed(output string) bool
+	// FromHook reads the conversation id from what a session start hook
+	// receives, or "".
+	FromHook(input io.Reader) string
+}
+
 // Runtime is an agent CLI cadre can run sessions with.
 type Runtime interface {
 	Name() string
@@ -222,6 +246,7 @@ type Runtime interface {
 	Trust() TrustOps
 	Instructions() InstructionOps
 	Hooks() HookOps
+	Sessions() SessionOps
 }
 
 var (

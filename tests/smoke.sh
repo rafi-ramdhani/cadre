@@ -455,6 +455,41 @@ check "attach needs a terminal" bash -c "cadre attach dev app </dev/null 2>&1 | 
 check "no git identity: the note says the change was left uncommitted" bash -c "GIT_CONFIG_GLOBAL=/dev/null cadre init noid | grep -q 'left uncommitted'"
 mv "$HOME/.cadre/noid" "$T/noid.away"
 
+echo "resume"
+cd "$C"
+cadre stop --yes >/dev/null 2>&1 || true
+cadre stop dev app --fresh >/dev/null
+rm -f "$T/args-demo-dev-app-engineer"
+out=$(cadre up dev/engineer app)
+check "a first start is a new conversation, with an id cadre chose" bash -c "grep -q '(a new conversation)' <<<'$out' && args_of demo-dev-app-engineer | grep -qx -- --session-id"
+id=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$C/.claude/build/sessions/demo-dev-app-engineer.json")
+dir=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["dir"])' "$C/.claude/build/sessions/demo-dev-app-engineer.json")
+# Claude Code keeps a folder's transcripts under projects/<the folder, with
+# every character but letters and digits as ->.
+folder=$(printf '%s' "$dir" | tr -c 'A-Za-z0-9' '-')
+mkdir -p "$HOME/.claude/projects/x" && touch "$HOME/.claude/projects/x/$id.jsonl"
+cadre stop dev/engineer app >/dev/null; rm -f "$T/args-demo-dev-app-engineer"
+check "a transcript in another folder's place is not resumed" bash -c "cadre up dev/engineer app | grep -q '(a new conversation: the last one is gone)'"
+rm "$HOME/.claude/projects/x/$id.jsonl"
+cadre stop dev app --fresh >/dev/null; rm -f "$T/args-demo-dev-app-engineer"
+cadre up dev/engineer app >/dev/null
+id=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$C/.claude/build/sessions/demo-dev-app-engineer.json")
+mkdir -p "$HOME/.claude/projects/$folder" && touch "$HOME/.claude/projects/$folder/$id.jsonl"
+cadre stop dev/engineer app >/dev/null; rm -f "$T/args-demo-dev-app-engineer"
+out=$(cadre up dev/engineer app)
+check "the next start resumes it" bash -c "grep -q '(resumed its conversation)' <<<'$out' && args_of demo-dev-app-engineer | grep -qx '$id'"
+check "with --resume, never --continue" bash -c "args_of demo-dev-app-engineer | grep -qx -- --resume && ! args_of demo-dev-app-engineer | grep -qx -- --continue"
+echo '{"session_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"}' | CADRE_HOME="$C" CADRE_MEMBER=demo-dev-app-engineer cadre hook session
+check "the session hook follows /clear" grep -q aaaaaaaa "$C/.claude/build/sessions/demo-dev-app-engineer.json"
+echo '{"session_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"}' | CADRE_HOME="$C" CADRE_MEMBER=demo-orchestrator cadre hook session
+check "but never writes the orchestrator's record" bash -c "! grep -q aaaaaaaa '$C/.claude/build/sessions/demo-orchestrator.json' 2>/dev/null"
+rm "$HOME/.claude/projects/$folder/$id.jsonl"
+cadre stop dev/engineer app >/dev/null; rm -f "$T/args-demo-dev-app-engineer"
+check "a conversation that is gone starts a new one, saying so" bash -c "cadre up dev/engineer app | grep -q '(a new conversation: the last one is gone)'"
+cadre stop dev app --fresh >/dev/null
+check "stop --fresh forgets it" test ! -e "$C/.claude/build/sessions/demo-dev-app-engineer.json"
+check "the generated records stay out of git" test -z "$(git -C "$C" status --porcelain)"
+
 echo "allow"
 cp "$PS" "$T/ps.before"
 for rule in 'Bash(bash *)' 'Bash(npm test && bash *)' 'Bash(echo x#; bash *)' 'Bash(npm test ;>x bash *)' 'Edit(~/.zshrc)' \
@@ -684,6 +719,15 @@ cp "$T/release/$archive" "$T/archive.good"; echo tampered >> "$T/release/$archiv
 check "a download that does not match its checksum is refused, and nothing changes" bash -c "! inst >/dev/null 2>&1; inst 2>&1 | grep -q 'does not match its checksum; nothing was installed' && cmp -s '$T/inst/cadre' '$T/rel/cadre'"
 cp "$T/archive.good" "$T/release/$archive"
 check "running it again upgrades in place" bash -c "inst >/dev/null 2>&1 && cmp -s '$T/inst/cadre' '$T/rel/cadre' && test ! -e '$T/inst/.cadre.new'"
+echo keep > "$T/planted"; ln -s "$T/planted" "$T/inst/.cadre.new"
+check "a link planted in the install folder is not written through" bash -c "inst >/dev/null 2>&1 && test \"\$(cat '$T/planted')\" = keep && cmp -s '$T/inst/cadre' '$T/rel/cadre' && test ! -L '$T/inst/cadre'"
+rm -f "$T/inst/.cadre.new"
+mkdir -p "$T/nosha"
+for t in sh curl tar awk mktemp uname mkdir cp chmod mv rm cat; do ln -sf "$(command -v "$t")" "$T/nosha/$t"; done
+check "without sha256sum or shasum it says so" bash -c "! PATH='$T/nosha' inst >/dev/null 2>&1; PATH='$T/nosha' inst 2>&1 | grep -q 'sha256sum or shasum is needed'"
+sed '$d' "$ROOT/install.sh" > "$T/install-cut.sh"
+check "a script that arrived in part does nothing" bash -c "test -z \"\$(CADRE_VERSION=9.9.9 CADRE_DOWNLOAD_URL='file://$T/release' CADRE_INSTALL_DIR='$T/inst-cut' sh '$T/install-cut.sh' 2>&1)\" && test ! -e '$T/inst-cut'"
+check "a download URL that is not https is refused" bash -c "CADRE_VERSION=9.9.9 CADRE_DOWNLOAD_URL=http://example.com CADRE_INSTALL_DIR='$T/inst-http' sh '$ROOT/install.sh' 2>&1 | grep -q 'must be an https:// or file:// URL' && test ! -e '$T/inst-http'"
 
 echo "help"
 check "help lists the visible commands" bash -c "cadre help | grep -q 'cadre stop' && ! cadre help | grep -q 'cadre allow'"

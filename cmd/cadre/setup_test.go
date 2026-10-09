@@ -444,6 +444,49 @@ func TestALastingFindingDoesNotSlowEveryStart(t *testing.T) {
 	}
 }
 
+// The session hook in a member's settings copy keeps its record current
+// when /clear or /compact gives it a new conversation id.
+func TestHookSession(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	record := c + "/.claude/build/sessions/work-dev-engineer.json"
+	os.MkdirAll(c+"/.claude/build/sessions", 0o755)
+	os.WriteFile(record, []byte(`{"id":"11111111-2222-4333-8444-555555555555","dir":"/start/dir"}`), 0o600)
+	t.Setenv("CADRE_HOME", c)
+	t.Setenv("CADRE_MEMBER", "work-dev-engineer")
+	input := `{"session_id": "99999999-2222-4333-8444-555555555555", "source": "clear"}`
+	if code, out, errOut := callIn(input, "hook", "session"); code != 0 || out != "" || errOut != "" {
+		t.Errorf("hook: %d %q %q", code, out, errOut)
+	}
+	if r := readFile(t, record); !strings.Contains(r, `"id":"99999999-2222-4333-8444-555555555555"`) || !strings.Contains(r, `"dir":"/start/dir"`) {
+		t.Errorf("record %q", r)
+	}
+	// Only a known cadre, and a name cadre makes, get a record.
+	t.Setenv("CADRE_HOME", home+"/elsewhere")
+	os.MkdirAll(home+"/elsewhere/.claude/build", 0o755)
+	callIn(input, "hook", "session")
+	if _, err := os.Stat(home + "/elsewhere/.claude/build/sessions"); err == nil {
+		t.Error("a record was written for an unknown cadre")
+	}
+	t.Setenv("CADRE_HOME", c)
+	t.Setenv("CADRE_MEMBER", "../../x")
+	if code, _, _ := callIn(input, "hook", "session"); code != 0 {
+		t.Error("the hook failed")
+	}
+	if _, err := os.Stat(c + "/.claude/x.json"); err == nil {
+		t.Error("a name cadre does not make wrote outside the records")
+	}
+	// The member settings copy carries the hook.
+	t.Setenv("CADRE_MEMBER", "")
+	withTmux(t, home)
+	must(t, "up", "dev/engineer")
+	copyFile, _ := filepath.Glob(c + "/.claude/build/member-settings.*.json")
+	if len(copyFile) != 1 || !strings.Contains(readFile(t, copyFile[0]), `hook session"`) || !strings.Contains(readFile(t, copyFile[0]), `"SessionStart"`) {
+		t.Errorf("the member's copy has no session hook: %v", copyFile)
+	}
+}
+
 // The pre-push hook names this binary only when it is safely placed, like
 // the orchestrator hook; a cadre left without one is reported.
 func TestThePrePushHookNamesOnlyASafelyPlacedBinary(t *testing.T) {
@@ -578,5 +621,34 @@ func TestRestoreStopsAskingAtTheEndOfInput(t *testing.T) {
 	}
 	if _, err := os.Stat(home + "/.cadre/work/members"); err != nil || readFile(t, home+"/orch-ran") != "" {
 		t.Error("the cadre was not kept, or the orchestrator opened")
+	}
+}
+
+// The session hook writes only a member's record: never the orchestrator's,
+// which cadre writes at launch, and only for a team and role that exist.
+func TestHookSessionWritesOnlyMembersRecords(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	sessions := c + "/.claude/build/sessions/"
+	t.Setenv("CADRE_HOME", c)
+	input := `{"session_id": "99999999-2222-4333-8444-555555555555"}`
+	// The reviewer's command, and names of no team or role here.
+	for _, name := range []string{"work-orchestrator", "work-ops-sre", "work-dev-ghost", "work-dev", "other-dev-engineer"} {
+		t.Setenv("CADRE_MEMBER", name)
+		if code, out, errOut := callIn(input, "hook", "session"); code != 0 || out != "" || errOut != "" {
+			t.Errorf("%s: %d %q %q", name, code, out, errOut)
+		}
+		if _, err := os.Stat(sessions + name + ".json"); err == nil {
+			t.Errorf("a record was written for %s", name)
+		}
+	}
+	// A member, with or without a project.
+	for _, name := range []string{"work-dev-reviewer", "work-dev-app-engineer"} {
+		t.Setenv("CADRE_MEMBER", name)
+		callIn(input, "hook", "session")
+		if r := readFile(t, sessions+name+".json"); !strings.Contains(r, "99999999-2222-4333-8444-555555555555") {
+			t.Errorf("%s: record %q", name, r)
+		}
 	}
 }

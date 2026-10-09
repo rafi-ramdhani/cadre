@@ -25,6 +25,10 @@ const (
 	LastFindings = "last_findings"
 )
 
+// OrchestratorID is the key of the last conversation id cadre issued to a
+// cadre's orchestrator: it resumes only that one.
+func OrchestratorID(cadre string) string { return "orchestrator_id:" + cadre }
+
 // GetState returns a remembered value, or "".
 func GetState(key string) string { return readState()[key] }
 

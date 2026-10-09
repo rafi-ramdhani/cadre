@@ -46,7 +46,9 @@ Unlinking a project keeps its folder. Bringing in a 0.1.x cadre only reads it, a
 
 ### No credentials in a cadre's repository
 
-Cadre writes no tokens into a cadre. A pre-push hook in each cadre repository refuses a push that carries files that look like credentials (`.credentials.json`, `.env` files, private keys, tokens such as `sk-ant-`, `ghp_` or `github_pat_`) or files over 50 MB, and names each one. The orchestrator creates a backup repository only as private, and only on your yes. A pre-push hook of your own is left alone, and the health check says that cadre's check does not run.
+Cadre writes no tokens into a cadre, and a new cadre's `.gitignore` leaves out `.env` files. A pre-push hook in each cadre repository refuses a push that carries files that look like credentials, by name (`.env` files, `.credentials.json`, `credentials`, `.git-credentials`, `.netrc`, private keys, key stores, `.aws/`, `.kube/config`, `.docker/config.json`) or by content (Anthropic, GitHub, AWS and Slack tokens, private key headers), or files over 50 MB. It checks every name every file has in every commit pushed, and names each file it stops. The orchestrator creates a backup repository only as private, and only on your yes. A pre-push hook of your own is left alone, and the health check says that cadre's check does not run.
+
+The hook is a safety net, not a guarantee. It does not see a token split across lines or encoded (for example in base64), the content of a file over 8 MB, or a push made with `git push --no-verify` (the skill tells the orchestrator never to use it). A session with shell access in the cadre can also change or remove the hook; one without cadre's marker line is then reported as your own, not restored. Keep credentials out of the cadre folder.
 
 ### The skill on disk
 

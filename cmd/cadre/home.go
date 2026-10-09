@@ -187,6 +187,10 @@ func runProjectPath(e *env) int {
 
 // guard installs cadre's pre-push guard in a cadre repository.
 func (e *env) guard(c cadres.Cadre) {
+	if err := e.hookPlaced(framework.Binary()); err != nil {
+		fmt.Fprintf(e.stderr, "warning: cadre's check for credentials before a push is not installed: %s\n", err)
+		return
+	}
 	if _, err := backup.Install(c.Path, framework.Binary()); err != nil {
 		fmt.Fprintf(e.stderr, "warning: cadre's check for credentials before a push is not installed: %s\n", err)
 	}

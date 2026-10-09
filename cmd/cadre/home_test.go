@@ -23,6 +23,9 @@ func sandbox(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
+	// Test binaries live in temporary folders; the hooks may name them.
+	hookAnywhereForTests = true
+	t.Cleanup(func() { hookAnywhereForTests = false })
 	// Nothing may point cadre or Claude Code at the user's own setup: a
 	// set CLAUDE_CONFIG_DIR would send trust edits to the real config.
 	for _, v := range []string{"CADRE_HOME", "CADRE_MEMBER", "CADRE_PERSONA", "CADRE_TEST_TTY", "XDG_CACHE_HOME", "CLAUDE_CONFIG_DIR", "TMUX", "TMUX_PANE"} {

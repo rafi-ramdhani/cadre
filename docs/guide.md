@@ -67,7 +67,7 @@ Team and member names may use letters, digits, `-` and `_`. Add the team to `pla
 
 A `.workdir` file holds one path; `~` is expanded.
 
-`teams/` is tracked in the cadre's git, so the work members keep there is backed up with the cadre. The cadre's `.gitignore` leaves out dependency folders, build output and logs.
+`teams/` is tracked in the cadre's git, so the work members keep there is backed up with the cadre. The cadre's `.gitignore` leaves out dependency folders, logs and `.env` files (their `.env.example`-style templates stay).
 
 ## The playbook
 
@@ -175,7 +175,13 @@ A fingerprint in `~/.cadre/config/member-settings.sha256` flags a file changed o
 
 Your cadre is a git repository, and the orchestrator commits every change to it. Say "back up my cadre to GitHub": the orchestrator shows the repository it will create (`<your GitHub user>/cadre-<name>`, private) and, on your yes, creates it with `gh` and pushes. From then on it pushes after each commit.
 
-On a new machine, run `cadre` and choose "restore". Cadre clones the cadre into `~/.cadre/<name>`, asks where projects go, clones each project that has a repo, trusts them, and opens the orchestrator. Projects with no repo are listed as missing until you link them.
+On a new machine, run `cadre` and choose "restore". Cadre clones the cadre into `~/.cadre/<name>` and then asks before anything takes effect:
+
+- A backup with a link where cadre reads its files or runs sessions (members, `teams/`, `.claude/`, the top folder) is not kept: cadre would follow the link out of the cadre.
+- Files that Claude Code loads into the orchestrator once you trust the cadre's folder (`.claude/settings.json` and `settings.local.json`, `.claude/commands`, `agents`, `skills` and `output-styles`, `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md`) are listed, and the orchestrator opens only after your yes. Cadre never writes these itself; on a no, look at them and remove any you did not put there.
+- The projects are listed with their repositories, and cloned and trusted only after your yes ("Clone these N projects and trust them in Claude Code?"). On a no they stay "not on this machine", for the orchestrator to offer later.
+
+Projects with no repo are listed as missing until you link them.
 
 | Travels with the cadre | Stays on each machine |
 |---|---|

@@ -184,3 +184,24 @@ func TestTheRuntimeIsNotAChoice(t *testing.T) {
 		t.Errorf("CADRE_TEST_RUNTIME in a release build: %q", out)
 	}
 }
+
+// A build folder that is a link is refused before anything is written
+// into it: the member settings copy included.
+func TestUpWritesNothingThroughALinkedBuildFolder(t *testing.T) {
+	home := sandbox(t)
+	socket := withTmux(t, home)
+	must(t, "init", "work")
+	scratch := t.TempDir()
+	os.RemoveAll(home + "/.cadre/work/.claude/build")
+	os.MkdirAll(home+"/.cadre/work/.claude", 0o755)
+	os.Symlink(scratch, home+"/.cadre/work/.claude/build")
+	if code, out, _ := call("up", "dev/engineer"); code == 0 || !strings.Contains(out, "work-dev-engineer not started") || !strings.Contains(out, "is a link or a file, not a folder") {
+		t.Errorf("up: %d %q", code, out)
+	}
+	if entries, _ := os.ReadDir(scratch); len(entries) != 0 {
+		t.Errorf("written through the link: %v", entries)
+	}
+	if out := tmuxIn(socket, "list-sessions", "-F", "#S"); strings.Contains(out, "cadre-work") {
+		t.Errorf("a session started: %s", out)
+	}
+}

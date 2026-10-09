@@ -149,6 +149,24 @@ type trust struct{}
 // ~/.claude, so no project may live there.
 func (trust) Protected() []string { return []string{filepath.Join(paths.Home(), ".claude")} }
 
+// projectFiles are what Claude Code reads from a session's folder once the
+// folder is trusted: settings (with hooks and permissions), commands,
+// agents, skills, output styles, MCP servers and instructions.
+var projectFiles = []string{
+	".claude/settings.json", ".claude/settings.local.json", ".claude/commands", ".claude/agents",
+	".claude/skills", ".claude/output-styles", ".mcp.json", "CLAUDE.md", "CLAUDE.local.md",
+}
+
+func (trust) Loaded(dir string) []string {
+	var out []string
+	for _, f := range projectFiles {
+		if _, err := os.Lstat(filepath.Join(dir, f)); err == nil {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 func (trust) Mark(folders []runtime.Folder) ([]runtime.TrustResult, string) {
 	return edit(folders, func(e []TrustEntry) jsonx.Op { return Trust(e) })
 }

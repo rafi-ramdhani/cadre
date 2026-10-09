@@ -42,9 +42,14 @@ func hookFile(repo string) (string, error) {
 	return p, nil
 }
 
-// hookText is the hook that runs binary.
+// hookText is the hook that runs binary. When binary is gone, the push
+// stops with a line that says why, rather than git's own error.
 func hookText(binary string) string {
-	return "#!/bin/sh\n" + marker + "\nexec '" + strings.ReplaceAll(binary, "'", `'\''`) + "' hook pre-push \"$@\"\n"
+	q := "'" + strings.ReplaceAll(binary, "'", `'\''`) + "'"
+	return "#!/bin/sh\n" + marker + "\n" +
+		"if [ -x " + q + " ]; then exec " + q + " hook pre-push \"$@\"; fi\n" +
+		"printf 'cadre: this push was stopped: the check for credentials could not run, since %s is missing; run cadre again, then push\\n' " + q + " >&2\n" +
+		"exit 1\n"
 }
 
 // ErrForeign is returned when the repository has a pre-push hook that is
@@ -89,6 +94,8 @@ var (
 	// Files that hold credentials by their name.
 	secretNames = map[string]string{
 		".credentials.json": "a credentials file",
+		"credentials":       "a credentials file",
+		".git-credentials":  "a credentials file",
 		".netrc":            "a credentials file",
 		".npmrc":            "may hold a registry token",
 		".pypirc":           "may hold a registry token",
@@ -109,12 +116,22 @@ var (
 		{regexp.MustCompile(`github_pat_[A-Za-z0-9_]{30,}`), "a GitHub token"},
 		{regexp.MustCompile(`gh[ousr]_[A-Za-z0-9]{30,}`), "a GitHub token"},
 		{regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`), "a private key"},
+		{regexp.MustCompile(`AKIA[0-9A-Z]{16}`), "an AWS access key"},
+		{regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,}`), "a Slack token"},
 	}
 )
 
 // nameWhy says why a file's name marks it as a credential, or "".
 func nameWhy(p string) string {
 	base := path.Base(p)
+	switch {
+	case strings.HasPrefix(p, ".aws/") || strings.Contains(p, "/.aws/"):
+		return "is in an .aws folder, which holds AWS credentials"
+	case p == ".kube/config" || strings.HasSuffix(p, "/.kube/config"):
+		return "looks like a Kubernetes config with credentials"
+	case p == ".docker/config.json" || strings.HasSuffix(p, "/.docker/config.json"):
+		return "looks like a Docker config with registry credentials"
+	}
 	if why, ok := secretNames[base]; ok {
 		return "looks like " + why
 	}
@@ -164,22 +181,69 @@ func ReadUpdates(r io.Reader) []Update {
 
 func deleted(sha string) bool { return strings.Trim(sha, "0") == "" }
 
-// Scan checks every file the push carries that no remote has yet: in every
-// commit pushed, not only the last, since history goes with it.
-func Scan(repo string, updates []Update) ([]Finding, error) {
+// remoteRefs is the --not argument that leaves out what the remote already
+// has: its remote-tracking refs. A push to a URL, or a name git would read
+// as a pattern, excludes nothing, so everything is checked.
+func remoteRefs(remote string) string {
+	if remote == "" || strings.ContainsAny(remote, "*?[\\:/") {
+		return ""
+	}
+	return "--remotes=" + remote
+}
+
+type change struct{ blob, path string }
+
+// rawChanges reads git log --raw -z output: for each changed path, the new
+// blob (none for a deletion or a submodule).
+func rawChanges(out []byte) []change {
+	var cs []change
+	fields := strings.Split(string(out), "\x00")
+	for i := 0; i < len(fields); i++ {
+		f := strings.TrimLeft(fields[i], "\n")
+		if !strings.HasPrefix(f, ":") {
+			continue
+		}
+		// :<old mode> <new mode> <old sha> <new sha> <status>, then the path
+		meta := strings.Fields(f[1:])
+		if i+1 >= len(fields) || len(meta) < 5 {
+			break
+		}
+		i++
+		if meta[1] == "160000" || deleted(meta[3]) {
+			continue
+		}
+		cs = append(cs, change{meta[3], fields[i]})
+	}
+	return cs
+}
+
+// Scan checks every file the push carries that the remote it goes to
+// (remote, the name git passes the hook) does not have yet: in every
+// commit pushed, not only the last, since history goes with it. Every path
+// a file has in those commits is checked by name, and every file's size
+// and content once.
+func Scan(repo, remote string, updates []Update) ([]Finding, error) {
 	paths := map[string][]string{} // blob -> paths
+	seen := map[string]bool{}      // blob and path
 	for _, u := range updates {
 		if deleted(u.LocalSHA) {
 			continue
 		}
-		out, err := exec.Command("git", "-C", repo, "rev-list", "--objects", u.LocalSHA, "--not", "--remotes").Output()
+		// Each pushed commit against each of its parents (-m), a first
+		// commit against nothing (--root), with no renames, so a file
+		// that came in under one name and moved on is seen under both.
+		args := []string{"-C", repo, "log", "--format=", "--raw", "--no-renames", "--no-abbrev", "-m", "--root", "-z", u.LocalSHA}
+		if exclude := remoteRefs(remote); exclude != "" {
+			args = append(args, "--not", exclude)
+		}
+		out, err := exec.Command("git", args...).Output()
 		if err != nil {
 			return nil, fmt.Errorf("could not list what the push carries: %v", err)
 		}
-		for _, line := range strings.Split(string(out), "\n") {
-			sha, p, ok := strings.Cut(line, " ")
-			if ok && p != "" {
-				paths[sha] = append(paths[sha], p)
+		for _, c := range rawChanges(out) {
+			if !seen[c.blob+"\x00"+c.path] {
+				seen[c.blob+"\x00"+c.path] = true
+				paths[c.blob] = append(paths[c.blob], c.path)
 			}
 		}
 	}
@@ -192,11 +256,6 @@ func Scan(repo string, updates []Update) ([]Finding, error) {
 	}
 	sort.Strings(shas)
 	var findings []Finding
-	add := func(sha, why string) {
-		for _, p := range paths[sha] {
-			findings = append(findings, Finding{p, why})
-		}
-	}
 	// One git process gives each object's type, size and, when small
 	// enough, its content.
 	cmd := exec.Command("git", "-C", repo, "cat-file", "--batch")
@@ -241,21 +300,17 @@ func Scan(repo string, updates []Update) ([]Finding, error) {
 			continue
 		}
 		why := ""
+		switch {
+		case size > MaxSize:
+			why = fmt.Sprintf("is %d MB, over the %d MB limit", size>>20, MaxSize>>20)
+		case data != nil:
+			why = contentWhy(data)
+		}
 		for _, p := range paths[sha] {
 			if w := nameWhy(p); w != "" {
 				findings = append(findings, Finding{p, w})
-				why = w
-			}
-		}
-		if why != "" {
-			continue
-		}
-		switch {
-		case size > MaxSize:
-			add(sha, fmt.Sprintf("is %d MB, over the %d MB limit", size>>20, MaxSize>>20))
-		case data != nil:
-			if w := contentWhy(data); w != "" {
-				add(sha, w)
+			} else if why != "" {
+				findings = append(findings, Finding{p, why})
 			}
 		}
 	}

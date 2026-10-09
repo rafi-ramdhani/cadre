@@ -455,3 +455,23 @@ func TestPlan(t *testing.T) {
 		t.Error("Forget")
 	}
 }
+
+// A build folder, or the .claude folder holding it, that is a link (as a
+// cloned cadre can carry) is refused: nothing is written through it.
+func TestEnsureBuildRefusesALink(t *testing.T) {
+	for _, linked := range []string{".claude/build", ".claude"} {
+		c, scratch := t.TempDir(), t.TempDir()
+		os.MkdirAll(filepath.Join(c, filepath.Dir(linked)), 0o755)
+		os.Symlink(scratch, filepath.Join(c, linked))
+		if err := EnsureBuild(filepath.Join(c, ".claude", "build")); err == nil || !strings.Contains(err.Error(), "is a link or a file, not a folder") {
+			t.Errorf("%s: %v", linked, err)
+		}
+		if entries, _ := os.ReadDir(scratch); len(entries) != 0 {
+			t.Errorf("%s: wrote through the link: %v", linked, entries)
+		}
+	}
+	c := t.TempDir()
+	if err := EnsureBuild(filepath.Join(c, ".claude", "build")); err != nil {
+		t.Errorf("a new cadre: %v", err)
+	}
+}

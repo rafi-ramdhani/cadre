@@ -1,10 +1,10 @@
-//go:build cadretest
+//go:build cadreitest
 
 // Package fake is a runtime for tests only (section P.8): it is compiled
-// only with -tags cadretest, never into a release binary. Its capabilities
-// can be switched off per test, or by CADRE_FAKE_OFF (a comma-separated
+// only with -tags cadreitest, never into a release binary. Its capabilities
+// can be switched off per test, or by CADREI_FAKE_OFF (a comma-separated
 // list of capability names) for the smoke test, and it launches
-// CADRE_FAKE_BIN, a stub that records its arguments and environment.
+// CADREI_FAKE_BIN, a stub that records its arguments and environment.
 package fake
 
 import (
@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
 )
 
 func init() { runtime.Register(Fake{}) }
@@ -34,7 +34,7 @@ func off(name string) bool {
 	if Off[name] {
 		return true
 	}
-	for _, n := range strings.Split(os.Getenv("CADRE_FAKE_OFF"), ",") {
+	for _, n := range strings.Split(os.Getenv("CADREI_FAKE_OFF"), ",") {
 		if strings.TrimSpace(n) == name {
 			return true
 		}
@@ -56,7 +56,7 @@ func (Fake) Caps() runtime.Capabilities {
 }
 
 func (Fake) Detect() (runtime.Install, error) {
-	return runtime.Install{Path: os.Getenv("CADRE_FAKE_BIN"), Version: "0.0.0-fake"}, nil
+	return runtime.Install{Path: os.Getenv("CADREI_FAKE_BIN"), Version: "0.0.0-fake"}, nil
 }
 
 // Launch returns a command whose every part comes from the spec, so a test
@@ -66,12 +66,12 @@ func (f Fake) Launch(s runtime.LaunchSpec) (runtime.Command, error) {
 	return runtime.Command{
 		Argv: []string{in.Path, "--fake-name", s.Name, "--fake-mode", s.Mode, "--fake-prompt", s.PromptFile, "--fake-grants", s.Grants,
 			"--fake-session", s.SessionID, "--fake-resume", s.Resume},
-		Env: []string{"CADRE_FAKE_LAUNCHED=" + s.Name},
+		Env: []string{"CADREI_FAKE_LAUNCHED=" + s.Name},
 		Dir: s.WorkDir,
 	}, nil
 }
 
-func (Fake) BuildDir(cadre string) string { return filepath.Join(cadre, ".fake", "build") }
+func (Fake) BuildDir(cadrei string) string { return filepath.Join(cadrei, ".fake", "build") }
 
 // Health finds nothing wrong: the fake is always installed.
 func (Fake) Health(bool, []string) []runtime.Problem { return nil }
@@ -84,7 +84,7 @@ func (Fake) Sessions() runtime.SessionOps         { return sessions{} }
 type sessions struct{}
 
 func (sessions) NewID() string              { return "fake-session" }
-func (sessions) Exists(id, dir string) bool { return os.Getenv("CADRE_FAKE_GONE") != id }
+func (sessions) Exists(id, dir string) bool { return os.Getenv("CADREI_FAKE_GONE") != id }
 
 // Transcript reads the fake's transcript, <dir>/.fake-transcripts/<id>,
 // which a test's stub agent writes to say it got going.
@@ -104,7 +104,7 @@ func (sessions) FromHook(input io.Reader) string {
 type instructions struct{}
 
 func (instructions) Path() string {
-	return filepath.Join(os.Getenv("HOME"), ".fake", "skills", "cadre")
+	return filepath.Join(os.Getenv("HOME"), ".fake", "skills", "cadrei")
 }
 
 func (i instructions) Target() (string, error) {
@@ -144,11 +144,11 @@ func (Fake) Trust() runtime.TrustOps            { return trust{} }
 
 type permissions struct{}
 
-func (permissions) GrantsFile(cadre string) string { return filepath.Join(cadre, ".fake", "grants") }
-func (permissions) Validate(cadre string, known []string, rule string, auto bool) (string, error) {
+func (permissions) GrantsFile(cadrei string) string { return filepath.Join(cadrei, ".fake", "grants") }
+func (permissions) Validate(cadrei string, known []string, rule string, auto bool) (string, error) {
 	return "", nil
 }
-func (permissions) Prepare(cadre string, places runtime.Places) runtime.Prepared {
+func (permissions) Prepare(cadrei string, places runtime.Places) runtime.Prepared {
 	return runtime.Prepared{Grants: "fake-grants"}
 }
 func (permissions) Open(string, bool) (runtime.GrantStore, error) {

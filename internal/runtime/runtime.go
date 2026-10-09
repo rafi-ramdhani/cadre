@@ -1,5 +1,5 @@
-// Package runtime is the boundary between cadre and the agent CLI its
-// sessions run. Cadre's own code (sessions, ls, allow, trust, health)
+// Package runtime is the boundary between cadrei and the agent CLI its
+// sessions run. Cadrei's own code (sessions, ls, allow, trust, health)
 // talks to a Runtime; only an adapter, internal/runtime/claude, knows a
 // CLI's flags, files, hooks and rule grammar. Claude Code is the only
 // runtime, with no user-facing choice; the boundary keeps its specifics in
@@ -24,12 +24,12 @@ const (
 )
 
 // Capabilities say what a runtime supports, so a runtime that cannot run
-// cadre's sessions safely is refused instead of failing in odd ways.
+// cadrei's sessions safely is refused instead of failing in odd ways.
 type Capabilities struct {
-	FixedDenies      bool          // it enforces cadre's fixed denies; without it, members are refused
+	FixedDenies      bool          // it enforces cadrei's fixed denies; without it, members are refused
 	PermissionModes  []string      // the PERMISSION_MODE values it understands
 	Resume           bool          // resuming a conversation
-	AssignSessionID  bool          // starting with a session id cadre chose
+	AssignSessionID  bool          // starting with a session id cadrei chose
 	Trust            bool          // marking project folders as trusted
 	Instructions     bool          // can hold the orchestrator's instructions
 	OrchestratorHook bool          // can start sessions as the orchestrator
@@ -44,26 +44,26 @@ const (
 	Orchestrator
 )
 
-// LaunchSpec is what cadre knows about a session it starts.
+// LaunchSpec is what cadrei knows about a session it starts.
 type LaunchSpec struct {
 	Role       Role
 	Name       string // the session's name, its messaging address
-	Cadre      string // the cadre's physical folder
+	Cadrei     string // the cadrei's physical folder
 	WorkDir    string
-	Mode       string // cadre's PERMISSION_MODE
+	Mode       string // cadrei's PERMISSION_MODE
 	PromptFile string // instructions to add to the session's own
 	Grants     string // the runtime's grants artifact (from Permissions().Prepare), or ""
-	// SessionID starts a new conversation with this id (cadre chose it, to
+	// SessionID starts a new conversation with this id (cadrei chose it, to
 	// resume it later); Resume continues the conversation with this id.
 	// At most one is set, and only for a runtime with those capabilities.
 	SessionID string
 	Resume    string
 }
 
-// Command is what cadre runs: in tmux for a member, or as a child process.
+// Command is what cadrei runs: in tmux for a member, or as a child process.
 type Command struct {
 	Argv []string
-	Env  []string // KEY=value, added to cadre's environment
+	Env  []string // KEY=value, added to cadrei's environment
 	Dir  string
 }
 
@@ -73,7 +73,7 @@ type Install struct {
 	Version string
 }
 
-// Folder is a project folder: its name and its path as cadre spells it.
+// Folder is a project folder: its name and its path as cadrei spells it.
 type Folder struct {
 	Name string
 	Dir  string
@@ -87,12 +87,12 @@ type TrustResult struct {
 }
 
 // Places are the physical folders a runtime's fixed denies must name:
-// ~/.cadre as resolved, and every known cadre. Binary is the cadre program
+// ~/.cadrei as resolved, and every known cadrei. Binary is the cadrei program
 // a member's session hooks run (to keep its conversation id current).
 type Places struct {
-	Root   string
-	Cadres []string
-	Binary string
+	Root    string
+	Cadreis []string
+	Binary  string
 }
 
 // Prepared is what Permissions().Prepare made for a start.
@@ -102,7 +102,7 @@ type Prepared struct {
 	Warnings []string // printed on stderr
 }
 
-// Grant is one entry of a cadre's grants, as cadre allow list shows it.
+// Grant is one entry of a cadrei's grants, as cadrei allow list shows it.
 type Grant struct {
 	Kind  string // "rule", or "auto" for a plain-English allowance
 	Entry string
@@ -117,7 +117,7 @@ var ErrGranted = errors.New("already granted")
 // ErrNoOnce is returned when there are no one-time grants to remove.
 var ErrNoOnce = errors.New("there are no one-time grants")
 
-// GrantStore is a cadre's grants, opened for reading and changing.
+// GrantStore is a cadrei's grants, opened for reading and changing.
 type GrantStore interface {
 	List() []Grant
 	Stale() []string // one-time records whose grant is gone
@@ -127,30 +127,30 @@ type GrantStore interface {
 	// for "--once". It returns what it removed and the stale records it
 	// dropped.
 	Remove(target string) (removed, stale []string, err error)
-	Files() []string // the files to commit, inside the cadre
+	Files() []string // the files to commit, inside the cadrei
 }
 
-// PermissionOps turn cadre's grants into what the runtime enforces.
+// PermissionOps turn cadrei's grants into what the runtime enforces.
 type PermissionOps interface {
-	// Open reads the cadre's grants, creating the file when create is set;
+	// Open reads the cadrei's grants, creating the file when create is set;
 	// an error says why the file cannot be used.
-	Open(cadre string, create bool) (GrantStore, error)
-	// Unchanged reports whether the grants file is as cadre last wrote it,
-	// recording it when it is what cadre last committed.
-	Unchanged(cadre string) bool
-	// Record remembers the grants file as cadre wrote it.
-	Record(cadre string)
-	// BuiltIn says what every member gets that cadre allow list does not show.
+	Open(cadrei string, create bool) (GrantStore, error)
+	// Unchanged reports whether the grants file is as cadrei last wrote it,
+	// recording it when it is what cadrei last committed.
+	Unchanged(cadrei string) bool
+	// Record remembers the grants file as cadrei wrote it.
+	Record(cadrei string)
+	// BuiltIn says what every member gets that cadrei allow list does not show.
 	BuiltIn() string
 	// Validate checks a grant before it is stored: a rule, or a
 	// plain-English entry when auto is set. It returns a warning, or an
 	// error saying why it is refused.
-	Validate(cadre string, known []string, rule string, auto bool) (warning string, err error)
-	// Prepare makes sure the cadre's grants file exists and writes what a
+	Validate(cadrei string, known []string, rule string, auto bool) (warning string, err error)
+	// Prepare makes sure the cadrei's grants file exists and writes what a
 	// member starts with, with the fixed denies added.
-	Prepare(cadre string, places Places) Prepared
-	// GrantsFile is where the cadre's grants are stored.
-	GrantsFile(cadre string) string
+	Prepare(cadrei string, places Places) Prepared
+	// GrantsFile is where the cadrei's grants are stored.
+	GrantsFile(cadrei string) string
 }
 
 // TrustOps mark project folders as trusted in the runtime.
@@ -167,15 +167,15 @@ type TrustOps interface {
 }
 
 // Problem is one finding of the health check (M.4): what is wrong and the
-// exact fix. A fatal problem stops plain cadre before the runtime starts.
+// exact fix. A fatal problem stops plain cadrei before the runtime starts.
 type Problem struct {
 	What  string
 	Fix   string
 	Fatal bool
 }
 
-// InstructionOps put the orchestrator's instructions (cadre's skill) where
-// the runtime reads them: a link to the folder cadre writes them to.
+// InstructionOps put the orchestrator's instructions (cadrei's skill) where
+// the runtime reads them: a link to the folder cadrei writes them to.
 type InstructionOps interface {
 	// Path is where the runtime looks for them.
 	Path() string
@@ -190,7 +190,7 @@ type InstructionOps interface {
 	Unlink(dir string) (bool, error)
 }
 
-// ErrNotLink is returned for a path cadre would link that holds something
+// ErrNotLink is returned for a path cadrei would link that holds something
 // else.
 var ErrNotLink = errors.New("not a link")
 
@@ -198,7 +198,7 @@ var ErrNotLink = errors.New("not a link")
 type HookOps interface {
 	// File is the settings file that holds the hook.
 	File() string
-	// Find returns the program each orchestrator hook in File runs: a cadre
+	// Find returns the program each orchestrator hook in File runs: a cadrei
 	// binary, or a 0.1.x hook script.
 	Find() ([]string, error)
 	// Set makes `<binary> hook orchestrator` the only orchestrator hook,
@@ -228,21 +228,21 @@ type SessionOps interface {
 	FromHook(input io.Reader) string
 }
 
-// Runtime is an agent CLI cadre can run sessions with.
+// Runtime is an agent CLI cadrei can run sessions with.
 type Runtime interface {
 	Name() string
 	Title() string // the product's name, for messages: "Claude Code"
 	Caps() Capabilities
 	Detect() (Install, error)
 	// Health is the runtime's part of the health check: it is installed,
-	// and, when full, it runs and is logged in; and nothing in the cadres'
+	// and, when full, it runs and is logged in; and nothing in the cadreis'
 	// folders changes what their sessions load.
-	Health(full bool, cadres []string) []Problem
+	Health(full bool, cadreis []string) []Problem
 	// Launch builds the command for a session; the caller runs it.
 	Launch(LaunchSpec) (Command, error)
-	// BuildDir is where cadre writes a cadre's generated prompts and
+	// BuildDir is where cadrei writes a cadrei's generated prompts and
 	// grants artifacts for this runtime.
-	BuildDir(cadre string) string
+	BuildDir(cadrei string) string
 	Permissions() PermissionOps
 	Trust() TrustOps
 	Instructions() InstructionOps
@@ -301,7 +301,7 @@ func CanOrchestrate(r Runtime) error {
 func Usable(r Runtime, mode string) error {
 	caps := r.Caps()
 	if !caps.FixedDenies {
-		return fmt.Errorf("runtime %s cannot enforce cadre's fixed denies, so its members are refused", r.Name())
+		return fmt.Errorf("runtime %s cannot enforce cadrei's fixed denies, so its members are refused", r.Name())
 	}
 	if caps.Messaging == NoMessaging {
 		return fmt.Errorf("runtime %s has no way to message the orchestrator, so it cannot run members", r.Name())

@@ -3,7 +3,7 @@ package project
 import (
 	"testing"
 
-	"github.com/rafi-ramdhani/cadre/internal/testguard"
+	"github.com/rafi-ramdhani/cadrei/internal/testguard"
 )
 
 func TestMain(m *testing.M) { testguard.Main(m) }

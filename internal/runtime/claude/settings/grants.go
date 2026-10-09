@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/fsx"
-	"github.com/rafi-ramdhani/cadre/internal/jsonx"
+	"github.com/rafi-ramdhani/cadrei/internal/fsx"
+	"github.com/rafi-ramdhani/cadrei/internal/jsonx"
 )
 
 // Grant kinds.
@@ -18,7 +18,7 @@ const (
 	Auto = "auto" // a plain-English entry in autoMode.allow
 )
 
-// Grant is one entry of the file, as cadre allow list shows it.
+// Grant is one entry of the file, as cadrei allow list shows it.
 type Grant struct {
 	Kind  string
 	Entry string
@@ -187,13 +187,13 @@ func (g *Grants) Remove(target string) (Removal, error) {
 		}
 	case err == nil && target != "" && strings.Trim(target, "0123456789") == "":
 		if n < 1 || n > len(list) {
-			return Removal{}, NoGrant(fmt.Sprintf("there is no grant number %d (see cadre allow list)", n))
+			return Removal{}, NoGrant(fmt.Sprintf("there is no grant number %d (see cadrei allow list)", n))
 		}
 		gone = []string{list[n-1].Entry}
 	case g.Has(target):
 		gone = []string{target}
 	default:
-		return Removal{}, NoGrant(fmt.Sprintf("%s is not granted (see cadre allow list)", target))
+		return Removal{}, NoGrant(fmt.Sprintf("%s is not granted (see cadrei allow list)", target))
 	}
 	for _, e := range gone {
 		drop(g.allow, e)

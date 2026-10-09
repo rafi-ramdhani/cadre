@@ -1,8 +1,8 @@
 // Package testguard keeps tests away from the user's own setup. Every test
 // package's TestMain runs through Main, which gives the whole test binary a
 // throwaway HOME, a private tmux server and none of the variables that
-// point cadre or Claude Code elsewhere, so a test that forgets its own
-// sandbox still cannot reach ~/.cadre, ~/.claude, ~/.claude.json or the
+// point cadrei or Claude Code elsewhere, so a test that forgets its own
+// sandbox still cannot reach ~/.cadrei, ~/.claude, ~/.claude.json or the
 // user's tmux sessions. Only tests import it.
 package testguard
 
@@ -20,14 +20,14 @@ var realHome string
 // cleared are the variables that would point a test at the user's setup.
 var cleared = []string{
 	"CLAUDE_CONFIG_DIR", "TMUX", "TMUX_PANE", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
-	"CADRE_HOME", "CADRE_MEMBER", "CADRE_PERSONA", "CADRE_OFF", "CADRE_ORCHESTRATOR", "CADRE_TEST_TTY",
+	"CADREI_HOME", "CADREI_MEMBER", "CADRE_PERSONA", "CADREI_OFF", "CADREI_ORCHESTRATOR", "CADREI_TEST_TTY",
 }
 
 // Environment a guarded test binary passes to the test binaries it runs as
 // helpers, so they share its HOME and sockets and leave nothing behind.
 const (
-	envHome     = "CADRE_TESTGUARD_HOME"
-	envRealHome = "CADRE_TESTGUARD_REAL_HOME"
+	envHome     = "CADREI_TESTGUARD_HOME"
+	envRealHome = "CADREI_TESTGUARD_REAL_HOME"
 )
 
 // Main sets up the guarded environment, runs the tests and cleans up. A
@@ -44,7 +44,7 @@ func Main(m *testing.M) {
 		os.Exit(m.Run())
 	}
 	realHome = os.Getenv("HOME")
-	home, err := os.MkdirTemp("", "cadre-test-home-")
+	home, err := os.MkdirTemp("", "cadrei-test-home-")
 	if err == nil {
 		home, err = filepath.EvalSymlinks(home)
 	}
@@ -57,14 +57,14 @@ func Main(m *testing.M) {
 	os.Setenv(envRealHome, realHome)
 	// tmux keeps its sockets here, not in the user's own tmux folder, so
 	// none is left there. A short path: a socket's path has a length limit.
-	sockets, err := os.MkdirTemp("/tmp", "cadre-tmux-")
+	sockets, err := os.MkdirTemp("/tmp", "cadrei-tmux-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testguard:", err)
 		os.Exit(1)
 	}
 	os.Setenv("TMUX_TMPDIR", sockets)
-	socket := fmt.Sprintf("cadre-gotest-%d", os.Getpid())
-	os.Setenv("CADRE_TMUX_SOCKET", socket)
+	socket := fmt.Sprintf("cadrei-gotest-%d", os.Getpid())
+	os.Setenv("CADREI_TMUX_SOCKET", socket)
 	for _, v := range cleared {
 		os.Unsetenv(v)
 	}
@@ -87,8 +87,8 @@ func Unsafe() error {
 		return fmt.Errorf("HOME is not set")
 	case same(home, realHome):
 		return fmt.Errorf("HOME is the user's real home (%s)", home)
-	case os.Getenv("CADRE_TMUX_SOCKET") == "":
-		return fmt.Errorf("CADRE_TMUX_SOCKET is not set, so tmux commands would reach the user's server")
+	case os.Getenv("CADREI_TMUX_SOCKET") == "":
+		return fmt.Errorf("CADREI_TMUX_SOCKET is not set, so tmux commands would reach the user's server")
 	case os.Getenv("TMUX_TMPDIR") == "":
 		return fmt.Errorf("TMUX_TMPDIR is not set, so tmux sockets would land in the user's tmux folder")
 	case os.Getenv("CLAUDE_CONFIG_DIR") != "" && within(os.Getenv("CLAUDE_CONFIG_DIR"), realHome):

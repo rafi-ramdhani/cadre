@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/paths"
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/paths"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
 )
 
 func (Claude) Sessions() runtime.SessionOps { return sessions{} }

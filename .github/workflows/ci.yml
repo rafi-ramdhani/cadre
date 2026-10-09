@@ -70,13 +70,13 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
       - name: Test
         run: go test -race ./...
-      - name: Test with the test-only parts (-tags cadretest)
-        run: go test -race -tags cadretest ./...
+      - name: Test with the test-only parts (-tags cadreitest)
+        run: go test -race -tags cadreitest ./...
       - name: Smoke test against the Go binary
         run: tests/smoke.sh
       - name: Windows build (the binary refuses to run there)
         if: runner.os == 'Linux' && matrix.go == 'stable'
-        run: GOOS=windows go build -o /dev/null ./cmd/cadre
+        run: GOOS=windows go build -o /dev/null ./cmd/cadrei
 
   release-snapshot:
     runs-on: ubuntu-latest
@@ -93,14 +93,20 @@ jobs:
           args: release --snapshot --clean
       - name: No test hooks in release binaries
         run: |
-          for b in dist/*/cadre; do
-            if grep -a -q CADRE_TEST_ "$b"; then echo "$b holds a CADRE_TEST_ hook"; exit 1; fi
+          # All four binaries must be there, so a renamed binary cannot pass
+          # this check by matching nothing.
+          found=0
+          for b in dist/*/cadrei; do
+            [ -f "$b" ] || continue
+            found=$((found + 1))
+            if grep -a -q CADREI_TEST_ "$b"; then echo "$b holds a CADREI_TEST_ hook"; exit 1; fi
           done
+          if [ "$found" != 4 ]; then echo "found $found cadrei binaries in dist, want 4"; exit 1; fi
       - name: The Homebrew formula builds from the snapshot's checksums
         run: |
-          archive=$(ls dist/cadre_*_linux_amd64.tar.gz)
-          version=${archive#dist/cadre_}
+          archive=$(ls dist/cadrei_*_linux_amd64.tar.gz)
+          version=${archive#dist/cadrei_}
           version=${version%_linux_amd64.tar.gz}
-          packaging/homebrew/formula.sh "$version" dist/checksums.txt > cadre.rb
-          ruby -c cadre.rb
-          ! grep -q @ cadre.rb
+          packaging/homebrew/formula.sh "$version" dist/checksums.txt > cadrei.rb
+          ruby -c cadrei.rb
+          ! grep -q @ cadrei.rb

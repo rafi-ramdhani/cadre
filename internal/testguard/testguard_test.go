@@ -31,11 +31,11 @@ func TestTheGuardedEnvironment(t *testing.T) {
 		t.Error("the real HOME, spelled another way, passed")
 	}
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CADRE_TMUX_SOCKET", "")
+	t.Setenv("CADREI_TMUX_SOCKET", "")
 	if Unsafe() == nil {
 		t.Error("no private tmux socket passed")
 	}
-	t.Setenv("CADRE_TMUX_SOCKET", "x")
+	t.Setenv("CADREI_TMUX_SOCKET", "x")
 	t.Setenv("TMUX_TMPDIR", "")
 	if Unsafe() == nil {
 		t.Error("tmux sockets in the user's tmux folder passed")

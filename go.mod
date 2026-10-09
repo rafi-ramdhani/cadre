@@ -1,4 +1,4 @@
-module github.com/rafi-ramdhani/cadre
+module github.com/rafi-ramdhani/cadrei
 
 go 1.26.0
 

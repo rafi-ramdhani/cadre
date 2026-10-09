@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/jsonx"
+	"github.com/rafi-ramdhani/cadrei/internal/jsonx"
 )
 
 func newFile(t *testing.T) string {
@@ -39,7 +39,7 @@ func TestCreateMakesAValidFileWithNoGrants(t *testing.T) {
 	}
 }
 
-const valid = `"permissions": {"allow": [], "deny": ["Edit(//**/.claude/member-settings.json)", "Bash(cadre allow:*)"]},
+const valid = `"permissions": {"allow": [], "deny": ["Edit(//**/.claude/member-settings.json)", "Bash(cadrei allow:*)"]},
 "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults", "` + FixedSoft + `"]}`
 
 func TestLoadRefusals(t *testing.T) {
@@ -54,7 +54,7 @@ func TestLoadRefusals(t *testing.T) {
 		{`{"permissions": {"allow": [1]}}`, "permissions.allow is not a list of strings"},
 		{`{"autoMode": {"allow": ["x"]}}`, `autoMode.allow lacks "$defaults", which would replace the built-in rules`},
 		{`{"permissions": {"allow": [], "deny": []}, "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults"]}}`, "permissions.deny lacks the entries that protect the file"},
-		{`{"permissions": {"allow": [], "deny": ["Edit(//**/.claude/member-settings.json)", "Bash(cadre allow:*)"]}, "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults"]}}`, "autoMode.soft_deny lacks the entry that protects the file"},
+		{`{"permissions": {"allow": [], "deny": ["Edit(//**/.claude/member-settings.json)", "Bash(cadrei allow:*)"]}, "autoMode": {"allow": ["$defaults"], "soft_deny": ["$defaults"]}}`, "autoMode.soft_deny lacks the entry that protects the file"},
 		{`{"permissions": {"defaultMode": "bypassPermissions"}, ` + valid + `}`, "it has the key permissions twice"},
 		{`{"hooks": {}, "hooks": {}}`, "it has the key hooks twice"},
 	} {
@@ -72,10 +72,10 @@ func TestLoadRefusals(t *testing.T) {
 
 func TestExport(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "s.json")
-	os.WriteFile(p, []byte(`{"permissions": {"allow": ["Bash(npm test)"], "deny": ["Edit(//**/.claude/member-settings.json)", "Bash(cadre allow:*)", "Write(//**/.claude/member-settings.json)"]},
+	os.WriteFile(p, []byte(`{"permissions": {"allow": ["Bash(npm test)"], "deny": ["Edit(//**/.claude/member-settings.json)", "Bash(cadrei allow:*)", "Write(//**/.claude/member-settings.json)"]},
 "autoMode": {"allow": ["$defaults", "Running tests is expected"], "soft_deny": ["$defaults", "`+FixedSoft+`"]}}`), 0o644)
 	dir := filepath.Join(t.TempDir(), "build")
-	out, err := Export(p, dir, Places{Root: "/h/.cadre", Cadres: []string{"/h/.cadre/work", "/Docs/old cadre [1]"}})
+	out, err := Export(p, dir, Places{Root: "/h/.cadrei", Cadreis: []string{"/h/.cadrei/work", "/Docs/old cadre [1]"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,21 +93,21 @@ func TestExport(t *testing.T) {
 			t.Errorf("the copy lacks %s", d)
 		}
 	}
-	for _, d := range []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/*/members/**)", "Edit(//**/.cadre/*/.git/**)"} {
+	for _, d := range []string{"Edit(//**/.cadrei/config/**)", "Edit(//**/.cadrei/*/members/**)", "Edit(//**/.cadrei/*/.git/**)"} {
 		if !contains(deny, d) {
 			t.Errorf("the copy lacks the N.7 entry %s", d)
 		}
 	}
-	if soft, _ := texts(root.Get("autoMode").Get("soft_deny")); !contains(soft, CadreSoft) || !contains(soft, FixedSoft) {
+	if soft, _ := texts(root.Get("autoMode").Get("soft_deny")); !contains(soft, CadreiSoft) || !contains(soft, FixedSoft) {
 		t.Errorf("the copy's soft_deny: %q", soft)
 	}
 	if strings.Contains(string(raw), "teams") {
 		t.Error("a deny entry covers team folders, where members work")
 	}
-	// The same rules with physical paths, for outside cadres and a ~/.cadre
+	// The same rules with physical paths, for outside cadreis and a ~/.cadrei
 	// reached through a symlink, with glob characters escaped.
-	for _, d := range []string{"Edit(//h/.cadre/config/**)", "Edit(//h/.cadre/framework/**)", "Edit(//h/.cadre/work/members/**)",
-		`Edit(//Docs/old cadre \[1\]/cadre.conf)`, `Edit(//Docs/old cadre \[1\]/.git/**)`} {
+	for _, d := range []string{"Edit(//h/.cadrei/config/**)", "Edit(//h/.cadrei/framework/**)", "Edit(//h/.cadrei/work/members/**)",
+		`Edit(//Docs/old cadre \[1\]/cadrei.conf)`, `Edit(//Docs/old cadre \[1\]/.git/**)`} {
 		if !contains(deny, d) {
 			t.Errorf("the copy lacks %s", d)
 		}
@@ -121,7 +121,7 @@ func TestExport(t *testing.T) {
 	// A tampered copy is rewritten at the next start.
 	os.Chmod(out, 0o600)
 	os.WriteFile(out, []byte(`{"permissions": {"defaultMode": "bypassPermissions"}}`), 0o600)
-	out2, err := Export(p, dir, Places{Root: "/h/.cadre", Cadres: []string{"/h/.cadre/work", "/Docs/old cadre [1]"}})
+	out2, err := Export(p, dir, Places{Root: "/h/.cadrei", Cadreis: []string{"/h/.cadrei/work", "/Docs/old cadre [1]"}})
 	if err != nil || out2 != out {
 		t.Fatalf("second export: %s %v", out2, err)
 	}
@@ -164,7 +164,7 @@ func TestFingerprints(t *testing.T) {
 }
 
 // Twenty concurrent records for two files keep both lines.
-func TestRecordIsSafeAcrossCadres(t *testing.T) {
+func TestRecordIsSafeAcrossCadreis(t *testing.T) {
 	a, b := newFile(t), newFile(t)
 	hashes := filepath.Join(t.TempDir(), "h")
 	done := make(chan error)
@@ -195,18 +195,18 @@ func git(t *testing.T, dir string, args ...string) {
 }
 
 func TestChangedOutside(t *testing.T) {
-	cadre := t.TempDir()
-	git(t, cadre, "init", "-q", "-b", "main")
-	p := filepath.Join(cadre, Rel)
+	cadrei := t.TempDir()
+	git(t, cadrei, "init", "-q", "-b", "main")
+	p := filepath.Join(cadrei, Rel)
 	os.MkdirAll(filepath.Dir(p), 0o755)
 	Create(p)
-	git(t, cadre, "add", "-A")
-	git(t, cadre, "commit", "-qm", "Add the member settings file")
+	git(t, cadrei, "add", "-A")
+	git(t, cadrei, "commit", "-qm", "Add the member settings file")
 	hashes := filepath.Join(t.TempDir(), "h")
 
-	// Unknown hash, but the file is what cadre committed: accepted and recorded.
-	if ChangedOutside(cadre, p, hashes) {
-		t.Error("a file cadre committed counts as changed outside")
+	// Unknown hash, but the file is what cadrei committed: accepted and recorded.
+	if ChangedOutside(cadrei, p, hashes) {
+		t.Error("a file cadrei committed counts as changed outside")
 	}
 	if s, _ := Verify(p, hashes); s != Same {
 		t.Error("it was not recorded")
@@ -214,18 +214,18 @@ func TestChangedOutside(t *testing.T) {
 	// A hand edit, uncommitted.
 	g, _ := OpenGrants(p)
 	g.Add(Rule, "Bash(curl *)", false, time.Now())
-	if !ChangedOutside(cadre, p, hashes) {
+	if !ChangedOutside(cadrei, p, hashes) {
 		t.Error("an uncommitted hand edit was accepted")
 	}
-	// Committed by hand with a message cadre does not write.
-	git(t, cadre, "commit", "-qam", "my own edit")
-	if !ChangedOutside(cadre, p, hashes) {
+	// Committed by hand with a message cadrei does not write.
+	git(t, cadrei, "commit", "-qam", "my own edit")
+	if !ChangedOutside(cadrei, p, hashes) {
 		t.Error("a hand-made commit was accepted")
 	}
-	// Committed by cadre (pulled from another machine): accepted.
-	git(t, cadre, "commit", "-q", "--amend", "-m", "Allow for members: Bash(curl *)")
-	if ChangedOutside(cadre, p, hashes) {
-		t.Error("a grant cadre committed was not accepted")
+	// Committed by cadrei (pulled from another machine): accepted.
+	git(t, cadrei, "commit", "-q", "--amend", "-m", "Allow for members: Bash(curl *)")
+	if ChangedOutside(cadrei, p, hashes) {
+		t.Error("a grant cadrei committed was not accepted")
 	}
 }
 

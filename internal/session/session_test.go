@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/runtime"
-	"github.com/rafi-ramdhani/cadre/internal/testguard"
+	"github.com/rafi-ramdhani/cadrei/internal/runtime"
+	"github.com/rafi-ramdhani/cadrei/internal/testguard"
 )
 
 // private gives a test its own tmux server, stopped at the end.
@@ -22,14 +22,14 @@ func private(t *testing.T) Tmux {
 		t.Skip("tmux is not installed")
 	}
 	testguard.Check(t)
-	tm := Tmux{Socket: fmt.Sprintf("cadre-gotest-%d-%d", os.Getpid(), time.Now().UnixNano())}
+	tm := Tmux{Socket: fmt.Sprintf("cadrei-gotest-%d-%d", os.Getpid(), time.Now().UnixNano())}
 	t.Cleanup(func() { tm.command("kill-server").Run() })
 	return tm
 }
 
-// cadreDir makes a cadre folder with a team dev (pm, engineer) and returns
+// cadreiDir makes a cadrei folder with a team dev (pm, engineer) and returns
 // it, and a stub claude that records its arguments and environment.
-func cadreDir(t *testing.T, name string) (string, string) {
+func cadreiDir(t *testing.T, name string) (string, string) {
 	t.Helper()
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	c := filepath.Join(root, name)
@@ -38,7 +38,7 @@ func cadreDir(t *testing.T, name string) (string, string) {
 		os.WriteFile(filepath.Join(c, "members", "dev", r+".md"), []byte("# "+r+"\n"), 0o644)
 	}
 	stub := filepath.Join(root, "claude")
-	os.WriteFile(stub, []byte("#!/bin/sh\n{ printf '%s\\n' \"$@\"; echo \"HOME=$CADRE_HOME\"; echo \"MEMBER=$CADRE_MEMBER\"; } > \"$0.$CADRE_MEMBER\"\nexec sleep 300\n"), 0o755)
+	os.WriteFile(stub, []byte("#!/bin/sh\n{ printf '%s\\n' \"$@\"; echo \"HOME=$CADREI_HOME\"; echo \"MEMBER=$CADREI_MEMBER\"; } > \"$0.$CADREI_MEMBER\"\nexec sleep 300\n"), 0o755)
 	return c, stub
 }
 
@@ -49,7 +49,7 @@ func (s stubRuntime) Name() string                            { return "stub" }
 func (s stubRuntime) Title() string                           { return "Stub" }
 func (s stubRuntime) Caps() runtime.Capabilities              { return runtime.Capabilities{} }
 func (s stubRuntime) Detect() (runtime.Install, error)        { return runtime.Install{Path: s.bin}, nil }
-func (s stubRuntime) BuildDir(cadre string) string            { return filepath.Join(cadre, ".build") }
+func (s stubRuntime) BuildDir(cadrei string) string           { return filepath.Join(cadrei, ".build") }
 func (s stubRuntime) Permissions() runtime.PermissionOps      { return nil }
 func (s stubRuntime) Trust() runtime.TrustOps                 { return nil }
 func (s stubRuntime) Health(bool, []string) []runtime.Problem { return nil }
@@ -64,16 +64,16 @@ func pick(bin string) func(string) (runtime.Runtime, string, error) {
 	return func(string) (runtime.Runtime, string, error) { return stubRuntime{bin}, "", nil }
 }
 
-func up(tm Tmux, cadre, stub, team, role, project string) (string, bool) {
-	u := Up{Scope: Scope{Name: filepath.Base(cadre), Path: cadre, T: tm}, Team: team, Role: role, Project: project,
-		Dir: DefaultDir(cadre, team), Protocol: []byte("PROTOCOL\n"), Mode: "default", Pick: pick(stub), Wait: 300 * time.Millisecond}
+func up(tm Tmux, cadrei, stub, team, role, project string) (string, bool) {
+	u := Up{Scope: Scope{Name: filepath.Base(cadrei), Path: cadrei, T: tm}, Team: team, Role: role, Project: project,
+		Dir: DefaultDir(cadrei, team), Protocol: []byte("PROTOCOL\n"), Mode: "default", Pick: pick(stub), Wait: 300 * time.Millisecond}
 	var out bytes.Buffer
 	failed := u.Start(&out)
 	return out.String(), failed
 }
 
 func TestNames(t *testing.T) {
-	if SessionName("work", Key("dev", "app")) != "cadre-work-dev-app" || MemberName("work", Key("dev", ""), "pm") != "work-dev-pm" || LegacyName("dev-app") != "cadre-dev-app" {
+	if SessionName("work", Key("dev", "app")) != "cadrei-work-dev-app" || MemberName("work", Key("dev", ""), "pm") != "work-dev-pm" || LegacyName("dev-app") != "cadre-dev-app" {
 		t.Error("names")
 	}
 	if Quote("it's a dir") != `'it'\''s a dir'` || Quote("/x/y.md") != "/x/y.md" || Quote("") != "''" {
@@ -81,16 +81,16 @@ func TestNames(t *testing.T) {
 	}
 }
 
-func TestUpStartsMembersWithTheirCadre(t *testing.T) {
+func TestUpStartsMembersWithTheirCadrei(t *testing.T) {
 	tm := private(t)
-	c, stub := cadreDir(t, "work")
+	c, stub := cadreiDir(t, "work")
 	out, failed := up(tm, c, stub, "dev", "", "")
 	if failed || !strings.Contains(out, "work-dev-engineer started in "+c+"/teams/dev") || !strings.Contains(out, "work-dev-pm started") {
 		t.Fatalf("up: %v %q", failed, out)
 	}
-	s := "cadre-work-dev"
-	if tm.Option(s, "@cadre_home") != c || tm.Option(s, "@cadre_team") != "dev" || tm.Option(s, "@cadre_project") != "" {
-		t.Errorf("options: %q %q", tm.Option(s, "@cadre_home"), tm.Option(s, "@cadre_team"))
+	s := "cadrei-work-dev"
+	if tm.Option(s, "@cadrei_home") != c || tm.Option(s, "@cadrei_team") != "dev" || tm.Option(s, "@cadrei_project") != "" {
+		t.Errorf("options: %q %q", tm.Option(s, "@cadrei_home"), tm.Option(s, "@cadrei_team"))
 	}
 	args := waitFile(t, stub+".work-dev-pm")
 	for _, want := range []string{"--name\nwork-dev-pm\n", "--mode\ndefault\n", "HOME=" + c + "\n", "MEMBER=work-dev-pm\n"} {
@@ -115,17 +115,17 @@ func TestUpStartsMembersWithTheirCadre(t *testing.T) {
 	if line := scope.StopRole("dev", "", "pm"); line != "  work-dev-pm stopped" {
 		t.Errorf("StopRole: %q", line)
 	}
-	if line := scope.StopTeam("dev", ""); line != "  cadre-work-dev stopped" {
+	if line := scope.StopTeam("dev", ""); line != "  cadrei-work-dev stopped" {
 		t.Errorf("StopTeam: %q", line)
 	}
-	if line := scope.StopTeam("dev", ""); line != "  cadre-work-dev not running" {
+	if line := scope.StopTeam("dev", ""); line != "  cadrei-work-dev not running" {
 		t.Errorf("StopTeam again: %q", line)
 	}
 }
 
 func TestAFailedStartIsReported(t *testing.T) {
 	tm := private(t)
-	c, _ := cadreDir(t, "work")
+	c, _ := cadreiDir(t, "work")
 	bad := filepath.Join(filepath.Dir(c), "bad")
 	os.WriteFile(bad, []byte("#!/bin/sh\nexit 1\n"), 0o755)
 	tm.command("new-session", "-d", "-s", "keepalive", "sleep", "60").Run()
@@ -133,29 +133,29 @@ func TestAFailedStartIsReported(t *testing.T) {
 	var buf bytes.Buffer
 	failed := u.Start(&buf)
 	out := buf.String()
-	if !failed || !strings.Contains(out, "work-dev-pm failed to start") || !strings.Contains(out, "CADRE_MEMBER=work-dev-pm") {
+	if !failed || !strings.Contains(out, "work-dev-pm failed to start") || !strings.Contains(out, "CADREI_MEMBER=work-dev-pm") {
 		t.Errorf("failed start: %v %q", failed, out)
 	}
 }
 
 func TestSessionCollisions(t *testing.T) {
 	tm := private(t)
-	c, stub := cadreDir(t, "b")
+	c, stub := cadreiDir(t, "b")
 	other := filepath.Join(filepath.Dir(c), "a")
 	scope := Scope{Name: "b", Path: c, T: tm}
-	// Another cadre holds the name.
-	tm.command("new-session", "-d", "-s", "cadre-b-dev", "sleep", "60").Run()
-	tm.SetOption("cadre-b-dev", "@cadre_home", other)
-	if err := scope.CheckSession("dev", ""); err == nil || !strings.Contains(err.Error(), "belongs to cadre a ("+other+"), not cadre b") {
-		t.Errorf("another cadre: %v", err)
+	// Another cadrei holds the name.
+	tm.command("new-session", "-d", "-s", "cadrei-b-dev", "sleep", "60").Run()
+	tm.SetOption("cadrei-b-dev", "@cadrei_home", other)
+	if err := scope.CheckSession("dev", ""); err == nil || !strings.Contains(err.Error(), "belongs to cadrei a ("+other+"), not cadrei b") {
+		t.Errorf("another cadrei: %v", err)
 	}
-	// A legacy session holds it.
-	tm.SetOption("cadre-b-dev", "@cadre_home", "")
-	tm.command("set-option", "-u", "-t", "=cadre-b-dev:", "@cadre_home").Run()
-	if err := scope.CheckSession("dev", ""); err == nil || !strings.Contains(err.Error(), "legacy session") {
-		t.Errorf("legacy: %v", err)
+	// A session without a home holds it.
+	tm.SetOption("cadrei-b-dev", "@cadrei_home", "")
+	tm.command("set-option", "-u", "-t", "=cadrei-b-dev:", "@cadrei_home").Run()
+	if err := scope.CheckSession("dev", ""); err == nil || !strings.Contains(err.Error(), "without cadrei's markers") {
+		t.Errorf("no home: %v", err)
 	}
-	tm.KillSession("cadre-b-dev")
+	tm.KillSession("cadrei-b-dev")
 	// Team dev with project x-y and team dev-x with project y join the same way.
 	up(tm, c, stub, "dev", "pm", "x-y")
 	if err := scope.CheckSession("dev-x", "y"); err == nil || !strings.Contains(err.Error(), "which gives the same session name") {
@@ -171,7 +171,7 @@ func TestSessionCollisions(t *testing.T) {
 // does.
 func TestClaudeNamesCannotCollide(t *testing.T) {
 	tm := private(t)
-	c, stub := cadreDir(t, "c")
+	c, stub := cadreiDir(t, "c")
 	for _, r := range []string{"x-y"} {
 		os.WriteFile(filepath.Join(c, "members", "dev", r+".md"), []byte("# "+r+"\n"), 0o644)
 	}
@@ -181,14 +181,14 @@ func TestClaudeNamesCannotCollide(t *testing.T) {
 		t.Fatalf("first: %q", out)
 	}
 	out, failed := up(tm, c, stub, "dev-x", "y", "")
-	if !failed || !strings.Contains(out, "the session name c-dev-x-y is already used by window x-y of tmux session cadre-c-dev") {
-		t.Errorf("one cadre, two teams: %v %q", failed, out)
+	if !failed || !strings.Contains(out, "the session name c-dev-x-y is already used by window x-y of tmux session cadrei-c-dev") {
+		t.Errorf("one cadrei, two teams: %v %q", failed, out)
 	}
-	// Across cadres: a with team x and role y-z, a-x with team y and role z.
-	a, stubA := cadreDir(t, "a")
+	// Across cadreis: a with team x and role y-z, a-x with team y and role z.
+	a, stubA := cadreiDir(t, "a")
 	os.MkdirAll(filepath.Join(a, "members", "x"), 0o755)
 	os.WriteFile(filepath.Join(a, "members", "x", "y-z.md"), []byte("# y-z\n"), 0o644)
-	ax, stubAX := cadreDir(t, "a-x")
+	ax, stubAX := cadreiDir(t, "a-x")
 	os.MkdirAll(filepath.Join(ax, "members", "y"), 0o755)
 	os.WriteFile(filepath.Join(ax, "members", "y", "z.md"), []byte("# z\n"), 0o644)
 	if out, failed := up(tm, a, stubA, "x", "y-z", ""); failed {
@@ -196,13 +196,13 @@ func TestClaudeNamesCannotCollide(t *testing.T) {
 	}
 	out, failed = up(tm, ax, stubAX, "y", "z", "")
 	if !failed || !strings.Contains(out, "a-x-y-z is already used") {
-		t.Errorf("two cadres: %v %q", failed, out)
+		t.Errorf("two cadreis: %v %q", failed, out)
 	}
 }
 
 func TestLegacySessions(t *testing.T) {
 	tm := private(t)
-	c, stub := cadreDir(t, "work")
+	c, stub := cadreiDir(t, "work")
 	tm.command("new-session", "-d", "-s", "cadre-dev", "-n", "pm", "sleep", "60").Run()
 	def := Scope{Name: "work", Path: c, T: tm, Default: true}
 	other := Scope{Name: "work", Path: c, T: tm}
@@ -231,10 +231,10 @@ func TestLegacySessions(t *testing.T) {
 
 func TestAnOrchestratorSessionIsNotAMemberSession(t *testing.T) {
 	tm := private(t)
-	c, _ := cadreDir(t, "work")
-	tm.command("new-session", "-d", "-s", "cadre-work", "sleep", "60").Run()
-	tm.SetOption("cadre-work", "@cadre_home", c)
-	tm.SetOption("cadre-work", "@cadre_role", "orchestrator")
+	c, _ := cadreiDir(t, "work")
+	tm.command("new-session", "-d", "-s", "cadrei-work", "sleep", "60").Run()
+	tm.SetOption("cadrei-work", "@cadrei_home", c)
+	tm.SetOption("cadrei-work", "@cadrei_role", "orchestrator")
 	if r := (Scope{Name: "work", Path: c, T: tm}).Running(); len(r) != 0 {
 		t.Errorf("Running lists the orchestrator: %+v", r)
 	}
@@ -271,8 +271,8 @@ func TestStartPassesEveryArgumentAsItIs(t *testing.T) {
 	os.WriteFile(probe, []byte("#!/bin/sh\nout=$1; shift\nprintf '%s|' \"$@\" > \"$out\"\nexec sleep 30\n"), 0o755)
 	out := filepath.Join(dir, "out")
 	// tmux splits at an argument that is or ends with ";".
-	err := tm.Start(StartSpec{Session: "cadre-x", Window: "w", Dir: dir, Argv: []string{probe, out, "a;", ";", "x;y", "$HOME", "it's"},
-		SessionOptions: []Option{{"@cadre_home", "/path;"}}})
+	err := tm.Start(StartSpec{Session: "cadrei-x", Window: "w", Dir: dir, Argv: []string{probe, out, "a;", ";", "x;y", "$HOME", "it's"},
+		SessionOptions: []Option{{"@cadrei_home", "/path;"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,25 +285,25 @@ func TestStartPassesEveryArgumentAsItIs(t *testing.T) {
 	if b, _ := os.ReadFile(out); string(b) != "a;|;|x;y|$HOME|it's|" {
 		t.Errorf("the command got %q", b)
 	}
-	if tm.Option("cadre-x", "@cadre_home") != "/path;" {
-		t.Errorf("option %q", tm.Option("cadre-x", "@cadre_home"))
+	if tm.Option("cadrei-x", "@cadrei_home") != "/path;" {
+		t.Errorf("option %q", tm.Option("cadrei-x", "@cadrei_home"))
 	}
-	if err := tm.Start(StartSpec{Session: "cadre-y", Window: "w", Dir: dir, Argv: []string{probe, `a\;`}}); err == nil {
+	if err := tm.Start(StartSpec{Session: "cadrei-y", Window: "w", Dir: dir, Argv: []string{probe, `a\;`}}); err == nil {
 		t.Error("an argument ending in a backslash and a semicolon was passed")
 	}
-	if err := tm.Start(StartSpec{Session: "cadre-z", Window: "w", Dir: dir, Argv: []string{"sleep"}}); err == nil {
+	if err := tm.Start(StartSpec{Session: "cadrei-z", Window: "w", Dir: dir, Argv: []string{"sleep"}}); err == nil {
 		t.Error("a one-word command, which tmux runs through a shell, was started")
 	}
 }
 
 func TestTeamSessionsCarryTheHint(t *testing.T) {
 	tm := private(t)
-	c, stub := cadreDir(t, "work")
+	c, stub := cadreiDir(t, "work")
 	up(tm, c, stub, "dev", "pm", "")
-	if got := tm.Option("cadre-work-dev", "status-right"); got != "Ctrl-b then d: back to your terminal" {
+	if got := tm.Option("cadrei-work-dev", "status-right"); got != "Ctrl-b then d: back to your terminal" {
 		t.Errorf("status-right %q", got)
 	}
-	if out, _ := tm.run("show-hooks", "-t", "=cadre-work-dev:"); !strings.Contains(out, "client-attached") || !strings.Contains(out, "back to your terminal") {
+	if out, _ := tm.run("show-hooks", "-t", "=cadrei-work-dev:"); !strings.Contains(out, "client-attached") || !strings.Contains(out, "back to your terminal") {
 		t.Errorf("hooks %q", out)
 	}
 	if out, _ := tm.run("show-options", "-gv", "status-right"); strings.Contains(out, "back to your terminal") {
@@ -323,10 +323,10 @@ func TestStartFolderIsNotAFormat(t *testing.T) {
 	dir := filepath.Join(base, "a#{session_name}#(echo hi)##b")
 	os.MkdirAll(dir, 0o755)
 	for _, w := range []string{"one", "two"} {
-		if err := tm.Start(StartSpec{Session: "cadre-hash", Window: w, Dir: dir, Argv: []string{"sleep", "30"}}); err != nil {
+		if err := tm.Start(StartSpec{Session: "cadrei-hash", Window: w, Dir: dir, Argv: []string{"sleep", "30"}}); err != nil {
 			t.Fatal(err)
 		}
-		got, _ := tm.run("display-message", "-p", "-t", "=cadre-hash:="+w, "#{pane_current_path}")
+		got, _ := tm.run("display-message", "-p", "-t", "=cadrei-hash:="+w, "#{pane_current_path}")
 		if got != dir {
 			t.Errorf("window %s started in %q, not %q", w, got, dir)
 		}
@@ -337,16 +337,16 @@ func TestRecordedValuesComeBackAsTheyAre(t *testing.T) {
 	tm := private(t)
 	dir := t.TempDir()
 	for _, v := range []string{"/a\nb", "/a\rb", "/a\tb", "/a\x1fb", "/a\x7fb", "/a\xffb", `/a\$HOME`, `/a\${x}`, `/a\$é`} {
-		err := tm.Start(StartSpec{Session: "cadre-bad", Window: "w", Dir: dir, Argv: []string{"sleep", "30"},
-			SessionOptions: []Option{{"@cadre_home", v}}})
-		if err == nil || tm.Has("cadre-bad") {
+		err := tm.Start(StartSpec{Session: "cadrei-bad", Window: "w", Dir: dir, Argv: []string{"sleep", "30"},
+			SessionOptions: []Option{{"@cadrei_home", v}}})
+		if err == nil || tm.Has("cadrei-bad") {
 			t.Errorf("%q was recorded", v)
 		}
-		if err := tm.Start(StartSpec{Session: "cadre-bad", Window: "w", Dir: dir, Argv: []string{"sleep", "30"},
-			WindowOptions: []Option{{"@cadre_member", v}}}); err == nil {
+		if err := tm.Start(StartSpec{Session: "cadrei-bad", Window: "w", Dir: dir, Argv: []string{"sleep", "30"},
+			WindowOptions: []Option{{"@cadrei_member", v}}}); err == nil {
 			t.Errorf("%q was recorded on a window", v)
 		}
-		tm.KillSession("cadre-bad")
+		tm.KillSession("cadrei-bad")
 	}
 	// What may be recorded is read back exactly, even in a C locale, where
 	// tmux would turn non-ASCII characters into "_" for a client it does
@@ -354,10 +354,10 @@ func TestRecordedValuesComeBackAsTheyAre(t *testing.T) {
 	for _, v := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
 		t.Setenv(v, "C")
 	}
-	home := `/Users/josé/my cadre;\ "x" 'y' $HOME #{z} 日本`
-	err := tm.Start(StartSpec{Session: "cadre-ok", Window: "w-1", Dir: dir, Argv: []string{"sleep", "30"},
-		SessionOptions: []Option{{"@cadre_home", home}, {"@cadre_team", "dev"}, {"@cadre_target", "ü"}},
-		WindowOptions:  []Option{{"@cadre_member", "ok-dev-w-1"}}})
+	home := `/Users/josé/my cadrei;\ "x" 'y' $HOME #{z} 日本`
+	err := tm.Start(StartSpec{Session: "cadrei-ok", Window: "w-1", Dir: dir, Argv: []string{"sleep", "30"},
+		SessionOptions: []Option{{"@cadrei_home", home}, {"@cadrei_team", "dev"}, {"@cadrei_target", "ü"}},
+		WindowOptions:  []Option{{"@cadrei_member", "ok-dev-w-1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,20 +365,20 @@ func TestRecordedValuesComeBackAsTheyAre(t *testing.T) {
 	if len(list) != 1 || list[0].Home != home || list[0].Team != "dev" || list[0].Target != "ü" {
 		t.Errorf("Sessions read back %+v", list)
 	}
-	if p := tm.Members(); len(p) != 1 || p[0] != (Member{"cadre-ok", "w-1", "ok-dev-w-1"}) {
+	if p := tm.Members(); len(p) != 1 || p[0] != (Member{"cadrei-ok", "w-1", "ok-dev-w-1"}) {
 		t.Errorf("Members read back %+v", p)
 	}
-	if tm.Option("cadre-ok", "@cadre_home") != home {
-		t.Errorf("Option read back %q", tm.Option("cadre-ok", "@cadre_home"))
+	if tm.Option("cadrei-ok", "@cadrei_home") != home {
+		t.Errorf("Option read back %q", tm.Option("cadrei-ok", "@cadrei_home"))
 	}
-	if tm.SetOption("cadre-ok", "@cadre_target", "x\ny") == nil || tm.SetWindowOption("cadre-ok", "w-1", "@cadre_member", "x\ty") == nil {
+	if tm.SetOption("cadrei-ok", "@cadrei_target", "x\ny") == nil || tm.SetWindowOption("cadrei-ok", "w-1", "@cadrei_member", "x\ty") == nil {
 		t.Error("a control character was set")
 	}
 }
 
 // tmux 3.4 writes command output through vis(3) with VIS_OCTAL|VIS_CSTYLE,
 // which escapes every control character but tab and newline: a separator
-// of any other control character (the old \x1f) never reaches cadre.
+// of any other control character (the old \x1f) never reaches cadrei.
 func TestTheSeparatorSurvivesTmuxOutput(t *testing.T) {
 	for _, b := range []byte(sep) {
 		if b != '\t' && (b < 0x20 || b >= 0x7f) {
@@ -457,7 +457,7 @@ func TestPlan(t *testing.T) {
 		t.Errorf("a runtime that cannot resume: %+v", c)
 	}
 	if RecordPath(dir, "../x") != "" || RecordPath(dir, "a/b") != "" {
-		t.Error("a name cadre does not make got a record")
+		t.Error("a name cadrei does not make got a record")
 	}
 	Forget(record)
 	if ReadRecord(record) != nil {
@@ -470,13 +470,13 @@ func TestPlan(t *testing.T) {
 // found, listed, attached to and stopped.
 func TestADottedProjectIsFoundStoppedAndAttached(t *testing.T) {
 	tm := private(t)
-	c, stub := cadreDir(t, "work")
+	c, stub := cadreiDir(t, "work")
 	if out, failed := up(tm, c, stub, "dev", "pm", "my.app"); failed {
 		t.Fatalf("up: %s", out)
 	}
-	// tmux 3.4 turns the dot into "_"; cadre names it so on every version.
-	name := "cadre-work-dev-my_app"
-	if !tm.Has(name) || tm.Has("cadre-work-dev-my") || SessionName("work", "dev-my.app") != name {
+	// tmux 3.4 turns the dot into "_"; cadrei names it so on every version.
+	name := "cadrei-work-dev-my_app"
+	if !tm.Has(name) || tm.Has("cadrei-work-dev-my") || SessionName("work", "dev-my.app") != name {
 		t.Fatalf("Has: %v", tm.Has(name))
 	}
 	if w := tm.Windows(name); len(w) != 1 || w[0] != "pm" {
@@ -498,7 +498,7 @@ func TestADottedProjectIsFoundStoppedAndAttached(t *testing.T) {
 }
 
 // A build folder, or the .claude folder holding it, that is a link (as a
-// cloned cadre can carry) is refused: nothing is written through it.
+// cloned cadrei can carry) is refused: nothing is written through it.
 func TestEnsureBuildRefusesALink(t *testing.T) {
 	for _, linked := range []string{".claude/build", ".claude"} {
 		c, scratch := t.TempDir(), t.TempDir()
@@ -513,21 +513,21 @@ func TestEnsureBuildRefusesALink(t *testing.T) {
 	}
 	c := t.TempDir()
 	if err := EnsureBuild(filepath.Join(c, ".claude", "build")); err != nil {
-		t.Errorf("a new cadre: %v", err)
+		t.Errorf("a new cadrei: %v", err)
 	}
 }
 
-// A session with this cadre's home but no team or project markers is not
+// A session with this cadrei's home but no team or project markers is not
 // a team session: up refuses to start members in it, as stop and attach
 // do not match it.
 func TestUpRefusesASessionWithoutMarkers(t *testing.T) {
 	tm := private(t)
-	c, _ := cadreDir(t, "work")
-	tm.command("new-session", "-d", "-s", "cadre-work-dev", "-n", "x", "sleep", "60").Run()
-	tm.command("set-option", "-q", "-t", "=cadre-work-dev:", "@cadre_home", c).Run()
+	c, _ := cadreiDir(t, "work")
+	tm.command("new-session", "-d", "-s", "cadrei-work-dev", "-n", "x", "sleep", "60").Run()
+	tm.command("set-option", "-q", "-t", "=cadrei-work-dev:", "@cadrei_home", c).Run()
 	s := Scope{Name: "work", Path: c, T: tm}
 	err := s.CheckSession("dev", "")
-	if err == nil || !strings.Contains(err.Error(), "a session named cadre-work-dev exists without cadre's markers; stop it with tmux kill-session -t cadre-work-dev, or cadre stop --yes") {
+	if err == nil || !strings.Contains(err.Error(), "a session named cadrei-work-dev exists without cadrei's markers; stop it with tmux kill-session -t cadrei-work-dev, or cadrei stop --yes") {
 		t.Errorf("CheckSession: %v", err)
 	}
 	if line := s.StopTeam("dev", ""); !strings.Contains(line, "not running") {

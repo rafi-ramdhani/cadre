@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafi-ramdhani/cadre/internal/proc"
+	"github.com/rafi-ramdhani/cadrei/internal/proc"
 )
 
 func TestLock(t *testing.T) {
@@ -44,7 +44,7 @@ func TestLock(t *testing.T) {
 		t.Error("a stale lock was not cleared")
 	}
 	// A dead process is stale.
-	WriteLock(path, cmd.Process.Pid, Tmux, "", "cadre-work")
+	WriteLock(path, cmd.Process.Pid, Tmux, "", "cadrei-work")
 	cmd.Process.Kill()
 	cmd.Wait()
 	if ReadLock(path) != nil {
@@ -65,12 +65,12 @@ func mustRead(t *testing.T, p string) string {
 }
 
 func TestPrompt(t *testing.T) {
-	p := string(Prompt([]byte("TEXT\n"), "work", "/h/.cadre/work", "", ""))
-	if p != "TEXT\n\nYou are the orchestrator of cadre `work` (`/h/.cadre/work`).\n" {
+	p := string(Prompt([]byte("TEXT\n"), "work", "/h/.cadrei/work", "", ""))
+	if p != "TEXT\n\nYou are the orchestrator of cadrei `work` (`/h/.cadrei/work`).\n" {
 		t.Errorf("%q", p)
 	}
 	p = string(Prompt([]byte("TEXT\n"), "work", "/w", "app", "/d/app"))
-	if !strings.HasSuffix(p, "The user opened cadre from the project `app` (`/d/app`).\n") {
+	if !strings.HasSuffix(p, "The user opened cadrei from the project `app` (`/d/app`).\n") {
 		t.Errorf("%q", p)
 	}
 }
@@ -99,7 +99,7 @@ func TestALockSurvivesExec(t *testing.T) {
 
 // Only a regular file of the user's, of a lock's size, is read; anything
 // else is removed as stale, and a FIFO never blocks.
-func TestALockCadreDidNotWriteIsStale(t *testing.T) {
+func TestALockCadreiDidNotWriteIsStale(t *testing.T) {
 	dir := t.TempDir()
 	path := LockPath(dir)
 	cmd := exec.Command("sleep", "30")
@@ -152,10 +152,10 @@ func TestALockCadreDidNotWriteIsStale(t *testing.T) {
 	}
 }
 
-// Lock fields are printed: a lock with a mode, terminal or session cadre
+// Lock fields are printed: a lock with a mode, terminal or session cadrei
 // does not write is not read, so it cannot put escape sequences on the
 // user's terminal or skip the session check.
-func TestOnlyLocksCadreWritesAreRead(t *testing.T) {
+func TestOnlyLocksCadreiWritesAreRead(t *testing.T) {
 	path := LockPath(t.TempDir())
 	cmd := exec.Command("sleep", "30")
 	cmd.Start()
@@ -167,21 +167,21 @@ func TestOnlyLocksCadreWritesAreRead(t *testing.T) {
 	}
 	write(Terminal, "/dev/ttys004", "")
 	if ReadLock(path) == nil {
-		t.Fatal("a lock cadre writes was not read")
+		t.Fatal("a lock cadrei writes was not read")
 	}
-	write(Tmux, "", "cadre-work")
+	write(Tmux, "", "cadrei-work")
 	if ReadLock(path) == nil {
-		t.Fatal("a tmux lock cadre writes was not read")
+		t.Fatal("a tmux lock cadrei writes was not read")
 	}
 	for _, bad := range []struct{ mode, tty, session string }{
 		{"x", "", ""},
 		{"", "", ""},
 		{Terminal, "/dev/tty\x1b]0;evil\x07", ""},
 		{Terminal, "ttys004", ""},
-		{Terminal, "", "cadre-work"},
+		{Terminal, "", "cadrei-work"},
 		{Tmux, "", "evil\x1b[2J"},
 		{Tmux, "", ""},
-		{Tmux, "/dev/ttys004", "cadre-work"},
+		{Tmux, "/dev/ttys004", "cadrei-work"},
 	} {
 		write(bad.mode, bad.tty, bad.session)
 		if ReadLock(path) != nil {

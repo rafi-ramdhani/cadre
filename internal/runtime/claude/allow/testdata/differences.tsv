@@ -14,19 +14,19 @@ R	Bash(x &>log)	accept		a redirection
 R	Edit(~/.ss[z-a]/config)	refuse	cannot read	a reversed class range: Python crashed on it; Go refuses it
 R	Edit(src/[z-a]/x)	refuse	cannot read	the same, in a relative path
 R	Bash(a#; bash *)	refuse	chains or backgrounds	still refused; bash refused it as a computed program name because its shlex hid the ;
-R	Edit(/{CADRE}/members/**)	refuse	{CADRE}/members	N.7: a cadre's members, playbook, registry, protocol, .claude and .git are cadre's own
-R	Edit(/{CADRE}/playbook.md)	refuse	{CADRE}/playbook.md	N.7
-R	Edit(/{CADRE}/*.md)	refuse	{CADRE}/playbook.md	N.7
-R	Edit(/{CADRE}/*.yaml)	refuse	{CADRE}/projects.yaml	N.7
-R	Edit(~/.cadre/config/default)	refuse	{HOME}/.cadre/config	N.7: ~/.cadre/config holds the default, fingerprints and state
-R	Edit(~/.cadre/framework/skills/cadre/SKILL.md)	refuse	{HOME}/.cadre/framework	N.7
-R	Edit(~/.cadre/*/members/**)	refuse	{HOME}/.cadre/	N.7, for any cadre in ~/.cadre, also ones made later
-R	Edit(~/.cadre/work/playbook.md)	refuse	{HOME}/.cadre/<cadre>/playbook.md	N.7
-R	Edit(~/.cadre/*/cadre.conf)	refuse	cadre.conf	N.7
-R	Edit(~/.cadre/w*/.git/config)	refuse	{HOME}/.cadre/<cadre>/.git	N.7
-R	Edit(~/.cadre/work/teams/dev/notes.md)	accept		N.7: team folders stay writable
-R	Edit(//{OTHER}/teams/**)	warn	team folders of the cadre at {OTHER}	N.7: another cadre's team folders are warned about
-R	Edit(//{CADRE}/teams/**)	warn	contains *	this cadre's own team folders: only the generic warning
+R	Edit(/{CADREI}/members/**)	refuse	{CADREI}/members	N.7: a cadrei's members, playbook, registry, protocol, .claude and .git are cadrei's own
+R	Edit(/{CADREI}/playbook.md)	refuse	{CADREI}/playbook.md	N.7
+R	Edit(/{CADREI}/*.md)	refuse	{CADREI}/playbook.md	N.7
+R	Edit(/{CADREI}/*.yaml)	refuse	{CADREI}/projects.yaml	N.7
+R	Edit(~/.cadrei/config/default)	refuse	{HOME}/.cadrei/config	N.7: ~/.cadrei/config holds the default, fingerprints and state
+R	Edit(~/.cadrei/framework/skills/cadrei/SKILL.md)	refuse	{HOME}/.cadrei/framework	N.7
+R	Edit(~/.cadrei/*/members/**)	refuse	{HOME}/.cadrei/	N.7, for any cadrei in ~/.cadrei, also ones made later
+R	Edit(~/.cadrei/work/playbook.md)	refuse	{HOME}/.cadrei/<cadrei>/playbook.md	N.7
+R	Edit(~/.cadrei/*/cadrei.conf)	refuse	cadrei.conf	N.7
+R	Edit(~/.cadrei/w*/.git/config)	refuse	{HOME}/.cadrei/<cadrei>/.git	N.7
+R	Edit(~/.cadrei/work/teams/dev/notes.md)	accept		N.7: team folders stay writable
+R	Edit(//{OTHER}/teams/**)	warn	team folders of the cadrei at {OTHER}	N.7: another cadrei's team folders are warned about
+R	Edit(//{CADREI}/teams/**)	warn	contains *	this cadrei's own team folders: only the generic warning
 R	Bash(echo ';;' x)	accept		quoted punctuation is an argument; bash's shlex dropped the quotes and read it as an operator
 R	Bash(find . -exec rm {} ';')	accept		the same: a quoted ; ends -exec, it chains nothing
 R	Bash(echo "&&" x)	accept		the same, in double quotes

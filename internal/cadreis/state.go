@@ -1,0 +1,66 @@
+package cadreis
+
+import (
+	"encoding/json"
+	"os"
+
+	"github.com/rafi-ramdhani/cadrei/internal/fsx"
+)
+
+// State is ~/.cadrei/config/state.json: answers and versions cadrei
+// remembers between runs (N.1), as string keys and values.
+
+// State keys.
+const (
+	// CheckedVersion is the version the last full health check ran for.
+	CheckedVersion = "checked_version"
+	// HookKept is "<program> -> <binary>": the user kept the orchestrator
+	// hook on program when asked to switch it to binary.
+	HookKept = "hook_kept"
+	// SkillKept is the skill link's state the user kept when asked to link
+	// it to this cadrei: its target, or "missing".
+	SkillKept = "skill_kept"
+	// LastFindings identifies the fast health findings of the last run, so
+	// the full check runs again only when one is new.
+	LastFindings = "last_findings"
+)
+
+// OrchestratorID is the key of the last conversation id cadrei issued to a
+// cadrei's orchestrator: it resumes only that one.
+func OrchestratorID(cadrei string) string { return "orchestrator_id:" + cadrei }
+
+// OldLinkKept is the key that remembers the user kept a 0.1.x link when
+// asked to remove it.
+func OldLinkKept(link string) string { return "old_link_kept:" + link }
+
+// GetState returns a remembered value, or "".
+func GetState(key string) string { return readState()[key] }
+
+func readState() map[string]string {
+	m := map[string]string{}
+	raw, err := os.ReadFile(Config("state.json"))
+	if err == nil {
+		json.Unmarshal(raw, &m)
+	}
+	return m
+}
+
+// SetState remembers a value; "" forgets it.
+func SetState(key, value string) error {
+	l, err := lockConfig()
+	if err != nil {
+		return err
+	}
+	defer l.Release()
+	m := readState()
+	if value == "" {
+		delete(m, key)
+	} else {
+		m[key] = value
+	}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsx.WriteFile(Config("state.json"), append(data, '\n'), 0o600)
+}

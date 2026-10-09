@@ -197,7 +197,7 @@ func TestEditGivesUpWhenTheFileKeepsChanging(t *testing.T) {
 	if code != KeptChanged || string(got) != `{"writer": 3}` {
 		t.Errorf("code %d, file %s; want 6 and the other writer's file", code, got)
 	}
-	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(p), ".cadre-*")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(p), ".cadrei-*")); len(left) != 0 {
 		t.Errorf("temporary files left: %v", left)
 	}
 }

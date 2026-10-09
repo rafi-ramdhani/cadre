@@ -1,4 +1,4 @@
-// Package fsx holds the file operations every writer in cadre shares:
+// Package fsx holds the file operations every writer in cadrei shares:
 // atomic writes, locks, and copying a folder tree with a check that the
 // copy is complete.
 package fsx
@@ -19,7 +19,7 @@ import (
 // same folder is written, synced and given perm, then renamed over path. A
 // reader sees the old file or the new one, never a part.
 func WriteFile(path string, data []byte, perm fs.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".cadre-")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".cadrei-")
 	if err != nil {
 		return err
 	}
@@ -50,9 +50,9 @@ func WriteFile(path string, data []byte, perm fs.FileMode) error {
 	return nil
 }
 
-// ErrBusy is returned when another cadre command holds a lock for longer
+// ErrBusy is returned when another cadrei command holds a lock for longer
 // than the wait.
-var ErrBusy = errors.New("another cadre command is using it")
+var ErrBusy = errors.New("another cadrei command is using it")
 
 // Lock is an exclusive lock held by this process.
 type Lock struct {
@@ -76,7 +76,7 @@ var forceDirLock = false
 // The lock file is never followed through a symlink and never written:
 // the flock is the lock. A file that is a symlink, not a regular file, not
 // the user's own, or has another hard link is refused, so a link planted
-// where cadre keeps a lock cannot get another file changed.
+// where cadrei keeps a lock cannot get another file changed.
 func Acquire(path string, wait time.Duration) (*Lock, error) {
 	if !forceDirLock {
 		f, err := openLock(path)
@@ -114,7 +114,7 @@ func openLock(path string) (*os.File, error) {
 
 // openOwn opens path for reading, refusing anything but a regular file of
 // the user's with one link; what names it in errors ("lock"). O_NONBLOCK:
-// a FIFO planted here would otherwise block the open, and every cadre
+// a FIFO planted here would otherwise block the open, and every cadrei
 // command with it; this way the check below refuses it.
 func openOwn(path, what string, flags int) (*os.File, error) {
 	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK|flags, 0o600)
@@ -147,7 +147,7 @@ func openOwn(path, what string, flags int) (*os.File, error) {
 	return os.NewFile(uintptr(fd), path), nil
 }
 
-// ReadOwn reads a small file cadre wrote: never through a symlink, never
+// ReadOwn reads a small file cadrei wrote: never through a symlink, never
 // blocking on a FIFO, only a regular file of the user's with one link, and
 // at most max bytes. A missing file gives an error wrapping
 // fs.ErrNotExist.

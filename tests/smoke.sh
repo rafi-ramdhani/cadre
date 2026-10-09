@@ -449,7 +449,7 @@ cadre stop ops >/dev/null
 git init -q "$HOME/src/my.app"
 cadre project add my.app --path "$HOME/src/my.app" --no-trust >/dev/null
 cadre up dev/engineer my.app >/dev/null
-check "a dotted project's team is found and stopped" bash -c "cadre up dev/engineer my.app | grep -q 'already running' && cadre stop dev my.app | grep -q 'cadre-demo-dev-my.app stopped' && ! tm has-session -t '=cadre-demo-dev-my.app:' 2>/dev/null"
+check "a dotted project's team is found and stopped" bash -c "cadre up dev/engineer my.app | grep -q 'already running' && cadre stop dev my.app | grep -q 'cadre-demo-dev-my_app stopped' && ! tm has-session -t '=cadre-demo-dev-my_app:' 2>/dev/null"
 cadre project unlink my.app >/dev/null
 mkdir -p "$C/members/ml.ops"; echo '# sre' > "$C/members/ml.ops/sre.md"
 check "a team with a dot is refused, naming what to rename" bash -c "cadre up ml.ops 2>&1 | grep -q 'rename its folder, ~/.cadre/demo/members/ml.ops'"

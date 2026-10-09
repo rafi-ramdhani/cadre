@@ -42,7 +42,11 @@ func runHookPrePush(e *env) int {
 		return e.fail("the pre-push check runs in a git repository")
 	}
 	repo := strings.TrimSpace(string(out))
-	findings, err := backup.Scan(repo, backup.ReadUpdates(e.stdin))
+	remote := ""
+	if len(e.args) > 0 {
+		remote = e.args[0]
+	}
+	findings, err := backup.Scan(repo, remote, backup.ReadUpdates(e.stdin))
 	if err != nil {
 		return e.fail("could not check this push for credentials (%s), so it was stopped", err)
 	}

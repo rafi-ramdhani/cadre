@@ -131,3 +131,4 @@ type trust struct{}
 func (trust) Mark(f []runtime.Folder) ([]runtime.TrustResult, string)   { return nil, "" }
 func (trust) Unmark(f []runtime.Folder) ([]runtime.TrustResult, string) { return nil, "" }
 func (trust) Protected() []string                                       { return nil }
+func (trust) Loaded(string) []string                                    { return nil }

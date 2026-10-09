@@ -77,7 +77,7 @@ func (e *env) findings(rt runtime.Runtime, full bool) []finding {
 				Fix: "brew upgrade tmux"}})
 		}
 	}
-	out = append(out, guardFindings()...)
+	out = append(out, e.guardFindings()...)
 	out = append(out, skillFindings(rt)...)
 	out = append(out, e.hookFindings(rt)...)
 	if f, ok := pathFinding(); ok {
@@ -89,10 +89,22 @@ func (e *env) findings(rt runtime.Runtime, full bool) []finding {
 // guardFindings keeps cadre's pre-push guard in every cadre repository,
 // which is cadre's own setup, so it needs no question. A pre-push hook of
 // the user's own is left alone and reported.
-func guardFindings() []finding {
+// It names this binary only when it is safely placed, as the orchestrator
+// hook does; otherwise a hook already there is left as it is, and a cadre
+// with none is reported.
+func (e *env) guardFindings() []finding {
 	var out []finding
 	list, _ := cadres.List()
+	placed := e.hookPlaced(framework.Binary())
 	for _, c := range list {
+		if placed != nil {
+			if !backup.Installed(c.Path) {
+				out = append(out, finding{Problem: runtime.Problem{
+					What: "the cadre " + c.Name + " has no check for credentials before a backup push: " + placed.Error(),
+					Fix:  "install cadre with Homebrew or install.sh and run it from there"}})
+			}
+			continue
+		}
 		if _, err := backup.Install(c.Path, framework.Binary()); errors.Is(err, backup.ErrForeign) {
 			out = append(out, finding{Problem: runtime.Problem{
 				What: "the cadre " + c.Name + " has a pre-push git hook of its own, so cadre's check for credentials before a backup push does not run",

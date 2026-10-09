@@ -20,6 +20,9 @@ export HOME="$T/home" CADRE_TMUX_SOCKET="cadre-test-$$"
 TMUX_TMPDIR=$(mktemp -d /tmp/cadre-smoke.XXXXXX)
 export TMUX_TMPDIR
 unset TMUX TMUX_PANE CADRE_HOME CADRE_MEMBER CADRE_PERSONA CADRE_OFF CADRE_ORCHESTRATOR CLAUDE_CONFIG_DIR XDG_CACHE_HOME
+# The hooks name this test build, which lives in a temporary folder: a
+# release build refuses that (checked with $T/rel/cadre).
+export CADRE_TEST_HOOK_ANYWHERE=1
 export GIT_CONFIG_GLOBAL="$T/gitconfig"
 git config --global user.name "Cadre Test"
 git config --global user.email "test@example.com"
@@ -108,9 +111,7 @@ check "without a terminal it says what to run" grep -q "run cadre in a terminal 
 check "and creates nothing" test ! -e "$HOME/.cadre"
 check "Ctrl-D at the first question changes nothing" bash -c "printf '' | CADRE_TEST_TTY=1 cadre 2>&1 | grep -q 'input ended; nothing was changed' && test ! -e '$HOME/.cadre'"
 mkdir -p "$T/start" && cd "$T/start"
-# The hook names this test build, which lives in a temporary folder: a
-# release build refuses that.
-out=$(printf 'new\nfirst\ny\ny\n' | CADRE_TEST_TTY=1 CADRE_TEST_HOOK_ANYWHERE=1 cadre 2>&1)
+out=$(printf 'new\nfirst\ny\ny\n' | CADRE_TEST_TTY=1 cadre 2>&1)
 check "a new cadre with the starter team" bash -c "test -f '$HOME/.cadre/first/members/dev/engineer.md' -a -f '$HOME/.cadre/first/members/dev/reviewer.md' && test \"\$(ls '$HOME/.cadre/first/members')\" = dev"
 check "it is the default" grep -qx first "$HOME/.cadre/config/default"
 check "the skill is written out and linked, after a yes" test "$(readlink "$HOME/.claude/skills/cadre")" = "$HOME/.cadre/framework/skills/cadre" -a -f "$HOME/.cadre/framework/skills/cadre/SKILL.md"
@@ -325,7 +326,8 @@ git -C "$C" remote add origin "$T/backup.git"
 check "a clean push passes the guard" git -C "$C" push -q origin main
 mkdir -p "$C/teams/ops"
 printf 'ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz\n' > "$C/teams/ops/.env"
-git -C "$C" add teams && git -C "$C" commit -qm "ops notes"
+check "the cadre's .gitignore keeps .env files out" git -C "$C" check-ignore -q teams/ops/.env
+git -C "$C" add -f teams && git -C "$C" commit -qm "ops notes"
 out=$(git -C "$C" push origin main 2>&1 || true)
 check "a push carrying a credential is stopped, naming the file" bash -c "grep -q 'teams/ops/.env: looks like an environment file' <<<'$out' && test \"\$(git -C '$T/backup.git' rev-parse main)\" != \"\$(git -C '$C' rev-parse main)\""
 git -C "$C" reset -q --hard HEAD~1

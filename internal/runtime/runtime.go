@@ -160,6 +160,10 @@ type TrustOps interface {
 	// Protected lists folders the runtime loads code or settings from;
 	// projects must never live inside them.
 	Protected() []string
+	// Loaded lists what in dir the runtime loads into a session started
+	// there once dir is trusted (settings, hooks, commands, instructions),
+	// as paths relative to dir, in a fixed order.
+	Loaded(dir string) []string
 }
 
 // Problem is one finding of the health check (M.4): what is wrong and the

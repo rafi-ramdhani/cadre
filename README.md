@@ -36,7 +36,7 @@ The first `cadre` asks a name and a yes or two, then opens the orchestrator with
 curl -fsSL https://raw.githubusercontent.com/rafi-ramdhani/cadre/main/install.sh | sh
 ```
 
-**On a new machine**, run `cadre` and choose "restore": it clones your cadre from its GitHub backup and clones its projects.
+**On a new machine**, run `cadre` and choose "restore": it clones your cadre from its GitHub backup, shows what it brings in, and clones its projects after your yes.
 
 ### Requirements
 

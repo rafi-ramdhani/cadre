@@ -17,15 +17,14 @@ import (
 func OldConfig() string { return filepath.Join(paths.Home(), ".config", "cadre") }
 
 // CopyOldConfig moves ~/.config/cadre into ~/.cadre/config once (N.1):
-//   - home (the default cadre's path) becomes default, by name;
-//   - every cadre it names that is not under ~/.cadre (home and the known
-//     cadres list) is listed in external, so it keeps working where it is;
+//   - home (the default cadre's path) becomes default, by name; a 0.1.x
+//     cadre opens once cadre migrate has moved it into ~/.cadre;
 //   - the settings fingerprints are kept, merged with any already there.
 //
 // Then ~/.config/cadre is renamed to ~/.config/cadre.moved-to-0.2.0, not
-// deleted: files cadre does not know stay, and going back stays possible.
-// It does nothing when the old folder is not there. It returns what it did,
-// for a one-line note.
+// deleted: files cadre does not know stay (the migration reads the known
+// cadres list there), and going back stays possible. It does nothing when
+// the old folder is not there. It returns what it did, for a one-line note.
 func CopyOldConfig() (string, error) {
 	old := OldConfig()
 	if _, err := os.Stat(old); errors.Is(err, fs.ErrNotExist) {
@@ -39,43 +38,10 @@ func CopyOldConfig() (string, error) {
 	if _, err := os.Stat(old); errors.Is(err, fs.ErrNotExist) {
 		return "", nil // another command copied it while this one waited
 	}
-	var outside []string
-	add := func(p string) {
-		p = paths.Real(expandHome(p))
-		if !strings.HasPrefix(p, "/") || Inside(p) {
-			return
-		}
-		for _, x := range outside {
-			if x == p {
-				return
-			}
-		}
-		outside = append(outside, p)
-	}
-	home := firstLine(filepath.Join(old, "home"))
-	if home != "" {
-		add(home)
-	}
-	if raw, err := os.ReadFile(filepath.Join(old, "cadres")); err == nil {
-		for _, l := range strings.Split(string(raw), "\n") {
-			if l = strings.TrimSpace(l); strings.HasPrefix(l, "/") {
-				add(l)
-			}
-		}
-	}
-	list := externalPaths()
-	for _, p := range outside {
-		known := false
-		for _, x := range list {
-			known = known || x == p
-		}
-		if !known {
-			list = append(list, p)
-		}
-	}
-	if err := writeExternal(list); err != nil {
+	if err := os.MkdirAll(ConfigDir(), 0o700); err != nil {
 		return "", err
 	}
+	home := firstLine(filepath.Join(old, "home"))
 	if home != "" && Default() == "" {
 		if err := fsx.WriteFile(Config("default"), []byte(filepath.Base(paths.Real(expandHome(home)))+"\n"), 0o600); err != nil {
 			return "", err

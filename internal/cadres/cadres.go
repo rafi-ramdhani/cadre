@@ -1,7 +1,6 @@
-// Package cadres knows where cadres live (section N): each in its own
-// folder under ~/.cadre, or kept outside it and listed in
-// ~/.cadre/config/external. It lists them, keeps the default, resolves the
-// cadre a command acts on (N.3), and creates new ones.
+// Package cadres knows where cadres live: each in its own folder under
+// ~/.cadre. It lists them, keeps the default, resolves the cadre a command
+// acts on, and creates new ones.
 package cadres
 
 import (
@@ -28,11 +27,10 @@ func ConfigDir() string { return filepath.Join(Root(), "config") }
 // Config is a file in ConfigDir.
 func Config(name string) string { return filepath.Join(ConfigDir(), name) }
 
-// Cadre is one cadre: a folder with personas/.
+// Cadre is one cadre: a folder ~/.cadre/<name> with personas/.
 type Cadre struct {
-	Name     string // the folder's name
-	Path     string // physical
-	External bool   // kept outside ~/.cadre, listed in config/external
+	Name string // the folder's name
+	Path string // physical
 }
 
 // Present reports whether the cadre's folder is there.
@@ -59,9 +57,8 @@ func CheckName(name string) error {
 	return nil
 }
 
-// List returns every cadre: the folders under ~/.cadre that hold personas/
-// (sorted by name), then the outside ones from config/external, present or
-// not, in the file's order.
+// List returns every cadre: the folders under ~/.cadre that hold
+// personas/, sorted by name. Cadres live only there.
 func List() ([]Cadre, error) {
 	var out []Cadre
 	entries, err := os.ReadDir(Root())
@@ -81,32 +78,7 @@ func List() ([]Cadre, error) {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	for _, p := range externalPaths() {
-		out = append(out, Cadre{Name: filepath.Base(p), Path: p, External: true})
-	}
 	return out, nil
-}
-
-// externalPaths reads config/external: absolute paths, physical, no repeats.
-func externalPaths() []string {
-	raw, err := os.ReadFile(Config("external"))
-	if err != nil {
-		return nil
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, l := range strings.Split(string(raw), "\n") {
-		l = strings.TrimSpace(l)
-		if !strings.HasPrefix(l, "/") {
-			continue
-		}
-		p := paths.Real(l)
-		if !seen[p] {
-			seen[p] = true
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 // Find returns the cadre called name.
@@ -170,46 +142,6 @@ func lockConfig() (*fsx.Lock, error) {
 		return nil, fmt.Errorf("another cadre command is changing %s; try again", ConfigDir())
 	}
 	return l, err
-}
-
-// AddExternal lists a cadre kept outside ~/.cadre.
-func AddExternal(path string) error {
-	l, err := lockConfig()
-	if err != nil {
-		return err
-	}
-	defer l.Release()
-	list := externalPaths()
-	for _, p := range list {
-		if p == path {
-			return nil
-		}
-	}
-	return writeExternal(append(list, path))
-}
-
-// RemoveExternal stops listing an outside cadre; its folder is untouched.
-func RemoveExternal(path string) error {
-	l, err := lockConfig()
-	if err != nil {
-		return err
-	}
-	defer l.Release()
-	var kept []string
-	for _, p := range externalPaths() {
-		if p != path {
-			kept = append(kept, p)
-		}
-	}
-	return writeExternal(kept)
-}
-
-func writeExternal(list []string) error {
-	var b strings.Builder
-	for _, p := range list {
-		b.WriteString(p + "\n")
-	}
-	return fsx.WriteFile(Config("external"), []byte(b.String()), 0o600)
 }
 
 // Inside reports whether path is inside ~/.cadre (physical paths).

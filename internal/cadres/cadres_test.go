@@ -57,11 +57,11 @@ func TestCheckName(t *testing.T) {
 
 func TestCreateInCadreFolder(t *testing.T) {
 	home := fakeHome(t, true)
-	c, note, err := Create("work", "", tmpl)
+	c, note, err := Create("work", tmpl)
 	if err != nil || note != "" {
 		t.Fatalf("Create: %v %q", err, note)
 	}
-	if c.Path != home+"/.cadre/work" || c.External || !c.Present() {
+	if c.Path != home+"/.cadre/work" || !c.Present() {
 		t.Errorf("cadre %+v", c)
 	}
 	if b, _ := os.ReadFile(c.Path + "/playbook.md"); string(b) != "# Playbook of work\n" {
@@ -79,68 +79,46 @@ func TestCreateInCadreFolder(t *testing.T) {
 	if out, _ := exec.Command("git", "-C", c.Path, "log", "--format=%s").Output(); strings.TrimSpace(string(out)) != "Start work from the cadre template" {
 		t.Errorf("commit %q", out)
 	}
-	if _, _, err := Create("work", "", tmpl); err == nil {
+	if _, _, err := Create("work", tmpl); err == nil {
 		t.Error("a second cadre with the same name was created")
 	}
-	if _, _, err := Create("WORK", t.TempDir(), tmpl); err == nil || !strings.Contains(err.Error(), "already at") {
+	if _, _, err := Create("WORK", tmpl); err == nil {
 		t.Errorf("a name differing only in case: %v", err)
 	}
-	if _, _, err := Create("config", "", tmpl); err == nil {
+	if _, _, err := Create("config", tmpl); err == nil {
 		t.Error("a reserved name was accepted")
 	}
 }
 
-func TestCreateOutside(t *testing.T) {
+func TestCreateWithoutAGitIdentity(t *testing.T) {
 	fakeHome(t, false)
-	parent, _ := filepath.EvalSymlinks(t.TempDir())
-	c, note, err := Create("old", parent, tmpl)
-	if err != nil {
+	c, note, err := Create("old", tmpl)
+	if err != nil || !c.Present() {
 		t.Fatal(err)
-	}
-	if !c.External || c.Path != parent+"/old" {
-		t.Errorf("cadre %+v", c)
 	}
 	if !strings.Contains(note, "no user identity") {
 		t.Errorf("no note without a git identity: %q", note)
 	}
-	if _, err := os.Stat(c.Path + "/projects"); err != nil {
-		t.Error("an outside cadre has no projects/")
-	}
-	if b, _ := os.ReadFile(c.Path + "/.gitignore"); !strings.Contains(string(b), "/projects/") {
-		t.Error("an outside cadre's .gitignore lost projects/")
-	}
-	list, _ := List()
-	if len(list) != 1 || list[0].Path != c.Path || !list[0].External {
-		t.Errorf("list %+v", list)
-	}
 }
 
-func TestListAndExternal(t *testing.T) {
+func TestList(t *testing.T) {
 	home := fakeHome(t, true)
-	Create("b", "", tmpl)
-	Create("a", "", tmpl)
+	Create("b", tmpl)
+	Create("a", tmpl)
 	os.MkdirAll(home+"/.cadre/notacadre", 0o755)
 	os.MkdirAll(home+"/.cadre/.hidden/personas", 0o755)
 	os.MkdirAll(home+"/.cadre/framework/personas", 0o755)
+	// A config/external list from the bash 0.2.0 work is not read.
 	out, _ := filepath.EvalSymlinks(t.TempDir())
 	os.MkdirAll(out+"/ext/personas", 0o755)
-	AddExternal(out + "/ext")
-	AddExternal(out + "/ext") // once only
-	os.WriteFile(Config("external"), []byte(out+"/ext\n  relative/x\n~/y\n"+out+"/gone\n"), 0o600)
+	os.WriteFile(Config("external"), []byte(out+"/ext\n"), 0o600)
 	list, _ := List()
 	var names []string
 	for _, c := range list {
 		names = append(names, c.Name)
 	}
-	if strings.Join(names, ",") != "a,b,ext,gone" {
+	if strings.Join(names, ",") != "a,b" {
 		t.Errorf("list %v", names)
-	}
-	if c, ok := Find("gone"); !ok || c.Present() {
-		t.Errorf("a missing outside cadre: %+v %v", c, ok)
-	}
-	RemoveExternal(out + "/gone")
-	if _, ok := Find("gone"); ok {
-		t.Error("RemoveExternal kept it")
 	}
 	if Default() != "" {
 		t.Error("a default appeared")
@@ -170,8 +148,8 @@ func TestCopyOldConfig(t *testing.T) {
 	if Default() != "demo" {
 		t.Errorf("default %q", Default())
 	}
-	if b, _ := os.ReadFile(Config("external")); string(b) != visible+"\n"+other+"\n" {
-		t.Errorf("external %q", b)
+	if _, err := os.Stat(Config("external")); err == nil {
+		t.Error("the 0.1.x cadres were listed as outside cadres")
 	}
 	if b, _ := os.ReadFile(Config("persona-settings.sha256")); !strings.Contains(string(b), "abc ") {
 		t.Errorf("fingerprints %q", b)
@@ -185,8 +163,9 @@ func TestCopyOldConfig(t *testing.T) {
 	if msg, _ := CopyOldConfig(); msg != "" {
 		t.Error("a second copy did something")
 	}
-	if r, err := Resolve(home, nil); err != nil || r.Path != visible || r.From != "default" {
-		t.Errorf("resolve after the copy: %+v %v", r, err)
+	// A 0.1.x cadre is not opened where it is: cadre migrate moves it.
+	if _, err := Resolve(home, nil); !errors.Is(err, ErrNoCadre) {
+		t.Errorf("resolve after the copy: %v", err)
 	}
 }
 
@@ -202,8 +181,8 @@ func addLink(t *testing.T, c Cadre, name, path string) {
 
 func TestResolve(t *testing.T) {
 	home := fakeHome(t, true)
-	work, _, _ := Create("work", "", tmpl)
-	life, _, _ := Create("life", "", tmpl)
+	work, _, _ := Create("work", tmpl)
+	life, _, _ := Create("life", tmpl)
 	SetDefault("life")
 	dev := filepath.Join(home, "Developer")
 	for _, d := range []string{"app/src", "app/sub/inner", "shared", "unlinked"} {
@@ -215,11 +194,10 @@ func TestResolve(t *testing.T) {
 	addLink(t, life, "shared", "~/Developer/shared")
 	ext, _ := filepath.EvalSymlinks(t.TempDir())
 	os.MkdirAll(ext+"/old/personas", 0o755)
-	AddExternal(ext + "/old")
 
 	for _, tc := range []struct{ cwd, cadre, from string }{
 		{work.Path + "/teams", "work", "from this folder"},
-		{ext + "/old/projects/x", "old", "from this folder"},
+		{ext + "/old/projects/x", "life", "default"},
 		{dev + "/app/src", "work", "from the project app"},
 		{dev + "/app/sub/inner", "work", "from the project inner"},
 		{dev + "/unlinked", "life", "default"},
@@ -249,11 +227,14 @@ func TestResolve(t *testing.T) {
 		t.Errorf("CADRE_HOME: %+v", r)
 	}
 	t.Setenv("CADRE_HOME", "")
-	// Two present cadres with one name are not used.
-	os.MkdirAll(ext+"/WORK/personas", 0o755)
-	AddExternal(ext + "/WORK")
-	if _, err := Resolve(work.Path, nil); err == nil || !strings.Contains(err.Error(), "share the name") {
-		t.Errorf("two cadres with one name: %v", err)
+	// Two present cadres with one name in another letter case (a file
+	// system that tells them apart) are not used.
+	os.MkdirAll(home+"/.cadre/WORK/personas", 0o755)
+	a, _ := os.Stat(home + "/.cadre/WORK")
+	if b, _ := os.Stat(work.Path); !os.SameFile(a, b) {
+		if _, err := Resolve(work.Path, nil); err == nil || !strings.Contains(err.Error(), "share the name") {
+			t.Errorf("two cadres with one name: %v", err)
+		}
 	}
 }
 
@@ -271,16 +252,13 @@ func TestResolveWithNothing(t *testing.T) {
 func TestProjectDir(t *testing.T) {
 	home := fakeHome(t, true)
 	in := Cadre{Name: "w", Path: home + "/.cadre/w"}
-	out := Cadre{Name: "o", Path: "/x/o", External: true}
+	out := Cadre{Name: "o", Path: "/x/o"}
 	e := func(text string) *registry.Entry { return registry.Parse(text).Entries()[0] }
 	if d := ProjectDir(in, e("a:\n  path: ~/Dev/a\n")); d != home+"/Dev/a" {
 		t.Errorf("~ path: %s", d)
 	}
 	if d := ProjectDir(out, e("a:\n  path: elsewhere/a\n")); d != "/x/o/elsewhere/a" {
 		t.Errorf("relative path: %s", d)
-	}
-	if d := ProjectDir(out, e("a:\n  repo: r\n")); d != "/x/o/projects/a" {
-		t.Errorf("outside cadre, no path: %s", d)
 	}
 	if d := ProjectDir(in, e("a:\n  repo: r\n")); d != "" {
 		t.Errorf("no projects folder set: %s", d)
@@ -294,7 +272,7 @@ func TestProjectDir(t *testing.T) {
 
 func TestListSkipsLinksAndBadNames(t *testing.T) {
 	home := fakeHome(t, true)
-	Create("work", "", tmpl)
+	Create("work", tmpl)
 	look := filepath.Join(home, "lookalike")
 	os.MkdirAll(look+"/personas", 0o755)
 	os.Symlink(look, home+"/.cadre/linked")
@@ -309,8 +287,8 @@ func TestListSkipsLinksAndBadNames(t *testing.T) {
 // or a project's folder is that folder.
 func TestResolveThroughAnotherSpelling(t *testing.T) {
 	home := fakeHome(t, true)
-	Create("work", "", tmpl)
-	play, _, _ := Create("play", "", tmpl)
+	Create("work", tmpl)
+	play, _, _ := Create("play", tmpl)
 	SetDefault("work")
 	upper := home + "/.CADRE/PLAY/teams"
 	if _, err := os.Stat(upper); err != nil {

@@ -109,7 +109,8 @@ func TestProjectAddTrustsAndLinks(t *testing.T) {
 	refused(t, "inside ~/.cadre", "project", "add", "x", "--path", home+"/.cadre/work")
 	refused(t, "your home folder", "project", "add", "x", "--path", home)
 	t.Setenv("CADRE_PERSONA", "x")
-	refused(t, "persona sessions cannot link folders", "project", "add", "y", "--path", mine)
+	refused(t, "persona sessions cannot add projects", "project", "add", "y", "--path", mine)
+	refused(t, "persona sessions cannot add projects", "project", "add", "z", "me/z")
 	refused(t, "persona sessions cannot trust", "project", "trust", "app")
 }
 

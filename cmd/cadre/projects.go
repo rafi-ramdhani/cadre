@@ -132,7 +132,9 @@ func runProjectAdd(e *env) int {
 	if len(pos) > 1 {
 		s.About = pos[1]
 	}
-	if linking && e.persona("link folders to the cadre") {
+	// Only the user, through the orchestrator, adds projects: a project's
+	// folder is trusted and personas work in it.
+	if e.persona("add projects") {
 		return 1
 	}
 	if err := project.CheckName(s.Name); err != nil {
@@ -152,11 +154,9 @@ func runProjectAdd(e *env) int {
 	if linking {
 		added, err = project.Link(r.Cadre, s, path, protected)
 	} else {
-		dir := ""
-		if !r.External {
-			if dir, ok = e.projectsDir(protected); !ok {
-				return 1
-			}
+		dir, ok := e.projectsDir(protected)
+		if !ok {
+			return 1
 		}
 		added, err = project.Add(r.Cadre, s, dir, protected)
 	}
@@ -170,9 +170,6 @@ func runProjectAdd(e *env) int {
 	switch {
 	case !trust:
 		e.say("%s", head)
-	case os.Getenv("CADRE_PERSONA") != "":
-		e.say("%s", head)
-		e.say("persona sessions cannot trust folders in %s; run cadre project trust %s from the orchestrator", rt.Title(), s.Name)
 	default:
 		results, note := project.Trust(rt, []runtime.Folder{{Name: s.Name, Dir: added.Dir}})
 		res := results[0]
@@ -207,7 +204,7 @@ func runProjectSync(e *env) int {
 	if !ok {
 		return 1
 	}
-	if !r.External && cadres.ProjectsDir() == "" && needsProjectsDir(r) {
+	if cadres.ProjectsDir() == "" && needsProjectsDir(r) {
 		if _, ok := e.projectsDir(rt.Trust().Protected()); !ok {
 			return 1
 		}

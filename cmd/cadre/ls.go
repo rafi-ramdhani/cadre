@@ -19,10 +19,8 @@ import (
 )
 
 // The data of cadre ls, which --json prints as it is, so the orchestrator
-// never reads the human layout (M.2). Its shape is versioned: a field is
-// added under the same version, and anything else changes the version.
-// A legacy session's personas have runtime "": they started before cadre
-// recorded which runtime ran them.
+// never reads the human layout. Its shape is versioned: a field is added
+// under the same version, and anything else changes the version.
 
 // jsonVersion is the version of ls --json's shape.
 const jsonVersion = 1
@@ -37,9 +35,8 @@ type cadreView struct {
 }
 
 type personaView struct {
-	Name    string `json:"name"` // the session name, the persona's messaging address
-	Role    string `json:"role"`
-	Runtime string `json:"runtime"`
+	Name string `json:"name"` // the session name, the persona's messaging address
+	Role string `json:"role"`
 }
 
 type sessionView struct {
@@ -90,11 +87,22 @@ type allStatus struct {
 	Unknown []sessionView `json:"unknown"`
 }
 
-// runtimeOf names a persona's runtime (P.3).
-func runtimeOf(cadre, team, role string) string {
-	raw, _ := os.ReadFile(filepath.Join(cadre, "cadre.conf"))
+// problemsOf says what keeps every persona of a cadre from starting: the
+// runtime is missing, or cannot run the cadre's permission mode.
+func problemsOf(c cadres.Cadre) []string {
+	rt, err := runtime.Get(runtimeName())
+	if err != nil {
+		return []string{err.Error()}
+	}
+	if _, err := rt.Detect(); err != nil {
+		return []string{err.Error()}
+	}
+	raw, _ := os.ReadFile(filepath.Join(c.Path, "cadre.conf"))
 	values, _ := conf.Parse(string(raw))
-	return runtime.For(cadre, team, role, values["RUNTIME"])
+	if err := runtime.Usable(rt, modeOf(values)); err != nil {
+		return []string{err.Error()}
+	}
+	return []string{}
 }
 
 func viewOf(t session.Tmux, i session.Info) sessionView {
@@ -103,13 +111,8 @@ func viewOf(t session.Tmux, i session.Info) sessionView {
 		// A 0.1.x session recorded no team: show its key.
 		v.Team = strings.TrimPrefix(i.Name, "cadre-")
 	}
-	cadre := i.Home
 	for _, w := range t.Windows(i.Name) {
-		p := personaView{Name: strings.TrimPrefix(i.Name, "cadre-") + "-" + w, Role: w}
-		if cadre != "" && i.Team != "" {
-			p.Runtime = runtimeOf(cadre, i.Team, w)
-		}
-		v.Personas = append(v.Personas, p)
+		v.Personas = append(v.Personas, personaView{Name: strings.TrimPrefix(i.Name, "cadre-") + "-" + w, Role: w})
 	}
 	return v
 }
@@ -117,7 +120,7 @@ func viewOf(t session.Tmux, i session.Info) sessionView {
 // statusOf gathers one cadre's status.
 func statusOf(c cadres.Cadre, def string, t session.Tmux) cadreStatus {
 	s := cadreStatus{Cadre: cadreView{Name: c.Name, Path: c.Path, Default: c.Name == def, Missing: !c.Present()},
-		Running: []sessionView{}, Projects: []projectView{}, Teams: map[string][]personaView{}, Problems: []string{}}
+		Running: []sessionView{}, Projects: []projectView{}, Teams: map[string][]personaView{}, Problems: problemsOf(c)}
 	scope := session.Scope{Name: c.Name, Path: c.Path, Default: c.Name == def, T: t}
 	s.Orchestrator = orchestratorOf(c, t)
 	for _, i := range scope.Running() {
@@ -132,11 +135,7 @@ func statusOf(c cadres.Cadre, def string, t session.Tmux) cadreStatus {
 			team := filepath.Base(d)
 			s.Teams[team] = []personaView{}
 			for _, role := range session.Roles(c.Path, team) {
-				rt := runtimeOf(c.Path, team, role)
-				s.Teams[team] = append(s.Teams[team], personaView{Name: session.PersonaName(c.Name, team, role), Role: role, Runtime: rt})
-				if _, err := runtime.Get(rt); err != nil {
-					s.Problems = append(s.Problems, fmt.Sprintf("%s/%s: %s", team, role, err))
-				}
+				s.Teams[team] = append(s.Teams[team], personaView{Name: session.PersonaName(c.Name, team, role), Role: role})
 			}
 		}
 	}
@@ -146,8 +145,8 @@ func statusOf(c cadres.Cadre, def string, t session.Tmux) cadreStatus {
 // orchestratorOf says whether a cadre's orchestrator is open: its lock
 // (plain cadre or cadre --tmux), or its tmux session.
 func orchestratorOf(c cadres.Cadre, t session.Tmux) orchestratorView {
-	if rt, err := runtime.Get(runtime.Default()); err == nil {
-		if l := openOrchestrator(t, c.Name, c.Path, orchestrator.LockPath(rt.BuildDir(c.Path))); l != nil {
+	if rt, err := runtime.Get(runtimeName()); err == nil {
+		if l := openOrchestrator(t, c.Name, c.Path, orchestrator.LockPath(rt.BuildDir(c.Path)), false); l != nil {
 			since := l.Since
 			return orchestratorView{Running: true, Mode: l.Mode, Session: l.Session, Since: &since}
 		}

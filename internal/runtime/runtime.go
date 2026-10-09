@@ -1,15 +1,14 @@
 // Package runtime is the boundary between cadre and the agent CLI its
-// sessions run (section P). Cadre's own code (sessions, ls, allow, trust,
-// health) talks to a Runtime; only an adapter, such as
-// internal/runtime/claude, knows a CLI's flags, files, hooks and rule
-// grammar. 0.2.0 ships one adapter, Claude Code.
+// sessions run. Cadre's own code (sessions, ls, allow, trust, health)
+// talks to a Runtime; only an adapter, internal/runtime/claude, knows a
+// CLI's flags, files, hooks and rule grammar. Claude Code is the only
+// runtime, with no user-facing choice; the boundary keeps its specifics in
+// one place, and lets tests run a fake.
 package runtime
 
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -21,19 +20,13 @@ type MessagingKind int
 const (
 	NoMessaging MessagingKind = iota // cannot be a persona or the orchestrator
 	Native                           // the CLI's own cross-session messaging
-	MCP                              // a cadre MCP server (later, P.4)
 )
 
-// Capabilities say what a runtime supports, so features degrade per
-// runtime instead of failing in odd ways (P.2).
+// Capabilities say what a runtime supports, so a runtime that cannot run
+// cadre's sessions safely is refused instead of failing in odd ways.
 type Capabilities struct {
-	Grants           bool          // cadre allow's rules reach its personas
-	AutoModeText     bool          // plain-English --auto entries apply
 	FixedDenies      bool          // it enforces cadre's fixed denies; without it, personas are refused
 	PermissionModes  []string      // the PERMISSION_MODE values it understands
-	ContextUsage     bool          // context percentages in ls
-	Compact          bool          // cadre compact
-	StateSignals     bool          // busy, idle, waiting
 	Resume           bool          // resuming a conversation
 	AssignSessionID  bool          // starting with a session id cadre chose
 	Trust            bool          // marking project folders as trusted
@@ -59,9 +52,6 @@ type LaunchSpec struct {
 	Mode       string // cadre's PERMISSION_MODE
 	PromptFile string // instructions to add to the session's own
 	Grants     string // the runtime's grants artifact (from Permissions().Prepare), or ""
-	// ConfigDir is the runtime's own config folder for this session, for a
-	// cadre with its own account (section Q); "" for the user's own.
-	ConfigDir string
 }
 
 // Command is what cadre runs: in tmux for a persona, or as a child process.
@@ -214,33 +204,7 @@ func Get(name string) (Runtime, error) {
 	return nil, fmt.Errorf("runtime %s is not supported yet (supported: %s)", name, strings.Join(Supported(), ", "))
 }
 
-// readName reads the one name a .runtime file holds.
-func readName(file string) string {
-	raw, err := os.ReadFile(file)
-	if err != nil {
-		return ""
-	}
-	line, _, _ := strings.Cut(string(raw), "\n")
-	return strings.TrimSpace(line)
-}
-
-// For names the runtime a persona uses (P.3): personas/<team>/<role>.runtime,
-// else personas/<team>/.runtime, else RUNTIME in cadre.conf (conf), else
-// the default runtime.
-func For(cadre, team, role, conf string) string {
-	if n := readName(filepath.Join(cadre, "personas", team, role+".runtime")); n != "" {
-		return n
-	}
-	if n := readName(filepath.Join(cadre, "personas", team, ".runtime")); n != "" {
-		return n
-	}
-	if conf != "" {
-		return conf
-	}
-	return Default()
-}
-
-// CanOrchestrate refuses a runtime that cannot be the orchestrator (P.3):
+// CanOrchestrate refuses a runtime that cannot be the orchestrator:
 // it needs a place for the orchestrator's instructions, a way to start a
 // session as the orchestrator, and messaging to reach the personas.
 func CanOrchestrate(r Runtime) error {
@@ -252,7 +216,7 @@ func CanOrchestrate(r Runtime) error {
 }
 
 // Usable refuses a runtime that cannot run a persona safely or reach the
-// orchestrator: one without the fixed denies, or without messaging (P.5).
+// orchestrator: one without the fixed denies, or without messaging.
 func Usable(r Runtime, mode string) error {
 	caps := r.Caps()
 	if !caps.FixedDenies {

@@ -183,7 +183,6 @@ func allowChange(e *env, op string) int {
 			what = "one-time " + what
 		}
 		e.say("  added %s: %s", what, entry)
-		e.capabilityNotes(r, kind)
 	} else {
 		target := "--once"
 		if !once {
@@ -237,36 +236,6 @@ func knownPaths() []string {
 		out = append(out, c.Path)
 	}
 	return out
-}
-
-// capabilityNotes says which personas a new grant cannot reach, because
-// their runtime has no grants, or no plain-English entries (P.2).
-func (e *env) capabilityNotes(r *cadres.Resolved, kind string) {
-	values := e.conf(r)
-	teams, _ := filepath.Glob(filepath.Join(r.Path, "personas", "*"))
-	var none, noAuto []string
-	for _, d := range teams {
-		team := filepath.Base(d)
-		for _, role := range session.Roles(r.Path, team) {
-			rt, err := runtime.Get(runtime.For(r.Path, team, role, values["RUNTIME"]))
-			if err != nil {
-				continue
-			}
-			caps := rt.Caps()
-			switch {
-			case !caps.Grants:
-				none = append(none, team+"/"+role+" ("+rt.Name()+")")
-			case kind == "auto" && !caps.AutoModeText:
-				noAuto = append(noAuto, team+"/"+role+" ("+rt.Name()+")")
-			}
-		}
-	}
-	if len(none) > 0 {
-		e.say("note: these personas cannot receive grants, because their runtime has none: %s", strings.Join(none, ", "))
-	}
-	if len(noAuto) > 0 {
-		e.say("warning: this entry is stored but not applied to these personas, because their runtime has no plain-English allowances: %s", strings.Join(noAuto, ", "))
-	}
 }
 
 // restartNote says which running personas still have the old grants, with

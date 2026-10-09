@@ -11,7 +11,7 @@ import (
 	"github.com/rafi-ramdhani/cadre/internal/conf"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
-	// The Claude Code adapter, the only runtime in 0.2.0.
+	// The Claude Code adapter, the only runtime.
 	_ "github.com/rafi-ramdhani/cadre/internal/runtime/claude"
 )
 
@@ -25,14 +25,10 @@ func (e *env) conf(r *cadres.Resolved) map[string]string {
 	return values
 }
 
-// cadreRuntime is the cadre's runtime for work that is not one persona's
-// (trust, project folders): RUNTIME in cadre.conf, else claude.
+// cadreRuntime is the runtime every session runs: Claude Code (a test
+// build may name another, see runtime_cadretest.go).
 func (e *env) cadreRuntime(r *cadres.Resolved) (runtime.Runtime, bool) {
-	name := e.conf(r)["RUNTIME"]
-	if name == "" {
-		name = runtime.Default()
-	}
-	rt, err := runtime.Get(name)
+	rt, err := runtime.Get(runtimeName())
 	if err != nil {
 		e.fail("%s", err)
 		return nil, false

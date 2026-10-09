@@ -69,7 +69,7 @@ func TestUpLsStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st.Cadre.Name != "work" || len(st.Running) != 1 || st.Running[0].Personas[0].Name != "work-dev-engineer" ||
-		st.Running[0].Personas[0].Runtime != "claude" || len(st.Teams["dev"]) == 0 || st.Teams["dev"][0].Runtime != "claude" {
+		len(st.Teams["dev"]) == 0 || len(st.Problems) != 0 {
 		t.Errorf("ls --json: %+v", st)
 	}
 	// The other cadre has its own sessions with the same team.
@@ -120,8 +120,8 @@ func TestStopOneTeamOrRole(t *testing.T) {
 	if out := must(t, "stop", "dev/pm"); strings.TrimSpace(out) != "work-dev-pm stopped" {
 		t.Errorf("stop a role: %q", out)
 	}
-	if out := must(t, "down", "dev"); strings.TrimSpace(out) != "cadre-work-dev stopped" {
-		t.Errorf("down (old name) a team: %q", out)
+	if out := must(t, "stop", "dev"); strings.TrimSpace(out) != "cadre-work-dev stopped" {
+		t.Errorf("stop a team: %q", out)
 	}
 	if out := must(t, "stop", "dev"); strings.TrimSpace(out) != "cadre-work-dev not running" {
 		t.Errorf("stop again: %q", out)
@@ -158,23 +158,22 @@ func TestLegacySessionsInLs(t *testing.T) {
 
 // AC-P4: a runtime other than claude is refused by a release build, at up
 // and in ls.
-func TestAnUnsupportedRuntimeIsRefused(t *testing.T) {
+// Claude Code is the only runtime: .runtime files and RUNTIME in
+// cadre.conf are not read, and a release build ignores the test variable.
+func TestTheRuntimeIsNotAChoice(t *testing.T) {
 	home := sandbox(t)
 	withTmux(t, home)
 	must(t, "init", "work")
 	os.WriteFile(home+"/.cadre/work/personas/dev/engineer.runtime", []byte("codex\n"), 0o644)
-	code, out, _ := call("up", "dev/engineer")
-	if code == 0 || !strings.Contains(out, "runtime codex is not supported yet (supported: claude") {
-		t.Errorf("up: %d %q", code, out)
-	}
-	if out := must(t, "ls"); !strings.Contains(out, "problem: dev/engineer: runtime codex is not supported yet (supported: claude") {
-		t.Errorf("ls:\n%s", out)
+	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("RUNTIME=codex\n"), 0o644)
+	if out := must(t, "up", "dev/engineer"); !strings.Contains(out, "work-dev-engineer started") {
+		t.Errorf("up: %q", out)
 	}
 	if _, err := runtime.Get("fake"); err == nil {
 		return // a -tags cadretest build has the fake runtime
 	}
-	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("RUNTIME=fake\n"), 0o644)
-	if code, out, _ := call("up", "dev/pm"); code == 0 || !strings.Contains(out, "runtime fake is not supported yet") {
-		t.Errorf("RUNTIME=fake in a release build: %d %q", code, out)
+	t.Setenv("CADRE_TEST_RUNTIME", "fake")
+	if out := must(t, "up", "dev/pm"); !strings.Contains(out, "work-dev-pm started") {
+		t.Errorf("CADRE_TEST_RUNTIME in a release build: %q", out)
 	}
 }

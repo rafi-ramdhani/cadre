@@ -46,9 +46,11 @@ func splitTarget(r *cadres.Resolved, target string) (team, role string, err erro
 	return team, role, nil
 }
 
-// mode is the persona permission mode: CADRE_PERMISSION_MODE, else
-// cadre.conf's PERMISSION_MODE, else default.
-func (e *env) mode(values map[string]string) string {
+// mode is the permission mode sessions start with: CADRE_PERMISSION_MODE,
+// else cadre.conf's PERMISSION_MODE, else default.
+func (e *env) mode(values map[string]string) string { return modeOf(values) }
+
+func modeOf(values map[string]string) string {
 	if m := os.Getenv("CADRE_PERMISSION_MODE"); m != "" {
 		return m
 	}
@@ -58,32 +60,31 @@ func (e *env) mode(values map[string]string) string {
 	return "default"
 }
 
-// picker chooses each role's runtime (P.3) and prepares what its personas
-// start with, once per runtime. A runtime that is not supported, cannot
-// enforce the fixed denies, has no messaging or lacks the permission mode
-// is refused for that role.
-func (e *env) picker(r *cadres.Resolved, team, mode string, values map[string]string) func(string) (runtime.Runtime, string, error) {
-	prepared := map[string]string{}
+// picker gives every role the cadre's runtime, refused when it cannot
+// enforce the fixed denies, has no messaging or lacks the permission mode,
+// and prepares what its personas start with, once.
+func (e *env) picker(r *cadres.Resolved, mode string) func(string) (runtime.Runtime, string, error) {
+	var rt runtime.Runtime
+	var grants string
 	return func(role string) (runtime.Runtime, string, error) {
-		rt, err := runtime.Get(runtime.For(r.Path, team, role, values["RUNTIME"]))
+		if rt != nil {
+			return rt, grants, nil
+		}
+		got, err := runtime.Get(runtimeName())
 		if err != nil {
 			return nil, "", err
 		}
-		if err := runtime.Usable(rt, mode); err != nil {
+		if err := runtime.Usable(got, mode); err != nil {
 			return nil, "", err
 		}
-		grants, done := prepared[rt.Name()]
-		if !done {
-			p := rt.Permissions().Prepare(r.Path, places(r))
-			for _, n := range p.Notes {
-				e.say("%s", n)
-			}
-			for _, w := range p.Warnings {
-				fmt.Fprintln(e.stderr, w)
-			}
-			grants = p.Grants
-			prepared[rt.Name()] = grants
+		p := got.Permissions().Prepare(r.Path, places(r))
+		for _, n := range p.Notes {
+			e.say("%s", n)
 		}
+		for _, w := range p.Warnings {
+			fmt.Fprintln(e.stderr, w)
+		}
+		rt, grants = got, p.Grants
 		return rt, grants, nil
 	}
 }
@@ -142,7 +143,7 @@ func runUp(e *env) int {
 	}
 	values := e.conf(r)
 	u.Mode = e.mode(values)
-	u.Pick = e.picker(r, team, u.Mode, values)
+	u.Pick = e.picker(r, u.Mode)
 	protocol, _ := cadre.Assets.ReadFile("protocol.md")
 	u.Protocol = protocol
 	if u.Start(e.stdout) {
@@ -188,15 +189,13 @@ func (e *env) showSessions(t session.Tmux, list []session.Info, known map[string
 
 func runStop(e *env) int {
 	var pos []string
-	all, yes, withOrch := false, false, false
+	all, yes := false, false
 	for _, a := range e.args {
 		switch a {
 		case "--all":
 			all = true
 		case "--yes", "-y":
 			yes = true
-		case "--with-orchestrator":
-			withOrch = true
 		default:
 			if strings.HasPrefix(a, "-") {
 				return e.fail("usage: cadre stop [team[/role]] [project] [--all] [--yes]")
@@ -238,9 +237,6 @@ func runStop(e *env) int {
 	if all {
 		known = knownCadres()
 		list = session.All(t, known)
-		if withOrch {
-			list = append(list, orchestrators(t, "")...)
-		}
 		if len(list) == 0 {
 			e.say("no cadre sessions running")
 			return 0
@@ -252,9 +248,6 @@ func runStop(e *env) int {
 			return 1
 		}
 		list = scope(r).Running()
-		if withOrch {
-			list = append(list, orchestrators(t, r.Path)...)
-		}
 		if len(list) == 0 {
 			e.say("no sessions of cadre %s running", r.Name)
 			return 0
@@ -284,20 +277,6 @@ func runStop(e *env) int {
 	return 0
 }
 
-// orchestrators lists the orchestrator sessions in tmux, of the cadre at
-// home, or of every cadre for "". They come after the personas in a stop
-// list, so they stop last (K.4).
-func orchestrators(t session.Tmux, home string) []session.Info {
-	var out []session.Info
-	for _, i := range t.Sessions() {
-		if i.Role == "orchestrator" && (home == "" || i.Home == home) {
-			out = append(out, i)
-		}
-	}
-	return out
-}
-
-// knownCadres maps each known cadre's path to its name.
 func knownCadres() map[string]string {
 	known := map[string]string{}
 	list, _ := cadres.List()

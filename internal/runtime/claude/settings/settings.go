@@ -32,9 +32,9 @@ var Protect = []string{"Edit(//**/.claude/persona-settings.json)", "Bash(cadre a
 // Team folders (~/.cadre/<name>/teams) stay writable: personas work there.
 // Edit rules also cover the Write tool. The //**/.cadre globs also match a
 // folder named .cadre inside a project, which is harmless: cadre's own
-// files do not live in projects. They do not match an outside cadre or a
-// ~/.cadre reached through a symlink, so Export adds the same rules
-// spelled with physical paths (Places).
+// files do not live in projects. They do not match a cadre named by a
+// CADRE_HOME elsewhere or a ~/.cadre reached through a symlink, so Export
+// adds the same rules spelled with physical paths (Places).
 var cadreDeny = []string{"Edit(//**/.cadre/config/**)", "Edit(//**/.cadre/framework/**)",
 	"Edit(//**/.cadre/*/.claude/**)", "Edit(//**/.cadre/*/cadre.conf)", "Edit(//**/.cadre/*/personas/**)",
 	"Edit(//**/.cadre/*/playbook.md)", "Edit(//**/.cadre/*/protocol.md)", "Edit(//**/.cadre/*/projects.yaml)",

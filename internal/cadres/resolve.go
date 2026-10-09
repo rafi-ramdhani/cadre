@@ -20,9 +20,8 @@ func ProjectsDir() string { return expandHome(firstLine(Config("projects-dir")))
 func (c Cadre) Registry() string { return filepath.Join(c.Path, "projects.yaml") }
 
 // ProjectDir is where a cadre's project lives: its path (~ expanded, a
-// relative path taken from the cadre folder), else, for a cadre in
-// ~/.cadre, <projects-dir>/<name> ("" when no projects folder is set),
-// else, for an outside cadre, <cadre>/projects/<name> as in 0.1.x.
+// relative path taken from the cadre folder), else <projects-dir>/<name>
+// ("" when no projects folder is set).
 func ProjectDir(c Cadre, e *registry.Entry) string {
 	if p := e.Get("path"); p != "" {
 		p = expandHome(p)
@@ -30,9 +29,6 @@ func ProjectDir(c Cadre, e *registry.Entry) string {
 			p = filepath.Join(c.Path, p)
 		}
 		return p
-	}
-	if c.External {
-		return filepath.Join(c.Path, "projects", e.Name)
 	}
 	if d := ProjectsDir(); d != "" {
 		return filepath.Join(d, e.Name)
@@ -58,13 +54,13 @@ type Asker func(project string, names []string) (string, error)
 // Resolve finds the cadre for a command run in cwd (N.3), first match
 // first:
 //  1. CADRE_HOME, used as given (personas and the orchestrator have it set);
-//  2. cwd inside a cadre's folder (under ~/.cadre, or an outside cadre);
+//  2. cwd inside a cadre's folder under ~/.cadre;
 //  3. cwd inside a project a cadre links, the deepest one when projects
 //     nest; when several cadres link it, ask, or refuse without a terminal;
 //  4. the default cadre.
 //
-// Configuration is only read from ~/.cadre, the external list or
-// CADRE_HOME, never from a folder that merely looks like a cadre.
+// Configuration is only read from ~/.cadre or CADRE_HOME, never from a
+// folder that merely looks like a cadre.
 func Resolve(cwd string, ask Asker) (*Resolved, error) {
 	def := Default()
 	cwd = paths.Real(cwd)
@@ -81,7 +77,7 @@ func Resolve(cwd string, ask Asker) (*Resolved, error) {
 			}
 		}
 		if !ok {
-			c = Cadre{Name: filepath.Base(p), Path: p, External: !Inside(p)}
+			c = Cadre{Name: filepath.Base(p), Path: p}
 		}
 		return &Resolved{Cadre: c, From: "from CADRE_HOME", Default: def}, nil
 	}
@@ -119,7 +115,7 @@ func Resolve(cwd string, ask Asker) (*Resolved, error) {
 func checked(r *Resolved, list []Cadre) (*Resolved, error) {
 	for _, c := range list {
 		if c.Path != r.Path && strings.EqualFold(c.Name, r.Name) && c.Present() {
-			return nil, fmt.Errorf("cadres at %s and %s share the name %s; rename one of the folders, or forget one with cadre cadres remove <dir>", r.Path, c.Path, r.Name)
+			return nil, fmt.Errorf("cadres at %s and %s share the name %s; rename one of the folders", r.Path, c.Path, r.Name)
 		}
 	}
 	return r, nil

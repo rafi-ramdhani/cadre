@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/rafi-ramdhani/cadre/internal/proc"
 )
 
 func TestLock(t *testing.T) {
@@ -33,8 +36,12 @@ func TestLock(t *testing.T) {
 	if ReadLock(path) != nil {
 		t.Error("a reused pid was taken for the orchestrator")
 	}
+	if _, err := os.Stat(path); err != nil {
+		t.Error("reading a lock removed it")
+	}
+	ClearStale(path)
 	if _, err := os.Stat(path); err == nil {
-		t.Error("a stale lock was not removed")
+		t.Error("a stale lock was not cleared")
 	}
 	// A dead process is stale.
 	WriteLock(path, cmd.Process.Pid, Tmux, "", "cadre-work")
@@ -122,6 +129,7 @@ func TestALockCadreDidNotWriteIsStale(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatalf("%s blocked ReadLock", name)
 		}
+		ClearStale(path)
 		if _, err := os.Lstat(path); err == nil {
 			t.Errorf("%s was left in place", name)
 			os.Remove(path)
@@ -141,5 +149,43 @@ func TestALockCadreDidNotWriteIsStale(t *testing.T) {
 	RemoveLock(path, good)
 	if _, err := os.Stat(path); err == nil {
 		t.Error("our own lock was not removed")
+	}
+}
+
+// Lock fields are printed: a lock with a mode, terminal or session cadre
+// does not write is not read, so it cannot put escape sequences on the
+// user's terminal or skip the session check.
+func TestOnlyLocksCadreWritesAreRead(t *testing.T) {
+	path := LockPath(t.TempDir())
+	cmd := exec.Command("sleep", "30")
+	cmd.Start()
+	defer func() { cmd.Process.Kill(); cmd.Wait() }()
+	info, _ := proc.Of(cmd.Process.Pid)
+	write := func(mode, tty, session string) {
+		raw, _ := json.Marshal(Lock{PID: cmd.Process.Pid, Start: info.Start, Mode: mode, TTY: tty, Session: session})
+		os.WriteFile(path, raw, 0o600)
+	}
+	write(Terminal, "/dev/ttys004", "")
+	if ReadLock(path) == nil {
+		t.Fatal("a lock cadre writes was not read")
+	}
+	write(Tmux, "", "cadre-work")
+	if ReadLock(path) == nil {
+		t.Fatal("a tmux lock cadre writes was not read")
+	}
+	for _, bad := range []struct{ mode, tty, session string }{
+		{"x", "", ""},
+		{"", "", ""},
+		{Terminal, "/dev/tty\x1b]0;evil\x07", ""},
+		{Terminal, "ttys004", ""},
+		{Terminal, "", "cadre-work"},
+		{Tmux, "", "evil\x1b[2J"},
+		{Tmux, "", ""},
+		{Tmux, "/dev/ttys004", "cadre-work"},
+	} {
+		write(bad.mode, bad.tty, bad.session)
+		if ReadLock(path) != nil {
+			t.Errorf("read a lock with mode %q, tty %q, session %q", bad.mode, bad.tty, bad.session)
+		}
 	}
 }

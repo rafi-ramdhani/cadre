@@ -81,86 +81,34 @@ func TestInitAndUse(t *testing.T) {
 	}
 	refused(t, "no cadre named nope", "use", "nope")
 	t.Setenv("CADRE_PERSONA", "x")
-	for _, args := range [][]string{{"init", "x"}, {"use", "work"}, {"cadres", "add", "/x"}, {"cadres", "remove", "x"}} {
-		refused(t, "persona sessions cannot register or switch cadres", args...)
+	for _, args := range [][]string{{"init", "x"}, {"use", "work"}} {
+		refused(t, "persona sessions cannot create or switch cadres", args...)
 	}
 }
 
-func TestInitOutsideAndOldNames(t *testing.T) {
+// Cadres live only in ~/.cadre: the 0.1.x forms with a folder are gone.
+func TestInitAndUseTakeOnlyAName(t *testing.T) {
 	home := sandbox(t)
 	parent := filepath.Join(home, "Documents")
 	os.MkdirAll(parent, 0o755)
-	must(t, "init", "visible", parent)
-	if _, err := os.Stat(parent + "/visible/projects"); err != nil {
-		t.Error("the 0.1.x form made no projects/")
+	refused(t, "usage: cadre init <name>", "init", "visible", parent)
+	if _, err := os.Stat(parent + "/visible"); err == nil {
+		t.Error("a cadre was made outside ~/.cadre")
 	}
-	if b, _ := os.ReadFile(home + "/.cadre/config/external"); strings.TrimSpace(string(b)) != parent+"/visible" {
-		t.Errorf("external %q", b)
-	}
-	// 0.1.x's use <dir> still works, for a cadre anywhere.
 	os.MkdirAll(home+"/elsewhere/other/personas", 0o755)
-	out := must(t, "use", home+"/elsewhere/other")
-	if !strings.Contains(out, "default cadre: other") {
-		t.Errorf("use <dir>: %q", out)
-	}
+	refused(t, "no cadre named", "use", home+"/elsewhere/other")
 }
 
-func TestCadresAddRemove(t *testing.T) {
+func TestProjectPath(t *testing.T) {
 	home := sandbox(t)
 	must(t, "init", "work")
-	os.MkdirAll(home+"/x/side/personas", 0o755)
-	os.MkdirAll(home+"/x/WORK/personas", 0o755)
-	must(t, "cadres", "add", home+"/x/side")
-	refused(t, "already at", "cadres", "add", home+"/x/WORK")
-	refused(t, "not a cadre", "cadres", "add", home+"/x")
-	refused(t, "found without adding it", "cadres", "add", home+"/.cadre/work")
-	refused(t, "lives in ~/.cadre", "cadres", "remove", "work")
-	must(t, "use", "side")
-	refused(t, "is the default cadre", "cadres", "remove", "side")
-	must(t, "use", "work")
-	out := must(t, "cadres", "remove", "side")
-	if !strings.Contains(out, "its folder is untouched") {
-		t.Errorf("remove: %q", out)
-	}
-	if _, err := os.Stat(home + "/x/side/personas"); err != nil {
-		t.Error("the folder was touched")
-	}
-}
-
-func TestTeamPersonaAndProjects(t *testing.T) {
-	home := sandbox(t)
-	must(t, "init", "work")
-	must(t, "team", "add", "ops")
-	refused(t, "letters, digits", "team", "add", "../x")
-	out := must(t, "persona", "add", "ops/sre")
-	f := home + "/.cadre/work/personas/ops/sre.md"
-	if !strings.Contains(out, "created "+f) {
-		t.Errorf("persona add: %q", out)
-	}
-	if log, _ := exec.Command("git", "-C", home+"/.cadre/work", "log", "-1", "--format=%s").Output(); strings.TrimSpace(string(log)) != "Add persona ops/sre" {
-		t.Errorf("commit %q", log)
-	}
-	refused(t, "already exists", "persona", "add", "ops/sre")
-	refused(t, "usage", "persona", "add", "ops")
-	t.Setenv("CADRE_PERSONA", "x")
-	refused(t, "persona sessions cannot add teams", "team", "add", "evil")
-	refused(t, "persona sessions cannot add personas", "persona", "add", "ops/evil")
-	t.Setenv("CADRE_PERSONA", "")
-
 	os.MkdirAll(home+"/Developer/app", 0o755)
 	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte("app:\n  repo: me/app\n  team: dev\n  about: the app\n  path: ~/Developer/app\ngone:\n  repo: me/gone\n  team: dev\n  about: missing\n  path: ~/Developer/gone\n"), 0o644)
 	if out := must(t, "project", "path", "app"); strings.TrimSpace(out) != home+"/Developer/app" {
 		t.Errorf("project path: %q", out)
 	}
-	if out := must(t, "path", "app"); strings.TrimSpace(out) != home+"/Developer/app" {
-		t.Errorf("old name path: %q", out)
-	}
 	refused(t, "is not at", "project", "path", "gone")
 	refused(t, "neither a registry project nor a folder", "project", "path", "nope")
-	out = must(t, "projects")
-	if !strings.Contains(out, "  app            dev      the app") || !strings.Contains(out, "? gone") {
-		t.Errorf("projects: %q", out)
-	}
 	// A project of the cadre resolves the cadre from inside it.
 	t.Chdir(home + "/Developer/app")
 	if out := must(t, "project", "path", "app"); strings.TrimSpace(out) != home+"/Developer/app" {
@@ -173,7 +121,7 @@ func TestOldConfigIsMovedOnce(t *testing.T) {
 	os.MkdirAll(home+"/Documents/demo/personas", 0o755)
 	os.MkdirAll(home+"/.config/cadre", 0o755)
 	os.WriteFile(home+"/.config/cadre/home", []byte(home+"/Documents/demo\n"), 0o644)
-	code, _, errOut := call("projects")
+	code, _, errOut := call("ls", "--all")
 	if code != 0 || !strings.Contains(errOut, "moved cadre's settings") {
 		t.Errorf("first command: %d %q", code, errOut)
 	}
@@ -183,7 +131,7 @@ func TestOldConfigIsMovedOnce(t *testing.T) {
 	if _, err := os.Stat(home + "/.config/cadre.moved-to-0.2.0/home"); err != nil {
 		t.Error("the old folder was not kept aside")
 	}
-	_, _, errOut = call("projects")
+	_, _, errOut = call("ls", "--all")
 	if strings.Contains(errOut, "moved") {
 		t.Error("the move was announced twice")
 	}

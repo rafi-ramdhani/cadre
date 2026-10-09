@@ -86,8 +86,13 @@ func TestLsJSONShape(t *testing.T) {
 	os.WriteFile(home+"/.cadre/work/projects.yaml", []byte("app:\n  repo: me/app\n  team: dev\n  about: the app\n  path: ~/Developer/app\n"), 0o644)
 	must(t, "up", "dev/engineer")
 	tmuxIn(socket, "new-session", "-d", "-s", "cadre-dev", "-n", "pm", "sleep", "60")
+	// A mode the runtime lacks, so problems has an element.
+	os.WriteFile(home+"/.cadre/work/cadre.conf", []byte("PERMISSION_MODE=yolo\n"), 0o644)
 	checkShape(t, "ls-shape.json", must(t, "ls", "--json"))
 	checkShape(t, "ls-all-shape.json", must(t, "ls", "--all", "--json"))
+	if out := must(t, "ls", "--json"); !strings.Contains(out, `"runtime claude has no permission mode yolo`) {
+		t.Errorf("no problem listed: %s", out)
+	}
 	if out := must(t, "ls", "--json"); !strings.HasPrefix(out, "{\n  \"version\": 1,") {
 		t.Errorf("version first: %s", out[:40])
 	}

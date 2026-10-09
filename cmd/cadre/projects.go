@@ -210,6 +210,9 @@ func runProjectSync(e *env) int {
 			return 1
 		}
 	}
+	for _, w := range skippedEntries(r.Cadre) {
+		fmt.Fprintf(e.stderr, "warning: %s\n", w)
+	}
 	results, err := project.Sync(r.Cadre, dir, rt.Trust().Protected())
 	if err != nil {
 		return e.fail("%s", err)

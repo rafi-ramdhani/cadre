@@ -380,13 +380,14 @@ func projectsOf(c cadres.Cadre) []projectView {
 		return nil
 	}
 	var out []projectView
+	finder := project.NewFinder(cadres.ProjectsDir())
 	for _, entry := range reg.Entries() {
 		d := cadres.ProjectDir(c, entry)
 		v := projectView{Name: entry.Name, Repo: entry.Get("repo"), Team: entry.Get("team"), About: entry.Get("about"),
 			Path: d, State: cadres.Where(d)}
 		v.Cloned = v.State == "present"
 		if !v.Cloned {
-			v.Found = project.Found(cadres.ProjectsDir(), v.Repo)
+			v.Found = finder.Find(v.Repo)
 		}
 		out = append(out, v)
 	}

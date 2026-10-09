@@ -2,6 +2,9 @@ package cadres
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,11 +49,23 @@ func SetPlace(c Cadre, project, dir string) error {
 		return err
 	}
 	defer l.Release()
-	m := Places(c)
+	// The file is read whole: one that does not parse is refused rather
+	// than replaced, which would lose every other project's place.
+	m := map[string]json.RawMessage{}
+	raw, err := os.ReadFile(PlacesFile(c))
+	switch {
+	case err == nil:
+		if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+			return fmt.Errorf("%s is not a JSON object of project folders; fix or remove it (nothing was changed)", Tilde(PlacesFile(c)))
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
 	if dir == "" {
 		delete(m, project)
 	} else {
-		m[project] = Tilde(paths.Real(dir))
+		v, _ := json.Marshal(Tilde(paths.Real(dir)))
+		m[project] = v
 	}
 	if err := os.MkdirAll(filepath.Dir(PlacesFile(c)), 0o700); err != nil {
 		return err

@@ -241,6 +241,9 @@ func (c *Checker) command(rule, spec string) string {
 			}
 		}
 	}
+	for _, w := range rest {
+		c.commandPath(rule, w)
+	}
 	if base == "git" && wild {
 		return fmt.Sprintf("warning: %s lets git run other programs (git -c, aliases); prefer exact git commands", rule)
 	}
@@ -429,6 +432,105 @@ func (c *Checker) path(rule, tool, spec string) string {
 	return ""
 }
 
+// redirect is a redirection written onto its file (>x, 2>>x, <x).
+var redirect = regexp.MustCompile(`^[0-9]*[<>]+&?`)
+
+// ownNames are the names of a cadre's own files and folders, as a
+// relative path climbing out of a team folder (../../members) names them.
+var ownNames = []string{"members", "personas", ".claude", ".git", "playbook.md", "protocol.md", "projects.yaml", "cadre.conf"}
+
+// commandPath refuses a word of a Bash rule that names one of cadre's own
+// files: a member's shell could otherwise change what the fixed Edit
+// denies keep it from editing. Only words at or inside ~/.cadre or a known
+// cadre count, so a command on a folder that merely holds them (ls ~)
+// stays allowed; a relative word counts when it climbs out with "..".
+func (c *Checker) commandPath(rule, word string) {
+	w := redirect.ReplaceAllString(word, "")
+	if i := strings.Index(w, "="); i >= 0 && strings.HasPrefix(w, "-") {
+		w = w[i+1:] // --output=<path>
+	}
+	for _, home := range []string{"$HOME", "${HOME}"} {
+		if w == home || strings.HasPrefix(w, home+"/") {
+			w = "~" + w[len(home):]
+		}
+	}
+	full := ""
+	switch {
+	case strings.HasPrefix(w, "/"):
+		full = "/" + strings.TrimLeft(w, "/")
+		if strings.HasPrefix(cases.Fold().String(full), "/system/volumes/data/") {
+			full = full[len("/System/Volumes/Data"):]
+		}
+	case w == "~" || strings.HasPrefix(w, "~/"):
+		full = c.Home + w[1:]
+	default:
+		parts := strings.Split(w, "/")
+		climbs := false
+		for _, p := range parts {
+			if spells(normText(p), "..") {
+				climbs = true
+			}
+		}
+		if !climbs {
+			return
+		}
+		for _, p := range parts {
+			for _, name := range ownNames {
+				if spells(normText(p), name) {
+					refuse("refused: %s reaches a cadre's %s, which only the user changes, through the orchestrator; make that change yourself", rule, name)
+				}
+			}
+		}
+		return
+	}
+	head := fixedPart(full)
+	head = head[:strings.LastIndex(head, "/")+1]
+	if head == "" {
+		head = "/"
+	}
+	forms := []string{full, strings.TrimRight(paths.Real(head), "/") + "/" + full[len(head):]}
+	scopes := append([]string{c.Root}, c.Cadres...)
+	for _, f := range forms {
+		fixed := strings.TrimRight(fixedPart(f), "/")
+		inScope := false
+		for _, sc := range scopes {
+			if sc != "" && (paths.Within(fixed, sc) || paths.Within(fixed, paths.Real(sc))) {
+				inScope = true
+			}
+		}
+		if !inScope {
+			continue
+		}
+		for _, t := range c.own() {
+			real := paths.Real(t)
+			if strings.HasSuffix(t, "/") {
+				real += "/"
+			}
+			if reaches(f, t) || reaches(f, real) {
+				shown := strings.ReplaceAll(strings.TrimSuffix(t, "/"), anyName, "<cadre>")
+				refuse("refused: %s reaches %s, which only the user changes, through the orchestrator; make that change yourself", rule, shown)
+			}
+		}
+	}
+}
+
+// own lists cadre's own files and folders (ending in /): the config and
+// framework folders, and in every cadre (also ones made later) all but
+// its team folders. The fixed Edit denies cover the same set.
+func (c *Checker) own() []string {
+	var out []string
+	cadres := c.Cadres
+	if c.Root != "" {
+		out = append(out, c.Root+"/config/", c.Root+"/framework/")
+		cadres = append(append([]string{}, cadres...), c.Root+"/"+anyName)
+	}
+	for _, cadre := range cadres {
+		out = append(out, cadre+"/.claude/", cadre+"/members/", cadre+"/personas/", cadre+"/playbook.md",
+			cadre+"/protocol.md", cadre+"/projects.yaml", cadre+"/.git/", cadre+"/cadre.conf")
+	}
+	return out
+}
+
 // outside lists files and folders (ending in /) that run code outside a
 // member's session, and cadre's own state.
 func (c *Checker) outside() []string {
@@ -447,7 +549,7 @@ func (c *Checker) outside() []string {
 	}
 	for _, cadre := range cadres {
 		// A cadre's own files: everything but its team folders.
-		out = append(out, cadre+"/.claude/build/", cadre+"/.claude/", cadre+"/members/", cadre+"/playbook.md",
+		out = append(out, cadre+"/.claude/build/", cadre+"/.claude/", cadre+"/members/", cadre+"/personas/", cadre+"/playbook.md",
 			cadre+"/protocol.md", cadre+"/projects.yaml", cadre+"/.git/")
 	}
 	return out

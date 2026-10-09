@@ -180,6 +180,13 @@ func (u Up) writePrompt(build, key, role, memberFile string) (string, error) {
 // EnsureBuild makes the folder for generated prompts and settings copies,
 // ignored by the cadre's git through its own .gitignore.
 func EnsureBuild(build string) error {
+	// A cloned cadre can carry a committed link here; cadre writes its
+	// prompts, settings copies and locks only into a folder of its own.
+	for _, d := range []string{filepath.Dir(build), build} {
+		if st, err := os.Lstat(d); err == nil && !st.IsDir() {
+			return fmt.Errorf("%s is a link or a file, not a folder; cadre writes its generated files only into a folder of its own, so remove it and run again", d)
+		}
+	}
 	if err := os.MkdirAll(build, 0o755); err != nil {
 		return err
 	}

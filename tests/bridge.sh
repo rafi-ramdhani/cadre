@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The bridge for 0.1.x installs: installs cadre 0.1.x the way its README
 # said (install.sh on stdin, with the orchestrator hook), from tag v0.1.1
-# and from main as it is before the release, then pulls a new main that
+# and from the last 0.1.x main (511bce2), then pulls a new main that
 # merges this commit, as a 0.1.x user's git pull would. The old hook
 # must then exit 0 and print nothing, the old cadre command must print the
 # Cadrei line and exit 1, and the old skill link must reach the bridge
@@ -36,6 +36,10 @@ for tool in git tmux python3 jq; do
   command -v "$tool" >/dev/null || fail "$tool is needed to install 0.1.1"
 done
 git -C "$ROOT" rev-parse -q --verify 'v0.1.1^{commit}' >/dev/null || fail "the v0.1.1 tag is not here (fetch tags)"
+# The last main of 0.1.x, before the 0.2.0 release merge: the newest 0.1.x
+# a clone can be at. It is in main's history, so a full clone has it.
+last01=511bce2230546825ac4afe112b7b98a5d3b0ca0d
+git -C "$ROOT" rev-parse -q --verify "$last01^{commit}" >/dev/null || fail "commit $last01, the last 0.1.x main, is not here (fetch the full history)"
 
 # bridge <ref>: a 0.1.x install from <ref> (its main when the user
 # installed), then a pull of the new main: the merge of this commit into
@@ -89,9 +93,6 @@ bridge() {
 
 want="Cadre is now Cadrei: brew install rafi-ramdhani/cadrei/cadrei"
 bridge v0.1.1 tag
-# main as it is before the release merge, when this clone has it (CI does).
-if git -C "$ROOT" rev-parse -q --verify 'refs/remotes/origin/main^{commit}' >/dev/null; then
-  bridge refs/remotes/origin/main main
-fi
+bridge "$last01" last-main
 
 echo "$pass checks passed"

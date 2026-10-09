@@ -47,8 +47,14 @@ func runUninstall(e *env) int {
 	list, _ := cadres.List()
 
 	// The plan: only what this cadre made, and where it still points here.
-	var members, orchestrators []string
+	// Sessions started by 0.1.x are not this cadre's to stop: on a machine
+	// that runs 0.1.x too, they are the user's live sessions.
+	var members, orchestrators, legacy []string
 	for _, i := range session.All(t, known) {
+		if i.Home == "" {
+			legacy = append(legacy, i.Name)
+			continue
+		}
 		members = append(members, i.Name)
 	}
 	for _, i := range t.Sessions() {
@@ -113,6 +119,11 @@ func runUninstall(e *env) int {
 		step("remove cadre's pre-push check from %s", display(c.Path))
 	}
 	for _, d := range folders {
+		// A link is removed as a link; the folder it points to stays.
+		if st, err := os.Lstat(d); err == nil && st.Mode()&os.ModeSymlink != 0 {
+			step("remove the link %s (its folder %s is kept)", cadres.Tilde(d), display(d))
+			continue
+		}
 		step("remove %s", display(d))
 	}
 	if steps == 0 {
@@ -133,6 +144,9 @@ func runUninstall(e *env) int {
 	}
 	if hookOthers {
 		e.say("  orchestrator hooks that run another cadre")
+	}
+	if len(legacy) > 0 {
+		e.say("  sessions started by cadre 0.1.x, left running: %s", joinNames(legacy))
 	}
 	for _, name := range terminals {
 		e.say("  the orchestrator of %s open in a terminal: close it yourself", name)
@@ -181,10 +195,14 @@ func runUninstall(e *env) int {
 		}
 	}
 	for _, d := range folders {
+		what := display(d)
+		if st, err := os.Lstat(d); err == nil && st.Mode()&os.ModeSymlink != 0 {
+			what = "the link " + cadres.Tilde(d)
+		}
 		if err := os.RemoveAll(d); err != nil {
-			warn("remove "+display(d), err)
+			warn("remove "+what, err)
 		} else {
-			e.say("  removed %s", display(d))
+			e.say("  removed %s", what)
 		}
 	}
 	e.say("Uninstalled. Your cadres and projects are kept. To finish: %s", finish)

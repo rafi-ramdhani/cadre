@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -132,6 +133,23 @@ func TestRemove(t *testing.T) {
 	}
 	if removed, _ := Remove(t.TempDir()); removed {
 		t.Error("a folder that is not a repository")
+	}
+	// A binary whose path holds a quote is still cadre's own text.
+	os.Remove(hook)
+	Install(dir, "/opt/it's/cadre")
+	if removed, err := Remove(dir); !removed || err != nil {
+		t.Errorf("a quoted path: %v %v", removed, err)
+	}
+	// Lines the user added to cadre's hook are theirs: the file stays.
+	Install(dir, "/opt/cadre/bin/cadre")
+	raw, _ := os.ReadFile(hook)
+	changed := string(raw) + "echo my own check\n"
+	os.WriteFile(hook, []byte(changed), 0o755)
+	if removed, err := Remove(dir); removed || !errors.Is(err, ErrChanged) {
+		t.Errorf("a hook with the user's lines: %v %v", removed, err)
+	}
+	if b, _ := os.ReadFile(hook); string(b) != changed {
+		t.Error("the user's lines were lost")
 	}
 }
 

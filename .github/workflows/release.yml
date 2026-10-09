@@ -1,9 +1,14 @@
 name: Release
 
 # A v* tag builds the release with goreleaser (binaries for macOS and
-# Linux, amd64 and arm64, and checksums.txt), then attaches the Homebrew
-# formula made from those checksums. The tap (rafi-ramdhani/homebrew-cadre)
+# Linux, amd64 and arm64, and checksums.txt) as a draft, checks the
+# binaries, attaches the Homebrew formula made from those checksums, and
+# only then publishes the release. The tap (rafi-ramdhani/homebrew-cadre)
 # is updated by hand from that formula; this workflow never writes to it.
+#
+# Releases build with the Go version go.mod declares, as CI's go.mod leg
+# does. The actions are pinned to commits and goreleaser to one version,
+# since this job can write to the repository.
 on:
   push:
     tags: ["v*"]
@@ -15,16 +20,16 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: goreleaser/goreleaser-action@v7
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: "~> v2"
-          args: release --clean
+          version: v2.18.2
+          args: release --clean --draft
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: No test hooks in release binaries
@@ -39,3 +44,7 @@ jobs:
           packaging/homebrew/formula.sh "$GITHUB_REF_NAME" dist/checksums.txt > cadre.rb
           ruby -c cadre.rb
           gh release upload "$GITHUB_REF_NAME" cadre.rb
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false

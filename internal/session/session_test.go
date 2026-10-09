@@ -282,3 +282,101 @@ func TestStartPassesEveryArgumentAsItIs(t *testing.T) {
 		t.Error("a one-word command, which tmux runs through a shell, was started")
 	}
 }
+
+func TestStartFolderIsNotAFormat(t *testing.T) {
+	tm := private(t)
+	base, _ := filepath.EvalSymlinks(t.TempDir())
+	// tmux expands -c as a format; this folder must stay itself, for a
+	// new session and for a new window in it.
+	dir := filepath.Join(base, "a#{session_name}#(echo hi)##b")
+	os.MkdirAll(dir, 0o755)
+	for _, w := range []string{"one", "two"} {
+		if err := tm.Start(StartSpec{Session: "cadre-hash", Window: w, Dir: dir, Argv: []string{"sleep", "30"}}); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := tm.run("display-message", "-p", "-t", "=cadre-hash:="+w, "#{pane_current_path}")
+		if got != dir {
+			t.Errorf("window %s started in %q, not %q", w, got, dir)
+		}
+	}
+}
+
+func TestRecordedValuesComeBackAsTheyAre(t *testing.T) {
+	tm := private(t)
+	dir := t.TempDir()
+	for _, v := range []string{"/a\nb", "/a\rb", "/a\tb", "/a\x1fb", "/a\x7fb", "/a\xffb", `/a\$HOME`, `/a\${x}`} {
+		err := tm.Start(StartSpec{Session: "cadre-bad", Window: "w", Dir: dir, Argv: []string{"sleep", "30"},
+			SessionOptions: []Option{{"@cadre_home", v}}})
+		if err == nil || tm.Has("cadre-bad") {
+			t.Errorf("%q was recorded", v)
+		}
+		if err := tm.Start(StartSpec{Session: "cadre-bad", Window: "w", Dir: dir, Argv: []string{"sleep", "30"},
+			WindowOptions: []Option{{"@cadre_persona", v}}}); err == nil {
+			t.Errorf("%q was recorded on a window", v)
+		}
+		tm.KillSession("cadre-bad")
+	}
+	// What may be recorded is read back exactly, even in a C locale, where
+	// tmux would turn non-ASCII characters into "_" for a client it does
+	// not know to be UTF-8.
+	for _, v := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		t.Setenv(v, "C")
+	}
+	home := `/Users/josé/my cadre;\ "x" 'y' $HOME #{z} 日本`
+	err := tm.Start(StartSpec{Session: "cadre-ok", Window: "w-1", Dir: dir, Argv: []string{"sleep", "30"},
+		SessionOptions: []Option{{"@cadre_home", home}, {"@cadre_team", "dev"}, {"@cadre_target", "ü"}},
+		WindowOptions:  []Option{{"@cadre_persona", "ok-dev-w-1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := tm.Sessions()
+	if len(list) != 1 || list[0].Home != home || list[0].Team != "dev" || list[0].Target != "ü" {
+		t.Errorf("Sessions read back %+v", list)
+	}
+	if p := tm.Personas(); len(p) != 1 || p[0] != (Persona{"cadre-ok", "w-1", "ok-dev-w-1"}) {
+		t.Errorf("Personas read back %+v", p)
+	}
+	if tm.Option("cadre-ok", "@cadre_home") != home {
+		t.Errorf("Option read back %q", tm.Option("cadre-ok", "@cadre_home"))
+	}
+	if tm.SetOption("cadre-ok", "@cadre_target", "x\ny") == nil || tm.SetWindowOption("cadre-ok", "w-1", "@cadre_persona", "x\ty") == nil {
+		t.Error("a control character was set")
+	}
+}
+
+// tmux 3.4 writes command output through vis(3) with VIS_OCTAL|VIS_CSTYLE,
+// which escapes every control character but tab and newline: a separator
+// of any other control character (the old \x1f) never reaches cadre.
+func TestTheSeparatorSurvivesTmuxOutput(t *testing.T) {
+	for _, b := range []byte(sep) {
+		if b != '\t' && (b < 0x20 || b >= 0x7f) {
+			t.Errorf("separator byte %#x is escaped by tmux 3.4", b)
+		}
+	}
+	if recordable("x", "a"+sep+"b") == nil {
+		t.Error("a value holding the separator can be recorded")
+	}
+}
+
+// tmux 3.4 writes "$" before a letter, "_" or "{" as "\$" (utf8_strvis);
+// later versions write it as it is. Both read back as the value.
+func TestDollarsReadBackFromEitherTmux(t *testing.T) {
+	for _, v := range []string{`$HOME/x`, `a$_b`, `${x}`, `$1 $ $`, `a\b`, `\$1`, `x$`, `\`} {
+		if err := recordable("v", v); err != nil {
+			t.Fatalf("%q refused: %v", v, err)
+		}
+		var escaped strings.Builder
+		for i := 0; i < len(v); i++ {
+			if v[i] == '$' && i+1 < len(v) && dollarEscaped(v[i+1]) {
+				escaped.WriteByte('\\')
+			}
+			escaped.WriteByte(v[i])
+		}
+		if got := unescape(escaped.String()); got != v {
+			t.Errorf("from tmux 3.4: %q read back as %q", v, got)
+		}
+		if got := unescape(v); got != v {
+			t.Errorf("from a later tmux: %q read back as %q", v, got)
+		}
+	}
+}

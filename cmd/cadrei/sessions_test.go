@@ -145,8 +145,9 @@ func TestUpRefusesACollision(t *testing.T) {
 	refused(t, "belongs to cadrei work (/elsewhere/work)", "up", "dev/reviewer")
 }
 
-// A cadrei- session without markers is not a 0.1.x one: ls, ls --all and
-// uninstall say it has no markers, never that it is legacy.
+// A cadrei- session without markers is not a 0.1.x one: up, stop, attach,
+// ls, ls --all and uninstall say it has no markers, never that it is legacy
+// or not running.
 func TestASessionWithoutMarkersIsNotLegacy(t *testing.T) {
 	home := sandbox(t)
 	socket := withTmux(t, home)
@@ -166,9 +167,29 @@ func TestASessionWithoutMarkersIsNotLegacy(t *testing.T) {
 	if len(st.Legacy) != 0 || len(st.Unknown) != 1 || st.Unknown[0].Session != "cadrei-work-dev" || st.Unknown[0].Legacy {
 		t.Errorf("ls --all --json: legacy %v, unknown %v", st.Legacy, st.Unknown)
 	}
-	if code, out, errOut := call("up", "dev/engineer"); code == 0 || !strings.Contains(out+errOut, "without cadrei's markers") {
-		t.Errorf("up: %d %q %q", code, out, errOut)
+	// up, stop and attach say the same, and only ls --all lists it.
+	want := "a session named cadrei-work-dev exists without cadrei's markers; stop it with tmux kill-session -t cadrei-work-dev"
+	refused(t, want, "up", "dev/engineer")
+	refused(t, want, "attach", "dev")
+	for _, target := range []string{"dev", "dev/engineer"} {
+		if out := must(t, "stop", target); !strings.Contains(out, want) || strings.Contains(out, "not running") {
+			t.Errorf("stop %s: %q", target, out)
+		}
 	}
+	if tmuxIn(socket, "has-session", "-t", "=cadrei-work-dev:") != "" {
+		t.Error("stop stopped it")
+	}
+	if out := must(t, "ls"); !strings.Contains(out, "1 session without cadrei's markers; see cadrei ls --all") {
+		t.Errorf("ls has no pointer:\n%s", out)
+	}
+	tmuxIn(socket, "new-session", "-d", "-s", "cadrei-other-qa", "sleep", "60")
+	if out := must(t, "ls"); !strings.Contains(out, "2 sessions without cadrei's markers; see cadrei ls --all") {
+		t.Errorf("ls with two:\n%s", out)
+	}
+	if out := must(t, "ls", "--json"); strings.Contains(out, "markers") {
+		t.Errorf("ls --json carries the pointer:\n%s", out)
+	}
+	tmuxIn(socket, "kill-session", "-t", "=cadrei-other-qa:")
 	out = must(t, "uninstall", "--dry-run")
 	if !strings.Contains(out, "sessions without cadrei's markers, left running: cadrei-work-dev") || strings.Contains(out, "0.1.x, left running") {
 		t.Errorf("uninstall plan:\n%s", out)
@@ -312,15 +333,20 @@ func TestLsNamesWhatCannotStart(t *testing.T) {
 }
 
 // A session with this cadrei's home but no team markers (a start that died
-// early, or one made by hand): up refuses with how to stop it, and starts
-// no member in it.
+// early, or one made by hand): up, attach and stop say how to stop it, and
+// no member starts in it.
 func TestUpRefusesASessionWithoutMarkers(t *testing.T) {
 	home := sandbox(t)
 	socket := withTmux(t, home)
 	must(t, "init", "work")
 	tmuxIn(socket, "new-session", "-d", "-s", "cadrei-work-dev", "-n", "x", "sleep", "60")
 	tmuxIn(socket, "set-option", "-q", "-t", "=cadrei-work-dev:", "@cadrei_home", home+"/.cadrei/work")
-	refused(t, "a session named cadrei-work-dev exists without cadrei's markers; stop it with tmux kill-session -t cadrei-work-dev, or cadrei stop --yes", "up", "dev/engineer")
+	want := "a session named cadrei-work-dev exists without cadrei's markers; stop it with tmux kill-session -t cadrei-work-dev, or cadrei stop --yes"
+	refused(t, want, "up", "dev/engineer")
+	refused(t, want, "attach", "dev")
+	if out := must(t, "stop", "dev"); !strings.Contains(out, want) {
+		t.Errorf("stop: %q", out)
+	}
 	if out := tmuxIn(socket, "list-windows", "-t", "=cadrei-work-dev:", "-F", "#W"); out != "x" {
 		t.Errorf("a member started in it: %q", out)
 	}

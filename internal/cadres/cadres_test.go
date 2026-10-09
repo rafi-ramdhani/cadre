@@ -340,3 +340,28 @@ func TestResolveThroughAnotherSpelling(t *testing.T) {
 		t.Errorf("CADRE_HOME in another case: %+v", r)
 	}
 }
+
+// A places file that does not parse is refused, not replaced: replacing it
+// would lose every other project's place. Entries cadre does not read are
+// kept as they are.
+func TestABrokenPlacesFileIsKept(t *testing.T) {
+	home := fakeHome(t, true)
+	w := Cadre{Name: "w", Path: home + "/.cadre/w"}
+	SetPlace(w, "a", "/elsewhere/a")
+	for _, bad := range []string{"not json", "null", `["a"]`} {
+		os.WriteFile(PlacesFile(w), []byte(bad), 0o600)
+		if err := SetPlace(w, "b", "/elsewhere/b"); err == nil || !strings.Contains(err.Error(), "fix or remove it (nothing was changed)") {
+			t.Errorf("%s: %v", bad, err)
+		}
+		if raw, _ := os.ReadFile(PlacesFile(w)); string(raw) != bad {
+			t.Errorf("%s was replaced with %s", bad, raw)
+		}
+	}
+	os.WriteFile(PlacesFile(w), []byte(`{"x": 1, "a": "/elsewhere/a"}`), 0o600)
+	if err := SetPlace(w, "b", "/elsewhere/b"); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(PlacesFile(w)); !strings.Contains(string(raw), `"x": 1`) || Place(w, "a") != "/elsewhere/a" || Place(w, "b") != "/elsewhere/b" {
+		t.Errorf("places file:\n%s", raw)
+	}
+}

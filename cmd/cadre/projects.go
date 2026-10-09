@@ -75,7 +75,7 @@ func runProjectDir(e *env) int {
 		}
 		return 0
 	case 1:
-		if e.persona("change where projects are cloned") || !e.home() {
+		if e.persona("change where projects are cloned") {
 			return 1
 		}
 		// Every runtime's protected folders; in 0.2.0, Claude Code's.

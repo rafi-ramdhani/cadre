@@ -19,7 +19,7 @@ import (
 // arguments, environment and folder, then waits for a release file.
 func stubClaude(t *testing.T, home string) {
 	t.Helper()
-	os.WriteFile(home+"/bin/claude", []byte("#!/bin/sh\n{ printf '%s\\n' \"$@\"; env; pwd; } > \""+home+"/orch-ran\"\n"+
+	os.WriteFile(home+"/bin/claude", []byte("#!/bin/sh\n"+stubAnswers+"{ printf '%s\\n' \"$@\"; env; pwd; } > \""+home+"/orch-ran\"\n"+
 		"i=0; while [ ! -e \""+home+"/release\" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done\n"), 0o755)
 }
 

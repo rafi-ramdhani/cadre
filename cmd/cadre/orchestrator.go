@@ -43,16 +43,25 @@ func runPlain(e *env) int {
 	if e.persona("start the orchestrator") || !e.home() {
 		return 1
 	}
+	rt, err := runtime.Get(runtimeName())
+	if err != nil {
+		return e.fail("%s", err)
+	}
+	first := false
 	if list, _ := cadres.List(); len(list) == 0 {
-		return e.fail("no cadre yet; create one with cadre init <name>")
+		if !e.firstRun(rt) {
+			return 1
+		}
+		first = true
 	}
 	r, ok := e.resolve()
 	if !ok {
 		return 1
 	}
-	e.openingNotes(r)
-	rt, ok := e.cadreRuntime(r)
-	if !ok {
+	if !first {
+		e.openingNotes(r)
+	}
+	if _, fatal := e.health(rt, first); fatal {
 		return 1
 	}
 	if err := runtime.CanOrchestrate(rt); err != nil {
@@ -61,6 +70,11 @@ func runPlain(e *env) int {
 	mode := e.mode(e.conf(r))
 	if err := runtime.Usable(rt, mode); err != nil {
 		return e.fail("%s", err)
+	}
+	if first {
+		e.say("%s", greeting)
+	} else {
+		e.missingProjects(r)
 	}
 	if useTmux && !e.tmuxReady() {
 		return 1

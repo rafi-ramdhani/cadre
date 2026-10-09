@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rafi-ramdhani/cadre/internal/cadres"
 	"github.com/rafi-ramdhani/cadre/internal/testguard"
 )
 
@@ -38,6 +39,12 @@ func sandbox(t *testing.T) string {
 	socket := fmt.Sprintf("cadre-gotest-%d-%d", os.Getpid(), time.Now().UnixNano())
 	t.Setenv("CADRE_TMUX_SOCKET", socket)
 	t.Cleanup(func() { exec.Command("tmux", "-L", socket, "kill-server").Run() })
+	// A machine set up and checked: the skill linked, this version's full
+	// health check done. Tests of the first run and the health check undo
+	// this.
+	os.MkdirAll(home+"/.claude/skills", 0o755)
+	os.Symlink(home+"/.cadre/framework/skills/cadre", home+"/.claude/skills/cadre")
+	cadres.SetState(cadres.CheckedVersion, version)
 	testguard.Check(t)
 	return home
 }
@@ -66,8 +73,13 @@ func TestInitAndUse(t *testing.T) {
 	if !strings.Contains(out, "created "+home+"/.cadre/work") || !strings.Contains(out, "work is the default cadre") {
 		t.Errorf("init work: %q", out)
 	}
-	if b, _ := os.ReadFile(home + "/.cadre/work/playbook.md"); !strings.Contains(string(b), "work") {
+	if b, _ := os.ReadFile(home + "/.cadre/work/README.md"); !strings.HasPrefix(string(b), "# work\n") {
 		t.Error("the template was not written from the embedded assets")
+	}
+	// The starter team: dev, with an engineer and a reviewer.
+	roles, _ := filepath.Glob(home + "/.cadre/work/personas/*/*.md")
+	if len(roles) != 2 || filepath.Base(roles[0]) != "engineer.md" || filepath.Base(roles[1]) != "reviewer.md" {
+		t.Errorf("starter team %v", roles)
 	}
 	out = must(t, "init", "life")
 	if !strings.Contains(out, "default cadre stays work") {

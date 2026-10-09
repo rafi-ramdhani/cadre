@@ -31,7 +31,10 @@ func (e *env) interactive() bool {
 // ask prints question on stderr and reads one line of answer.
 func (e *env) ask(question string) string {
 	fmt.Fprint(e.stderr, question)
-	line, _ := bufio.NewReader(e.stdin).ReadString('\n')
+	if e.lines == nil {
+		e.lines = bufio.NewReader(e.stdin)
+	}
+	line, _ := e.lines.ReadString('\n')
 	return strings.TrimSpace(line)
 }
 

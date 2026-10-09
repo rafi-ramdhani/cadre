@@ -70,12 +70,12 @@ func init() {
 		{name: "allow add", usage: "[--once] <rule> | [--once] --auto \"<text>\"", summary: "grant a rule or a plain-English allowance to personas", group: "Permissions", run: runAllowAdd},
 		{name: "allow remove", usage: "<rule|number|--once>", summary: "remove a grant, or every one-time grant", group: "Permissions", run: runAllowRemove},
 
-		{name: "--check", summary: "the full health check", group: "Health", run: notBuilt("cadre --check")},
+		{name: "--check", summary: "the full health check", group: "Health", run: runCheck},
 
 		{name: "ls --json", summary: "the status screen's data, for the orchestrator", group: "Data", run: runLsJSON},
 
 		// Hidden: run by Claude Code and git as hooks.
-		{name: "hook orchestrator", hidden: true, run: notBuilt("cadre hook orchestrator")},
+		{name: "hook orchestrator", hidden: true, run: runHookOrchestrator},
 		{name: "hook session", hidden: true, run: notBuilt("cadre hook session")},
 		{name: "hook pre-push", hidden: true, run: notBuilt("cadre hook pre-push")},
 	}

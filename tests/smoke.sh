@@ -36,10 +36,22 @@ trap 'command tmux -L "$CADRE_TMUX_SOCKET" kill-server 2>/dev/null || true; rm -
 # the JSON race hook), and a release build for the checks that need one.
 (cd "$ROOT" && go build -tags cadretest -o "$T/bin/cadre" ./cmd/cadre && go build -o "$T/rel/cadre" ./cmd/cadre)
 
-# A stand-in for Claude Code that records its arguments and stays alive
+# A stand-in for Claude Code: it answers the health check as a current,
+# logged-in install; an orchestrator records its arguments and, in the
+# terminal, ends at once; a persona records its arguments and stays alive
 # like a session would.
 cat > "$T/bin/claude" <<EOF
 #!/bin/sh
+case "\$1 \$2" in
+  '--version '*) echo '2.1.300 (Claude Code)'; exit 0 ;;
+  'auth status') echo '{"loggedIn": true}'; exit 0 ;;
+esac
+if [ -n "\$CADRE_ORCHESTRATOR" ]; then
+  { printf '%s\\n' "\$@"; env; pwd; } > "$T/orch-ran"
+  # In the terminal it ends at once; in tmux it stays, like a session.
+  if [ -n "\$TMUX" ]; then exec sleep 300; fi
+  exit 0
+fi
 printf '%s\\n' "\$@" > "$T/args-\$CADRE_PERSONA"
 printf '%s\\n' "\$CADRE_HOME" > "$T/home-\$CADRE_PERSONA"
 exec sleep 300
@@ -92,6 +104,28 @@ for root in sys.argv[1:]:
         if "\u2014" in open(p, encoding="utf-8", errors="replace").read():
             sys.exit("em dash in " + p)' "$ROOT/cmd" "$ROOT/internal" "$ROOT/assets.go" "$ROOT/orchestrator.md" "$ROOT/bin" "$ROOT/install.sh" "$ROOT/tests" "$ROOT/skills" \
   "$ROOT/template" "$ROOT/protocol.md" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$ROOT/SECURITY.md" "$ROOT/docs" "$ROOT/CONTRIBUTING.md" "$ROOT/.github"
+
+echo "first run"
+out=$(cadre </dev/null 2>&1 || true)
+check "without a terminal it says what to run" grep -q "run cadre in a terminal to set one up" <<<"$out"
+check "and creates nothing" test ! -e "$HOME/.cadre/config/default"
+mkdir -p "$T/start" && cd "$T/start"
+out=$(printf 'new\nfirst\ny\ny\n' | CADRE_TEST_TTY=1 cadre 2>&1)
+check "a new cadre with the starter team" bash -c "test -f '$HOME/.cadre/first/personas/dev/engineer.md' -a -f '$HOME/.cadre/first/personas/dev/reviewer.md' && test \"\$(ls '$HOME/.cadre/first/personas')\" = dev"
+check "it is the default" grep -qx first "$HOME/.cadre/config/default"
+check "the skill is written out and linked, after a yes" test "$(readlink "$HOME/.claude/skills/cadre")" = "$HOME/.cadre/framework/skills/cadre" -a -f "$HOME/.cadre/framework/skills/cadre/SKILL.md"
+check "the hook runs this binary, after a yes" grep -q "$T/bin/cadre hook orchestrator" "$HOME/.claude/settings.json"
+check "the greeting" grep -q "Your cadre is ready. Tell me which repo to work on" <<<"$out"
+check "then the orchestrator opens" grep -qx first-orchestrator "$T/orch-ran"
+check "the hook makes a session the orchestrator" bash -c "cadre hook orchestrator </dev/null | grep -q '\"additionalContext\": *\"This session is the cadre orchestrator'"
+check "and is silent in a persona, with CADRE_OFF and in a cadre orchestrator" bash -c "test -z \"\$(CADRE_PERSONA=x cadre hook orchestrator)\$(CADRE_OFF=1 cadre hook orchestrator)\$(CADRE_ORCHESTRATOR=1 cadre hook orchestrator)\""
+check "--check: everything in order" bash -c "cadre --check | grep -q 'everything is in order'"
+ln -sfn "$T/elsewhere-skill" "$HOME/.claude/skills/cadre"
+check "--check names a wrong skill link, with its fix" bash -c "cadre --check </dev/null 2>&1 | grep -q 'the cadre skill links to' && cadre --check </dev/null 2>&1 | grep -q 'fix:'"
+ln -sfn "$HOME/.cadre/framework/skills/cadre" "$HOME/.claude/skills/cadre"
+# The rest of the suite starts from a machine with no cadre yet.
+mv "$HOME/.cadre/first" "$T/first.away"; rm "$HOME/.cadre/config/default"; rm -f "$T/orch-ran"
+cd "$T"
 
 echo "layout (N.1)"
 out=$(cadre init demo)
@@ -285,10 +319,12 @@ check "and its ls does not show demo's" bash -c "! cadre ls | grep -q 'dev app'"
 tm new-session -d -s cadre-dev -n pm "sleep 300"
 check "a legacy session shows in the default cadre" bash -c "cd '$C' && cadre ls | grep -q 'dev (legacy)'"
 check "and not in another" bash -c "! cadre ls | grep -q legacy"
-tm new-session -d -s cadre-life-research "sleep 300"
-tm set-option -t =cadre-life-research: @cadre_home /elsewhere/life
-check "up refuses a session name another cadre holds" bash -c "cadre up research/writer 2>&1 | grep -q 'belongs to cadre life (/elsewhere/life)'"
-tm kill-session -t =cadre-life-research
+mkdir -p personas/qa && printf '# Persona: tester\n' > personas/qa/tester.md
+tm new-session -d -s cadre-life-qa "sleep 300"
+tm set-option -t =cadre-life-qa: @cadre_home /elsewhere/life
+check "up refuses a session name another cadre holds" bash -c "cadre up qa/tester 2>&1 | grep -q 'belongs to cadre life (/elsewhere/life)'"
+tm kill-session -t =cadre-life-qa
+rm -r personas/qa
 check "stop without a terminal asks for --yes" bash -c "! cadre stop </dev/null 2>/dev/null && cadre stop </dev/null 2>&1 | grep -q 'run with --yes'"
 check "persona sessions cannot stop a whole cadre" bash -c "! CADRE_PERSONA=x cadre stop --all --yes 2>/dev/null"
 out=$(cadre stop --yes)
@@ -539,18 +575,6 @@ for tool in tmux git; do ln -s "$(command -v "$tool")" "$T/nopy/$tool"; done
 check "no python needed: cadre runs with only tmux and git on PATH" bash -c "! PATH='$T/nopy' command -v python3 && PATH='$T/nopy' '$T/bin/cadre' ls >/dev/null"
 
 echo "the orchestrator (M.3, K)"
-cat > "$T/bin/claude" <<EOF
-#!/bin/sh
-if [ -n "\$CADRE_ORCHESTRATOR" ]; then
-  { printf '%s\\n' "\$@"; env; pwd; } > "$T/orch-ran"
-  # In the terminal it ends at once; in tmux it stays, like a session.
-  if [ -n "\$TMUX" ]; then exec sleep 300; fi
-  exit 0
-fi
-printf '%s\\n' "\$@" > "$T/args-\$CADRE_PERSONA"
-printf '%s\\n' "\$CADRE_HOME" > "$T/home-\$CADRE_PERSONA"
-exec sleep 300
-EOF
 cd "$T"
 out=$(cadre </dev/null)
 check "plain cadre opens the default, and says so" grep -q "Opening your default cadre demo (~/.cadre/demo)" <<<"$out"

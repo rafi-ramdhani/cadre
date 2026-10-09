@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -23,6 +24,7 @@ type env struct {
 	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
+	lines  *bufio.Reader // stdin, read by ask, one reader for every question
 }
 
 func (e *env) say(format string, a ...any) { fmt.Fprintf(e.stdout, format+"\n", a...) }

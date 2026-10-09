@@ -44,13 +44,16 @@ func cadreDir(t *testing.T, name string) (string, string) {
 // stubRuntime runs a stub program in place of an agent CLI.
 type stubRuntime struct{ bin string }
 
-func (s stubRuntime) Name() string                       { return "stub" }
-func (s stubRuntime) Title() string                      { return "Stub" }
-func (s stubRuntime) Caps() runtime.Capabilities         { return runtime.Capabilities{} }
-func (s stubRuntime) Detect() (runtime.Install, error)   { return runtime.Install{Path: s.bin}, nil }
-func (s stubRuntime) BuildDir(cadre string) string       { return filepath.Join(cadre, ".build") }
-func (s stubRuntime) Permissions() runtime.PermissionOps { return nil }
-func (s stubRuntime) Trust() runtime.TrustOps            { return nil }
+func (s stubRuntime) Name() string                            { return "stub" }
+func (s stubRuntime) Title() string                           { return "Stub" }
+func (s stubRuntime) Caps() runtime.Capabilities              { return runtime.Capabilities{} }
+func (s stubRuntime) Detect() (runtime.Install, error)        { return runtime.Install{Path: s.bin}, nil }
+func (s stubRuntime) BuildDir(cadre string) string            { return filepath.Join(cadre, ".build") }
+func (s stubRuntime) Permissions() runtime.PermissionOps      { return nil }
+func (s stubRuntime) Trust() runtime.TrustOps                 { return nil }
+func (s stubRuntime) Health(bool, []string) []runtime.Problem { return nil }
+func (s stubRuntime) Instructions() runtime.InstructionOps    { return nil }
+func (s stubRuntime) Hooks() runtime.HookOps                  { return nil }
 func (s stubRuntime) Launch(l runtime.LaunchSpec) (runtime.Command, error) {
 	return runtime.Command{Argv: []string{s.bin, "--name", l.Name, "--mode", l.Mode, "--prompt", l.PromptFile}}, nil
 }

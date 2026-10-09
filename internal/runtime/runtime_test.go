@@ -15,6 +15,9 @@ func (t testRuntime) Launch(LaunchSpec) (Command, error) { return Command{}, nil
 func (t testRuntime) BuildDir(string) string             { return "" }
 func (t testRuntime) Permissions() PermissionOps         { return nil }
 func (t testRuntime) Trust() TrustOps                    { return nil }
+func (t testRuntime) Health(bool, []string) []Problem    { return nil }
+func (t testRuntime) Instructions() InstructionOps       { return nil }
+func (t testRuntime) Hooks() HookOps                     { return nil }
 
 func TestTheDefaultRuntime(t *testing.T) {
 	RegisterDefault(testRuntime{})

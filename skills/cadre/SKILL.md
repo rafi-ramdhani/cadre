@@ -100,7 +100,7 @@ The same restart applies to a lasting grant that a running member needs now.
 
 ## Bringing in a cadre from 0.1.x
 
-When the user asks to "bring in my old cadre from <path>" (cadre points them here when it finds one), copy what the old cadre holds into this one. There is no command for it: you do it, with the user's yes.
+When the user asks to "bring in my old cadre from <path>" (cadre points them here when it finds one), copy what the old cadre holds into this one. Read "bring in my old cadrei" and similar wording the same way: users mix the old and new names. There is no command for it: you do it, with the user's yes.
 
 **The old layout** (cadre 0.1.x): a folder with `playbook.md`; `projects.yaml` (each project's `repo`, `team`, `about`; the projects themselves cloned in `<old>/projects/<name>`); `cadre.conf` (written as shell: only plain `KEY=VALUE` lines count); `protocol.md`; `personas/<team>/<role>.md` with `.workdir` pins; and grants in `.claude/persona-settings.json` (one-time ones listed in `.once`). `~/.config/cadre/home` names the old default cadre.
 

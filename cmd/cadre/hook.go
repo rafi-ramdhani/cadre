@@ -7,10 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	cadre "github.com/rafi-ramdhani/cadre"
 	"github.com/rafi-ramdhani/cadre/internal/backup"
+	"github.com/rafi-ramdhani/cadre/internal/cadres"
+	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
+	"github.com/rafi-ramdhani/cadre/internal/session"
 )
 
 // runHookOrchestrator is the hidden cadre hook orchestrator: the session
@@ -55,4 +59,42 @@ func runHookPrePush(e *env) int {
 	}
 	fmt.Fprintln(e.stderr, "Take them out of the commits being pushed (the history, not only the last commit), then push again.")
 	return 1
+}
+
+// runHookSession is the hidden cadre hook session, the session start hook
+// in every member's settings copy: when the member's session starts, or
+// starts over after /clear or /compact, it records the conversation id it
+// now has, so the next start resumes the right conversation. It writes
+// only a record of a cadre cadre knows, for a name cadre makes, and it
+// never fails.
+func runHookSession(e *env) int {
+	name, home := os.Getenv("CADRE_MEMBER"), os.Getenv("CADRE_HOME")
+	if name == "" || home == "" {
+		return 0
+	}
+	known := false
+	list, _ := cadres.List()
+	for _, c := range list {
+		if c.Path == paths.Real(home) {
+			known = true
+		}
+	}
+	rt, err := runtime.Get(runtimeName())
+	if !known || err != nil {
+		return 0
+	}
+	record := session.RecordPath(rt.BuildDir(paths.Real(home)), name)
+	id := rt.Sessions().FromHook(e.stdin)
+	if record == "" || id == "" {
+		return 0
+	}
+	dir, _ := paths.Getwd()
+	if r := session.ReadRecord(record); r != nil {
+		if r.ID == id {
+			return 0
+		}
+		dir = r.Dir // the folder it was started in
+	}
+	session.WriteRecord(record, session.Record{ID: id, Dir: dir, Since: time.Now()})
+	return 0
 }

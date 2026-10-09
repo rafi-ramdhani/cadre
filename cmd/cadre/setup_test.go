@@ -432,3 +432,46 @@ func TestALastingFindingDoesNotSlowEveryStart(t *testing.T) {
 		t.Errorf("a declined skill link was asked about again: %q", errOut)
 	}
 }
+
+// The session hook in a member's settings copy keeps its record current
+// when /clear or /compact gives it a new conversation id.
+func TestHookSession(t *testing.T) {
+	home := sandbox(t)
+	must(t, "init", "work")
+	c := home + "/.cadre/work"
+	record := c + "/.claude/build/sessions/work-dev-engineer.json"
+	os.MkdirAll(c+"/.claude/build/sessions", 0o755)
+	os.WriteFile(record, []byte(`{"id":"11111111-2222-4333-8444-555555555555","dir":"/start/dir"}`), 0o600)
+	t.Setenv("CADRE_HOME", c)
+	t.Setenv("CADRE_MEMBER", "work-dev-engineer")
+	input := `{"session_id": "99999999-2222-4333-8444-555555555555", "source": "clear"}`
+	if code, out, errOut := callIn(input, "hook", "session"); code != 0 || out != "" || errOut != "" {
+		t.Errorf("hook: %d %q %q", code, out, errOut)
+	}
+	if r := readFile(t, record); !strings.Contains(r, `"id":"99999999-2222-4333-8444-555555555555"`) || !strings.Contains(r, `"dir":"/start/dir"`) {
+		t.Errorf("record %q", r)
+	}
+	// Only a known cadre, and a name cadre makes, get a record.
+	t.Setenv("CADRE_HOME", home+"/elsewhere")
+	os.MkdirAll(home+"/elsewhere/.claude/build", 0o755)
+	callIn(input, "hook", "session")
+	if _, err := os.Stat(home + "/elsewhere/.claude/build/sessions"); err == nil {
+		t.Error("a record was written for an unknown cadre")
+	}
+	t.Setenv("CADRE_HOME", c)
+	t.Setenv("CADRE_MEMBER", "../../x")
+	if code, _, _ := callIn(input, "hook", "session"); code != 0 {
+		t.Error("the hook failed")
+	}
+	if _, err := os.Stat(c + "/.claude/x.json"); err == nil {
+		t.Error("a name cadre does not make wrote outside the records")
+	}
+	// The member settings copy carries the hook.
+	t.Setenv("CADRE_MEMBER", "")
+	withTmux(t, home)
+	must(t, "up", "dev/engineer")
+	copyFile, _ := filepath.Glob(c + "/.claude/build/member-settings.*.json")
+	if len(copyFile) != 1 || !strings.Contains(readFile(t, copyFile[0]), `hook session"`) || !strings.Contains(readFile(t, copyFile[0]), `"SessionStart"`) {
+		t.Errorf("the member's copy has no session hook: %v", copyFile)
+	}
+}

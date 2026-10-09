@@ -18,6 +18,7 @@ func (t testRuntime) Trust() TrustOps                    { return nil }
 func (t testRuntime) Health(bool, []string) []Problem    { return nil }
 func (t testRuntime) Instructions() InstructionOps       { return nil }
 func (t testRuntime) Hooks() HookOps                     { return nil }
+func (t testRuntime) Sessions() SessionOps               { return nil }
 
 func TestTheDefaultRuntime(t *testing.T) {
 	RegisterDefault(testRuntime{})

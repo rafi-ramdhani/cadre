@@ -447,6 +447,28 @@ check "attach needs a terminal" bash -c "cadre attach dev app </dev/null 2>&1 | 
 check "no git identity: the note says the change was left uncommitted" bash -c "GIT_CONFIG_GLOBAL=/dev/null cadre init noid | grep -q 'left uncommitted'"
 mv "$HOME/.cadre/noid" "$T/noid.away"
 
+echo "resume"
+cd "$C"
+cadre stop --yes >/dev/null 2>&1 || true
+cadre stop dev app --fresh >/dev/null
+rm -f "$T/args-demo-dev-app-engineer"
+out=$(cadre up dev/engineer app)
+check "a first start is a new conversation, with an id cadre chose" bash -c "grep -q '(a new conversation)' <<<'$out' && args_of demo-dev-app-engineer | grep -qx -- --session-id"
+id=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$C/.claude/build/sessions/demo-dev-app-engineer.json")
+mkdir -p "$HOME/.claude/projects/x" && touch "$HOME/.claude/projects/x/$id.jsonl"
+cadre stop dev/engineer app >/dev/null; rm -f "$T/args-demo-dev-app-engineer"
+out=$(cadre up dev/engineer app)
+check "the next start resumes it" bash -c "grep -q '(resumed its conversation)' <<<'$out' && args_of demo-dev-app-engineer | grep -qx '$id'"
+check "with --resume, never --continue" bash -c "args_of demo-dev-app-engineer | grep -qx -- --resume && ! args_of demo-dev-app-engineer | grep -qx -- --continue"
+echo '{"session_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"}' | CADRE_HOME="$C" CADRE_MEMBER=demo-dev-app-engineer cadre hook session
+check "the session hook follows /clear" grep -q aaaaaaaa "$C/.claude/build/sessions/demo-dev-app-engineer.json"
+rm "$HOME/.claude/projects/x/$id.jsonl"
+cadre stop dev/engineer app >/dev/null; rm -f "$T/args-demo-dev-app-engineer"
+check "a conversation that is gone starts a new one, saying so" bash -c "cadre up dev/engineer app | grep -q '(a new conversation: the last one is gone)'"
+cadre stop dev app --fresh >/dev/null
+check "stop --fresh forgets it" test ! -e "$C/.claude/build/sessions/demo-dev-app-engineer.json"
+check "the generated records stay out of git" test -z "$(git -C "$C" status --porcelain)"
+
 echo "allow"
 cp "$PS" "$T/ps.before"
 for rule in 'Bash(bash *)' 'Bash(npm test && bash *)' 'Bash(echo x#; bash *)' 'Bash(npm test ;>x bash *)' 'Edit(~/.zshrc)' \

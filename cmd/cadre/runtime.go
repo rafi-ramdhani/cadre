@@ -9,6 +9,7 @@ import (
 
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
 	"github.com/rafi-ramdhani/cadre/internal/conf"
+	"github.com/rafi-ramdhani/cadre/internal/framework"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/runtime"
 	// The Claude Code adapter, the only runtime.
@@ -55,7 +56,7 @@ func (e *env) cadreRuntime(r *cadres.Resolved) (runtime.Runtime, bool) {
 // resolved, the resolved cadre (registered or not, as with CADRE_HOME), and
 // every known cadre.
 func places(r *cadres.Resolved) runtime.Places {
-	p := runtime.Places{Root: paths.Real(cadres.Root()), Cadres: []string{r.Path}}
+	p := runtime.Places{Root: paths.Real(cadres.Root()), Cadres: []string{r.Path}, Binary: framework.Binary()}
 	if list, err := cadres.List(); err == nil {
 		for _, c := range list {
 			if c.Path != r.Path {

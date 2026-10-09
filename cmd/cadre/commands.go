@@ -46,11 +46,11 @@ var oldNames = []oldName{
 func init() {
 	commands = []command{
 		// Visible.
-		{name: "", summary: "open this cadre's orchestrator in this terminal", run: runPlain},
+		{name: "", usage: "[--fresh]", summary: "open this cadre's orchestrator in this terminal", run: runPlain},
 		{name: "--tmux", usage: "[--detach]", summary: "open the orchestrator in tmux, to come back to later", run: runTmux},
 		{name: "ls", usage: "[--all]", summary: "what runs, your projects and your other cadres", run: runLs},
 		{name: "attach", usage: "[team] [project]", summary: "watch or talk to a running team, or the orchestrator in tmux", run: runAttach},
-		{name: "stop", usage: "[team[/role]] [project] [--all]", summary: "stop a team; with no team, every team of this cadre (asks first)", run: runStop},
+		{name: "stop", usage: "[team[/role]] [project] [--all] [--fresh]", summary: "stop a team; with no team, every team of this cadre (asks first)", run: runStop},
 		{name: "help", usage: "[advanced]", summary: "these commands; advanced lists the rest", run: runHelp},
 		{name: "--version", summary: "the version, and how cadre was installed", run: runVersion},
 		{name: "uninstall", usage: "[--yes | --dry-run]", summary: "remove cadre's skill link, hook and config (keeps your cadres and projects)", run: runUninstall},
@@ -67,7 +67,7 @@ func init() {
 		{name: "project path", usage: "<name>", summary: "print a project's folder", group: "Projects", run: runProjectPath},
 		{name: "project dir", usage: "[<dir>]", summary: "where new clones go", group: "Projects", run: runProjectDir},
 
-		{name: "up", usage: "<team|team/role> [project|dir]", summary: "start a team or one member", group: "Sessions", run: runUp},
+		{name: "up", usage: "<team|team/role> [project|dir] [--fresh]", summary: "start a team or one member", group: "Sessions", run: runUp},
 
 		{name: "allow", usage: "[list]", summary: "the grants every member gets", group: "Permissions", run: runAllowList},
 		{name: "allow add", usage: "[--once] <rule> | [--once] --auto \"<text>\"", summary: "grant a rule or a plain-English allowance to members", group: "Permissions", run: runAllowAdd},
@@ -79,7 +79,7 @@ func init() {
 
 		// Hidden: run by Claude Code and git as hooks.
 		{name: "hook orchestrator", hidden: true, run: runHookOrchestrator},
-		{name: "hook session", hidden: true, run: notBuilt("cadre hook session")},
+		{name: "hook session", hidden: true, run: runHookSession},
 		{name: "hook pre-push", hidden: true, run: runHookPrePush},
 	}
 }
@@ -94,11 +94,6 @@ func runTmux(e *env) int {
 func runLsJSON(e *env) int {
 	e.args = append([]string{"--json"}, e.args...)
 	return runLs(e)
-}
-
-// notBuilt stands in for a command until its porting step lands.
-func notBuilt(name string) func(e *env) int {
-	return func(e *env) int { return e.fail("%s is not built yet in this version", name) }
 }
 
 // lookup finds the command for args, the longest name first, and returns
@@ -208,4 +203,23 @@ func line(e *env, c command) {
 		return
 	}
 	e.say("  %-44s %s", words, c.summary)
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func without(list []string, s string) []string {
+	out := make([]string, 0, len(list))
+	for _, x := range list {
+		if x != s {
+			out = append(out, x)
+		}
+	}
+	return out
 }

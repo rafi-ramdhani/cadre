@@ -61,6 +61,12 @@ func (c Claude) Launch(s runtime.LaunchSpec) (runtime.Command, error) {
 	if s.Grants != "" {
 		argv = append(argv, "--settings", s.Grants)
 	}
+	switch {
+	case s.Resume != "":
+		argv = append(argv, "--resume", s.Resume)
+	case s.SessionID != "":
+		argv = append(argv, "--session-id", s.SessionID)
+	}
 	return runtime.Command{Argv: argv, Dir: s.WorkDir}, nil
 }
 
@@ -106,6 +112,9 @@ func (p permissions) Prepare(cadre string, places runtime.Places) runtime.Prepar
 	}
 	build := Claude{}.BuildDir(cadre)
 	sp := settings.Places{Root: places.Root, Cadres: places.Cadres}
+	if places.Binary != "" {
+		sp.SessionHook = SessionHook(places.Binary)
+	}
 	copyPath, err := settings.Export(file, build, sp)
 	if err != nil {
 		// The member still gets every deny rule, and no grants.

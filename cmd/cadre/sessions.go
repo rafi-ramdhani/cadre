@@ -11,6 +11,7 @@ import (
 
 	cadre "github.com/rafi-ramdhani/cadre"
 	"github.com/rafi-ramdhani/cadre/internal/cadres"
+	"github.com/rafi-ramdhani/cadre/internal/orchestrator"
 	"github.com/rafi-ramdhani/cadre/internal/paths"
 	"github.com/rafi-ramdhani/cadre/internal/project"
 	"github.com/rafi-ramdhani/cadre/internal/registry"
@@ -116,8 +117,10 @@ func locate(r *cadres.Resolved, arg string) (proj, dir, target string, err error
 }
 
 func runUp(e *env) int {
-	if len(e.args) < 1 || len(e.args) > 2 {
-		return e.fail("usage: cadre up <team|team/role> [project|dir]")
+	fresh := contains(e.args, "--fresh")
+	e.args = without(e.args, "--fresh")
+	if len(e.args) < 1 || len(e.args) > 2 || strings.HasPrefix(e.args[0], "-") {
+		return e.fail("usage: cadre up <team|team/role> [project|dir] [--fresh]")
 	}
 	r, ok := e.resolve()
 	if !ok || !e.tmuxReady() {
@@ -144,6 +147,7 @@ func runUp(e *env) int {
 	u.Mode = e.mode(values)
 	u.Pick = e.picker(r, u.Mode)
 	u.Wait = upWait()
+	u.Fresh = fresh
 	protocol, _ := cadre.Assets.ReadFile("protocol.md")
 	u.Protocol = protocol
 	if u.Start(e.stdout) {
@@ -189,22 +193,24 @@ func (e *env) showSessions(t session.Tmux, list []session.Info, known map[string
 
 func runStop(e *env) int {
 	var pos []string
-	all, yes := false, false
+	all, yes, fresh := false, false, false
 	for _, a := range e.args {
 		switch a {
 		case "--all":
 			all = true
 		case "--yes", "-y":
 			yes = true
+		case "--fresh":
+			fresh = true
 		default:
 			if strings.HasPrefix(a, "-") {
-				return e.fail("usage: cadre stop [team[/role]] [project] [--all] [--yes]")
+				return e.fail("usage: cadre stop [team[/role]] [project] [--all] [--yes] [--fresh]")
 			}
 			pos = append(pos, a)
 		}
 	}
 	if len(pos) > 2 || (all && len(pos) > 0) {
-		return e.fail("usage: cadre stop [team[/role]] [project] [--all] [--yes]")
+		return e.fail("usage: cadre stop [team[/role]] [project] [--all] [--yes] [--fresh]")
 	}
 	if len(pos) > 0 {
 		r, ok := e.resolve()
@@ -220,10 +226,20 @@ func runStop(e *env) int {
 			project = pos[1]
 		}
 		s := scope(r)
+		key := session.Key(team, project)
+		roles := []string{role}
 		if role == "" {
-			e.say("%s", s.StopTeam(session.Key(team, project)))
+			e.say("%s", s.StopTeam(key))
+			roles = session.Roles(r.Path, team)
 		} else {
-			e.say("%s", s.StopRole(session.Key(team, project), role))
+			e.say("%s", s.StopRole(key, role))
+		}
+		if fresh {
+			var names []string
+			for _, ro := range roles {
+				names = append(names, session.MemberName(r.Name, key, ro))
+			}
+			e.forget(r.Cadre, names)
 		}
 		return 0
 	}
@@ -233,13 +249,25 @@ func runStop(e *env) int {
 	t := session.Default()
 	var list []session.Info
 	var known map[string]string
+	var targets []cadres.Cadre
+	// done ends the stop; with --fresh, the stopped cadres' members start
+	// new conversations next time.
+	done := func(code int) int {
+		if fresh && code == 0 {
+			for _, c := range targets {
+				e.forget(c, nil)
+			}
+		}
+		return code
+	}
 	summary := "stopped every cadre session"
 	if all {
 		known = knownCadres()
+		targets, _ = cadres.List()
 		list = session.All(t, known)
 		if len(list) == 0 {
 			e.say("no cadre sessions running")
-			return 0
+			return done(0)
 		}
 		e.say("Running cadre sessions, by cadre:")
 	} else {
@@ -247,10 +275,11 @@ func runStop(e *env) int {
 		if !ok {
 			return 1
 		}
+		targets = []cadres.Cadre{r.Cadre}
 		list = scope(r).Running()
 		if len(list) == 0 {
 			e.say("no sessions of cadre %s running", r.Name)
-			return 0
+			return done(0)
 		}
 		e.say("Running sessions of cadre %s:", r.Name)
 		summary = "stopped every session of cadre " + r.Name
@@ -270,11 +299,13 @@ func runStop(e *env) int {
 	} else {
 		e.say("%s", summary)
 	}
-	st.Last(e.stdout)
 	if len(st.Failed) > 0 {
+		st.Last(e.stdout)
 		return 2
 	}
-	return 0
+	code := done(0)
+	st.Last(e.stdout)
+	return code
 }
 
 func knownCadres() map[string]string {
@@ -343,3 +374,28 @@ func projectsOf(c cadres.Cadre) []projectView {
 
 // display writes a path with ~ for the home folder.
 func display(p string) string { return cadres.Tilde(paths.Real(p)) }
+
+// forget drops the conversation records of members (names, or every
+// member's for nil) so their next start is a new conversation; the
+// orchestrator's record stays.
+func (e *env) forget(c cadres.Cadre, names []string) {
+	rt, err := runtime.Get(runtimeName())
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(rt.BuildDir(c.Path), "sessions")
+	if names == nil {
+		files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+		for _, f := range files {
+			if n := strings.TrimSuffix(filepath.Base(f), ".json"); n != orchestrator.Name(c.Name) {
+				names = append(names, n)
+			}
+		}
+	}
+	for _, n := range names {
+		if p := session.RecordPath(rt.BuildDir(c.Path), n); p != "" {
+			session.Forget(p)
+		}
+	}
+	e.say("  their next start begins a new conversation")
+}

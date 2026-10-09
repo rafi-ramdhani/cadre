@@ -188,6 +188,10 @@ func contains(list []string, s string) bool {
 type Places struct {
 	Root   string
 	Cadres []string
+	// SessionHook is the command a member's session runs when it starts
+	// (cadre hook session), to keep its recorded conversation id current
+	// across /clear and /compact; "" for none.
+	SessionHook string
 }
 
 // deny returns the N.7 rules spelled with these folders.
@@ -294,6 +298,11 @@ func write(root *jsonx.Value, dir string, places Places) (string, error) {
 		soft = append(soft, CadreSoft)
 	}
 	mode.Set("soft_deny", strs(soft...))
+	if places.SessionHook != "" {
+		hook := jsonx.NewObject("type", jsonx.String("command"), "command", jsonx.String(places.SessionHook), "timeout", jsonx.Literal("10"))
+		group := jsonx.NewObject("hooks", &jsonx.Value{Kind: jsonx.Array, Items: []*jsonx.Value{hook}})
+		out.Set("hooks", jsonx.NewObject("SessionStart", &jsonx.Value{Kind: jsonx.Array, Items: []*jsonx.Value{group}}))
+	}
 	text := jsonx.Format(out, "  ")
 	sum := sha256.Sum256(text)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

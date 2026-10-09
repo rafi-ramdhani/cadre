@@ -30,3 +30,38 @@ func TestLaunch(t *testing.T) {
 		t.Errorf("no claude: %v", err)
 	}
 }
+
+func TestSessions(t *testing.T) {
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o755)
+	t.Setenv("PATH", bin)
+	cmd, _ := Claude{}.Launch(runtime.LaunchSpec{Name: "x", Mode: "default", SessionID: "11111111-2222-4333-8444-555555555555"})
+	if !strings.HasSuffix(strings.Join(cmd.Argv, " "), "--session-id 11111111-2222-4333-8444-555555555555") {
+		t.Errorf("a new conversation: %v", cmd.Argv)
+	}
+	cmd, _ = Claude{}.Launch(runtime.LaunchSpec{Name: "x", Mode: "default", Resume: "11111111-2222-4333-8444-555555555555"})
+	if !strings.HasSuffix(strings.Join(cmd.Argv, " "), "--resume 11111111-2222-4333-8444-555555555555") || strings.Contains(strings.Join(cmd.Argv, " "), "--session-id") {
+		t.Errorf("a resumed conversation: %v", cmd.Argv)
+	}
+	ops := Claude{}.Sessions()
+	id := ops.NewID()
+	if !uuidRule.MatchString(id) || id[14] != '4' || ops.NewID() == id {
+		t.Errorf("NewID %q", id)
+	}
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if ops.Exists(id) {
+		t.Error("a conversation with no transcript exists")
+	}
+	os.MkdirAll(filepath.Join(cfg, "projects", "-Users-me-app"), 0o755)
+	os.WriteFile(filepath.Join(cfg, "projects", "-Users-me-app", id+".jsonl"), []byte("{}\n"), 0o600)
+	if !ops.Exists(id) || ops.Exists("../../etc/passwd") {
+		t.Error("Exists")
+	}
+	if got := ops.FromHook(strings.NewReader(`{"session_id": "` + id + `", "source": "clear"}`)); got != id {
+		t.Errorf("FromHook %q", got)
+	}
+	if got := ops.FromHook(strings.NewReader(`{"session_id": "../x"}`)); got != "" {
+		t.Errorf("a bad id from the hook: %q", got)
+	}
+}

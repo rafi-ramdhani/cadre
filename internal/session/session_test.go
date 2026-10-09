@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +55,7 @@ func (s stubRuntime) Trust() runtime.TrustOps                 { return nil }
 func (s stubRuntime) Health(bool, []string) []runtime.Problem { return nil }
 func (s stubRuntime) Instructions() runtime.InstructionOps    { return nil }
 func (s stubRuntime) Hooks() runtime.HookOps                  { return nil }
+func (s stubRuntime) Sessions() runtime.SessionOps            { return nil }
 func (s stubRuntime) Launch(l runtime.LaunchSpec) (runtime.Command, error) {
 	return runtime.Command{Argv: []string{s.bin, "--name", l.Name, "--mode", l.Mode, "--prompt", l.PromptFile}}, nil
 }
@@ -402,5 +404,54 @@ func TestDollarsReadBackFromEitherTmux(t *testing.T) {
 		if got := unescape(v); got != v {
 			t.Errorf("from a later tmux: %q read back as %q", v, got)
 		}
+	}
+}
+
+// resumable is a runtime that can resume; gone names a lost conversation.
+type resumable struct {
+	stubRuntime
+	gone string
+}
+
+func (r resumable) Caps() runtime.Capabilities {
+	return runtime.Capabilities{Resume: true, AssignSessionID: true}
+}
+func (r resumable) Sessions() runtime.SessionOps { return resumableOps{r.gone} }
+
+type resumableOps struct{ gone string }
+
+func (o resumableOps) NewID() string             { return "new-id" }
+func (o resumableOps) Exists(id string) bool     { return id != o.gone }
+func (o resumableOps) FromHook(io.Reader) string { return "" }
+
+func TestPlan(t *testing.T) {
+	dir := t.TempDir()
+	record := RecordPath(dir, "work-dev-engineer")
+	rt := resumable{}
+	if c := Plan(rt, record, dir, false); c.SessionID != "new-id" || c.Note != "a new conversation" {
+		t.Errorf("no record: %+v", c)
+	}
+	WriteRecord(record, Record{ID: "old-id", Dir: dir, Since: time.Now()})
+	if c := Plan(rt, record, dir, false); c.Resume != "old-id" || c.SessionID != "" || c.Note != "resumed its conversation" {
+		t.Errorf("a record: %+v", c)
+	}
+	if c := Plan(rt, record, dir, true); c.Resume != "" || c.Note != "a new conversation, as asked" {
+		t.Errorf("fresh: %+v", c)
+	}
+	if c := Plan(rt, record, t.TempDir(), false); c.Resume != "" || !strings.Contains(c.Note, "another folder") {
+		t.Errorf("another folder: %+v", c)
+	}
+	if c := Plan(resumable{gone: "old-id"}, record, dir, false); c.Resume != "" || !strings.Contains(c.Note, "the last one is gone") {
+		t.Errorf("gone: %+v", c)
+	}
+	if c := Plan(stubRuntime{}, record, dir, false); c != (Conversation{}) {
+		t.Errorf("a runtime that cannot resume: %+v", c)
+	}
+	if RecordPath(dir, "../x") != "" || RecordPath(dir, "a/b") != "" {
+		t.Error("a name cadre does not make got a record")
+	}
+	Forget(record)
+	if ReadRecord(record) != nil {
+		t.Error("Forget")
 	}
 }
